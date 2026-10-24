@@ -1,0 +1,20 @@
+{
+  "name": "speechtt",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "bun check",
+    "fmt": "bun fmt",
+    "lint": "bun lint",
+    "test": "bun test",
+    "design:validate": "bun scripts/validate-design.ts",
+    "design:contrast": "bun scripts/sync-contrast.ts",
+    "ui": "cargo run -p speechtt-ui",
+    "ui:build": "cargo build -p speechtt-ui",
+    "ui:test": "cargo test -p speechtt-ui"
+  },
+  "devDependencies": {
+    "@applied-design-systems/design-tokens": "file:vendor/design-tokens"
+  }
+}

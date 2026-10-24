@@ -1,0 +1,8 @@
+# Rust build output
+/target
+
+# Bun dependencies
+node_modules/
+
+# OS noise
+.DS_Store

@@ -1,0 +1,17 @@
+{
+  "lockfileVersion": 2,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "speechtt",
+      "devDependencies": {
+        "@applied-design-systems/design-tokens": "file:vendor/design-tokens",
+      },
+    },
+  },
+  "packages": {
+    "@applied-design-systems/design-tokens": ["@applied-design-systems/design-tokens@file:vendor/design-tokens", { "dependencies": { "yaml": "^2.9.1" } }],
+
+    "yaml": ["yaml@2.9.1", "", { "bin": { "yaml": "bin.mjs" } }, "sha512-3NxN8+78OdzbT7C/WjGsyfPAtJaN3FNDsWxv7Y7mcDsT/oOmgW8BpyQQFFBnvZE3j9Y2Sdz1ULFLezL7Eb2yFw=="],
+  }
+}

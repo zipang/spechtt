@@ -1,0 +1,42 @@
+{
+	"name": "@applied-design-systems/design-tokens",
+	"version": "0.1.0",
+	"description": "Parse, serialize, and validate the Applied Design Systems dual-file contract (DESIGN.md + design-tokens.css), with WCAG color-contrast derivation.",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/zipang/applied-design-systems.git",
+		"directory": "packages/design-tokens"
+	},
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"main": "./src/index.ts",
+	"types": "./src/index.ts",
+	"files": [
+		"src",
+		"!src/**/*.test.ts"
+	],
+	"publishConfig": {
+		"access": "public"
+	},
+	"engines": {
+		"bun": ">=1.4.0"
+	},
+	"keywords": [
+		"design-system",
+		"design-tokens",
+		"design.md",
+		"validation",
+		"wcag",
+		"contrast",
+		"bun"
+	],
+	"scripts": {
+		"typecheck": "bun --check"
+	},
+	"dependencies": {
+		"yaml": "^2.9.1"
+	}
+}
