@@ -1,0 +1,10 @@
+:root {
+	/* ----------------------------------------------------------------------------
+     6. BORDER STYLES — macOS: hairline 0.5px separators, 1px field, 2px focus
+     ----------------------------------------------------------------------------
+     Crisp, thin, borderless UI. Relies on subpixel hairlines and ample whitespace.
+     -------------------------------------------------------------------------- */
+	--border-sm: 0.5px;
+	--border-md: 1px;
+	--border-lg: 2px;
+}

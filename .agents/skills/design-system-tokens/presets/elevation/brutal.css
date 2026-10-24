@@ -1,0 +1,8 @@
+:root {
+	/* ----------------------------------------------------------------------------
+     5. ELEVATION (SHADOWS) — Brutalist solid rectangular shadow
+     ---------------------------------------------------------------------------- */
+	--elevation-sm: 2px 2px 0 #000;
+	--elevation-md: 4px 4px 0 #000;
+	--elevation-lg: 8px 8px 0 #000;
+}

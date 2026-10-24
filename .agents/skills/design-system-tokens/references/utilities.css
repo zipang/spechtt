@@ -1,0 +1,265 @@
+/* ============================================================================
+   UTILITIES — Class-based helpers applying theme tokens, Tailwind-fashion
+   ----------------------------------------------------------------------------
+   Every rule maps 1:1 to a token from the main design-tokens stylesheet. Use them to
+   build components without writing new declarations:
+
+       <div class="bg-surface-card rounded-lg p-md elevation-sm">
+           <h2 class="text-lg font-semibold tracking-tight">Title</h2>
+           <p class="color-muted text-sm">Body</p>
+       </div>
+
+   Order the design-tokens stylesheet first, then this file.
+   ========================================================================== */
+
+/* --- Text colors (avoid .text-* collisions: .text-* is reserved for font size) --- */
+.color-base {
+	color: var(--color-text);
+}
+.color-accent {
+	color: var(--color-text-accent);
+}
+.color-muted {
+	color: var(--color-text-muted);
+}
+.color-ondark {
+	color: var(--color-text-ondark);
+}
+.color-brand-primary {
+	color: var(--color-brand-primary);
+}
+.color-brand-accent {
+	color: var(--color-brand-accent);
+}
+.color-brand-secondary {
+	color: var(--color-brand-secondary);
+}
+.color-brand-tertiary {
+	color: var(--color-brand-tertiary);
+}
+.color-success {
+	color: var(--color-action-success);
+}
+.color-info {
+	color: var(--color-action-info);
+}
+.color-warning {
+	color: var(--color-action-warning);
+}
+.color-danger {
+	color: var(--color-action-danger);
+}
+
+/* --- Backgrounds --- */
+.bg-surface {
+	background-color: var(--color-surface);
+}
+.bg-surface-alt {
+	background-color: var(--color-surface-alt);
+}
+.bg-surface-dark {
+	background-color: var(--color-surface-dark);
+}
+.bg-surface-card {
+	background-color: var(--color-surface-card);
+}
+.bg-brand-primary {
+	background-color: var(--color-brand-primary);
+}
+.bg-brand-accent {
+	background-color: var(--color-brand-accent);
+}
+.bg-brand-secondary {
+	background-color: var(--color-brand-secondary);
+}
+.bg-brand-tertiary {
+	background-color: var(--color-brand-tertiary);
+}
+.bg-success {
+	background-color: var(--color-action-success);
+}
+.bg-info {
+	background-color: var(--color-action-info);
+}
+.bg-warning {
+	background-color: var(--color-action-warning);
+}
+.bg-danger {
+	background-color: var(--color-action-danger);
+}
+
+/* --- Font families --- */
+.font-base {
+	font-family: var(--font-family-base);
+}
+.font-display {
+	font-family: var(--font-family-display);
+}
+.font-mono {
+	font-family: var(--font-family-mono);
+}
+
+/* --- Font sizes --- */
+.text-xs {
+	font-size: var(--font-size-xs);
+}
+.text-sm {
+	font-size: var(--font-size-sm);
+}
+.text-base {
+	font-size: var(--font-size-base);
+}
+.text-lg {
+	font-size: var(--font-size-lg);
+}
+.text-xl {
+	font-size: var(--font-size-xl);
+}
+.text-2xl {
+	font-size: var(--font-size-2xl);
+}
+.text-display {
+	font-size: var(--font-size-display);
+}
+
+/* --- Font weights --- */
+.font-thin {
+	font-weight: var(--font-weight-thin);
+}
+.font-regular {
+	font-weight: var(--font-weight-regular);
+}
+.font-bold {
+	font-weight: var(--font-weight-bold);
+}
+.font-extrabold {
+	font-weight: var(--font-weight-extrabold);
+}
+
+/* --- Line heights --- */
+.leading-tight {
+	line-height: var(--line-height-tight);
+}
+.leading-regular {
+	line-height: var(--line-height-regular);
+}
+.leading-relaxed {
+	line-height: var(--line-height-relaxed);
+}
+
+/* --- Letter spacing --- */
+.tracking-tight {
+	letter-spacing: var(--letter-spacing-tight);
+}
+.tracking-regular {
+	letter-spacing: var(--letter-spacing-regular);
+}
+.tracking-wide {
+	letter-spacing: var(--letter-spacing-wide);
+}
+
+/* --- Spacing (margin, padding, gap) --- */
+.m-xs {
+	margin: var(--space-xs);
+}
+.m-sm {
+	margin: var(--space-sm);
+}
+.m-md {
+	margin: var(--space-md);
+}
+.m-base {
+	margin: var(--space-base);
+}
+.m-lg {
+	margin: var(--space-lg);
+}
+.m-xl {
+	margin: var(--space-xl);
+}
+.m-xxl {
+	margin: var(--space-xxl);
+}
+
+.p-xs {
+	padding: var(--space-xs);
+}
+.p-sm {
+	padding: var(--space-sm);
+}
+.p-md {
+	padding: var(--space-md);
+}
+.p-base {
+	padding: var(--space-base);
+}
+.p-lg {
+	padding: var(--space-lg);
+}
+.p-xl {
+	padding: var(--space-xl);
+}
+.p-xxl {
+	padding: var(--space-xxl);
+}
+
+.gap-xs {
+	gap: var(--space-xs);
+}
+.gap-sm {
+	gap: var(--space-sm);
+}
+.gap-md {
+	gap: var(--space-md);
+}
+.gap-base {
+	gap: var(--space-base);
+}
+.gap-lg {
+	gap: var(--space-lg);
+}
+.gap-xl {
+	gap: var(--space-xl);
+}
+.gap-xxl {
+	gap: var(--space-xxl);
+}
+
+/* --- Rounded corners --- */
+.rounded-none {
+	border-radius: var(--rounded-none);
+}
+.rounded-sm {
+	border-radius: var(--rounded-sm);
+}
+.rounded-md {
+	border-radius: var(--rounded-md);
+}
+.rounded-lg {
+	border-radius: var(--rounded-lg);
+}
+.rounded-full {
+	border-radius: var(--rounded-full);
+}
+
+/* --- Elevation (shadows) --- */
+.elevation-sm {
+	box-shadow: var(--elevation-sm);
+}
+.elevation-md {
+	box-shadow: var(--elevation-md);
+}
+.elevation-lg {
+	box-shadow: var(--elevation-lg);
+}
+
+/* --- Border widths (border COLORS are picked per component) --- */
+.border-sm {
+	border-width: var(--border-sm);
+}
+.border-md {
+	border-width: var(--border-md);
+}
+.border-lg {
+	border-width: var(--border-lg);
+}

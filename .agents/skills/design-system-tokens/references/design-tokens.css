@@ -1,0 +1,169 @@
+/* ============================================================================
+   NATIONAL GEOGRAPHIC-INSPIRED — Design System Reference Stylesheet
+   ----------------------------------------------------------------------------
+   A minimalist, editorial theme: black type, white paper, one yellow accent.
+   Every token defined in the design-system-tokens skill is exposed here as
+   a CSS variable inside a single :root block, following the naming convention:
+       category.role.variant  ->  --category-role-variant
+   The front matter of DESIGN.md lists the tokens the designer chose to define.
+   Optional tokens omitted there appear below as var() fallbacks to a required
+   token — the "Default" column of the skill's token tables.
+   To re-theme: modify only the :root block below.
+   ========================================================================== */
+
+:root {
+	/* ============================================================================
+       1. TYPOGRAPHY — System fonts only (no web fonts)
+       ========================================================================== */
+
+	/* --- Font families --- */
+	--font-family-base: ui-serif, "Palatino Linotype", Cambria, Georgia, serif;
+	--font-family-display:
+		system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Helvetica,
+		Verdana, sans-serif;
+	--font-family-mono: ui-monospace, "Courier New", monospace;
+
+	/* --- Typographic scale — geometric, ratio 1.5 (Perfect Fifth) ---
+       size(step) = 1rem * 1.5^step, base = step 0 (always 1rem).
+       xs = step -2, sm = step -1, lg = step +1, xl = step +2.
+       --font-size-2xl and --font-size-display are optional and fall back to
+       var(--font-size-xl) unless overridden here. */
+	--font-size-base: 1rem;
+
+	--font-size-xs: 0.444rem; /* 1.5^-2 — captions, metadata, timestamps  */
+	--font-size-sm: 0.667rem; /* 1.5^-1 — secondary text, list rows       */
+	--font-size-md: 1rem; /* step 0 — body text                       */
+	--font-size-lg: 1.5rem; /* 1.5^1 — section titles, card titles       */
+	--font-size-xl: 2.25rem; /* 1.5^2 — page titles, large prompts       */
+	--font-size-2xl: var(--font-size-xl); /* optional → var(--font-size-xl) */
+	--font-size-display: var(--font-size-xl); /* optional → var(--font-size-xl) */
+
+	/* --- Font weights ---
+       One weight per typographic style: thin (mono / UI), regular (base / body),
+       bold (display / headings). extrabold is optional and falls back to bold. */
+	--font-weight-thin: 400;
+	--font-weight-regular: 500;
+	--font-weight-bold: 700;
+	--font-weight-extrabold: var(--font-weight-bold); /* optional → var(--font-weight-bold) */
+
+	/* --- Line heights --- */
+	--line-height-tight: 1.15; /* headings, single-line titles            */
+	--line-height-regular: 1.55; /* body text, multi-line descriptions      */
+	--line-height-relaxed: var(--line-height-regular); /* optional → var(--line-height-regular) */
+
+	/* --- Letter spacing --- */
+	--letter-spacing-tight: -0.02em; /* large headings, display text       */
+	--letter-spacing-regular: 0; /* body text, default tracking             */
+	--letter-spacing-wide: var(
+		--letter-spacing-regular
+	); /* optional → var(--letter-spacing-regular) */
+
+	/* ============================================================================
+       2. COLORS — Black primary, yellow accent, neutral gray secondary
+       ----------------------------------------------------------------------------
+       Brand and action colors carry `muted` and `active` variants derived
+       automatically in color-variants.css (included after this file):
+           muted:  hsl(from var(--X) h calc(s * 0.8) calc(l * 1.2))
+           active: hsl(from var(--X) h calc(s * 1.2) calc(l * 1.1))
+       Text and surface colors define their own variants explicitly below.
+       Link and border COLORS are not tokens — components pick the color
+       tokens they need for their states (see the Link example in DESIGN.md).
+       ========================================================================== */
+
+	/* --- Brand: Primary (black) — headings, logo, contrast --- */
+	--color-brand-primary: #000000;
+
+	/* --- Brand: Accent (yellow) — CTAs, highlights, selection --- */
+	--color-brand-accent: #ffcc00;
+
+	/* --- Brand: Secondary (dark gray) --- */
+	--color-brand-secondary: #333333;
+
+	/* --- Brand: Tertiary (optional → primary) --- */
+	--color-brand-tertiary: var(--color-brand-primary);
+
+	/* --- Action: Success (forest green) --- */
+	--color-action-success: #2e7d4f;
+
+	/* --- Action: Info (slate blue) --- */
+	--color-action-info: #2a6f97;
+
+	/* --- Action: Warning (ochre) --- */
+	--color-action-warning: #b7791f;
+
+	/* --- Action: Danger (brick red) --- */
+	--color-action-danger: #b23a2e;
+
+	/* --- Text colors ---
+       Only --color-text is required; the rest cover hierarchy and emphasis.
+       Links and headings stay black. --color-text-accent maps to the brand
+       accent, so it is yellow/orange: use it for highlighted or selected text,
+       not for body copy. */
+	--color-text: #000000;
+	--color-text-accent: var(--color-brand-accent); /* highlighted or selected text */
+	--color-text-muted: #606060; /* overridden — secondary text, captions      */
+	--color-text-ondark: #ffffff; /* overridden — text on dark surfaces        */
+
+	/* --- Surface colors ---
+       White base, light-gray alt for aside panels, near-black dark. */
+	--color-surface: #ffffff;
+	--color-surface-alt: #f2f2f2;
+	--color-surface-dark: #0f0f0f; /* overridden — footer, dark sections      */
+	--color-surface-card: var(--color-surface); /* optional → var(--color-surface) */
+
+	/* --- Resolved color contrast pairs (auto-calculated) ---
+       Foreground for text on each role. Not authored: recomputed from the
+       colors above with WCAG 2.1 contrast (section 3). */
+	--color-on-primary: var(--color-text-ondark);
+	--color-on-accent: var(--color-text);
+	--color-on-secondary: var(--color-text-ondark);
+	--color-on-tertiary: var(--color-text-ondark);
+	--color-on-success: var(--color-text-ondark);
+	--color-on-info: var(--color-text-ondark);
+	--color-on-warning: var(--color-text);
+	--color-on-danger: var(--color-text-ondark);
+	--color-on-dark: var(--color-text-ondark);
+	--color-on-alt: var(--color-text);
+	--color-on-card: var(--color-text);
+
+	/* ============================================================================
+       3. SPACING — 4px linear scale
+       ----------------------------------------------------------------------------
+       space.base = 1rem (16px) = step 0. All values in rem.
+       A 4px grid keeps the vertical rhythm predictable.
+       ========================================================================== */
+	--space-xs: 0.25rem; /*  4px — tight gaps, icon-to-text              */
+	--space-sm: 0.5rem; /*  8px — chip padding, compact list rows        */
+	--space-md: 0.75rem; /* 12px — button padding, card internal spacing */
+	--space-base: 1rem; /* 16px — default gap, paragraph spacing        */
+	--space-lg: 1.25rem; /* 20px — section padding, larger card gaps     */
+	--space-xl: 2rem; /* 32px — section-to-section spacing            */
+	--space-xxl: 3rem; /* 48px — page-level vertical rhythm            */
+
+	/* ============================================================================
+       4. ROUNDED — corner radii
+       ----------------------------------------------------------------------------
+       4px chips, 12px cards, 18px pill buttons, 100% circular avatars.
+       ========================================================================== */
+	--rounded-none: 0; /*  0px — none                          */
+	--rounded-sm: 0.25rem; /*  4px — chips, small badges           */
+	--rounded-md: 0.75rem; /* 12px — cards, thumbnails, search bar */
+	--rounded-lg: 1.125rem; /* 18px — pill buttons, large chips     */
+	--rounded-full: 100%; /* circular — avatars, circular icons   */
+
+	/* ============================================================================
+       5. ELEVATION — Flat (depth comes from contrast and spacing)
+       ========================================================================== */
+	--elevation-sm: none;
+	--elevation-md: none;
+	--elevation-lg: none;
+
+	/* ============================================================================
+       6. BORDERS — 1px / 2px / 4px stepped widths
+       ----------------------------------------------------------------------------
+       Border COLORS are not tokens — components pick them.
+       ========================================================================== */
+	--border-sm: 1px; /* dividers, card edges, default separators     */
+	--border-md: 2px; /* focus rings, active selection borders        */
+	--border-lg: 4px; /* strong emphasis, drag-and-drop indicators    */
+}

@@ -1,0 +1,71 @@
+/* ============================================================================
+   COLOR VARIANTS — Derived muted / active variants for brand & action colors
+   ----------------------------------------------------------------------------
+   These variables are NOT design tokens. They do not appear in the DESIGN.md
+   front matter. They are generated automatically from the base brand and
+   action colors defined in the main design-tokens stylesheet, using CSS relative
+   color syntax with hsl().
+
+   Include this file AFTER the main design-tokens stylesheet so the base variables
+   it references are already defined:
+
+       <link rel="stylesheet" href="design-tokens.css">
+       <link rel="stylesheet" href="color-variants.css">
+
+    Derivation rules
+    ----------------
+       muted  : less saturated, lighter — the softened, resting variant.
+                hsl(from <base> h calc(s * 0.8) calc(l * 1.2))
+       active : more saturated, lighter — the vivid variant for hover/pressed.
+                hsl(from <base> h calc(s * 1.2) calc(l * 1.1))
+
+   Only `brand` and `action` colors carry these variants, because they are
+   used on interactive elements with states. Text and surface colors define
+   their own variants explicitly in the main stylesheet. Link and border
+   colors are not tokens — components pick the color tokens they need.
+   ========================================================================== */
+
+:root {
+	/* --- Brand: Primary --- */
+	--color-brand-primary-muted: hsl(from var(--color-brand-primary) h calc(s * 0.8) calc(l * 1.2));
+	--color-brand-primary-active: hsl(from var(--color-brand-primary) h calc(s * 1.2) calc(l * 1.1));
+
+	/* --- Brand: Accent --- */
+	--color-brand-accent-muted: hsl(from var(--color-brand-accent) h calc(s * 0.8) calc(l * 1.2));
+	--color-brand-accent-active: hsl(from var(--color-brand-accent) h calc(s * 1.2) calc(l * 1.1));
+
+	/* --- Brand: Secondary (optional — define --color-brand-secondary first) --- */
+	--color-brand-secondary-muted: hsl(
+		from var(--color-brand-secondary) h calc(s * 0.8) calc(l * 1.2)
+	);
+	--color-brand-secondary-active: hsl(
+		from var(--color-brand-secondary) h calc(s * 1.2) calc(l * 1.1)
+	);
+
+	/* --- Brand: Tertiary (optional — falls back to primary, so these resolve
+           to the primary variants unless --color-brand-tertiary is defined) --- */
+	--color-brand-tertiary-muted: hsl(from var(--color-brand-tertiary) h calc(s * 0.8) calc(l * 1.2));
+	--color-brand-tertiary-active: hsl(
+		from var(--color-brand-tertiary) h calc(s * 1.2) calc(l * 1.1)
+	);
+
+	/* --- Action: Success --- */
+	--color-action-success-muted: hsl(from var(--color-action-success) h calc(s * 0.8) calc(l * 1.2));
+	--color-action-success-active: hsl(
+		from var(--color-action-success) h calc(s * 1.2) calc(l * 1.1)
+	);
+
+	/* --- Action: Info --- */
+	--color-action-info-muted: hsl(from var(--color-action-info) h calc(s * 0.8) calc(l * 1.2));
+	--color-action-info-active: hsl(from var(--color-action-info) h calc(s * 1.2) calc(l * 1.1));
+
+	/* --- Action: Warning --- */
+	--color-action-warning-muted: hsl(from var(--color-action-warning) h calc(s * 0.8) calc(l * 1.2));
+	--color-action-warning-active: hsl(
+		from var(--color-action-warning) h calc(s * 1.2) calc(l * 1.1)
+	);
+
+	/* --- Action: Danger --- */
+	--color-action-danger-muted: hsl(from var(--color-action-danger) h calc(s * 0.8) calc(l * 1.2));
+	--color-action-danger-active: hsl(from var(--color-action-danger) h calc(s * 1.2) calc(l * 1.1));
+}

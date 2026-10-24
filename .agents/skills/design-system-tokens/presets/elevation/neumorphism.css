@@ -1,0 +1,11 @@
+:root {
+	/* ----------------------------------------------------------------------------
+     5. ELEVATION (SHADOWS) — Neumorphism: soft dual light, extruded surface
+     ----------------------------------------------------------------------------
+     Paired light + dark shadows for a tactile, extruded-from-surface feel.
+     Works best on a neutral background matching the surface color.
+     -------------------------------------------------------------------------- */
+	--elevation-sm: 3px 3px 6px rgba(0, 0, 0, 0.12), -3px -3px 6px rgba(255, 255, 255, 0.7);
+	--elevation-md: 6px 6px 12px rgba(0, 0, 0, 0.16), -6px -6px 12px rgba(255, 255, 255, 0.75);
+	--elevation-lg: 12px 12px 24px rgba(0, 0, 0, 0.2), -12px -12px 24px rgba(255, 255, 255, 0.8);
+}

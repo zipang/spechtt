@@ -1,0 +1,10 @@
+:root {
+	/* ----------------------------------------------------------------------------
+     6. BORDER STYLES — Windows / Fluent: 1px chrome, 2px accent focus, 4px input
+     ----------------------------------------------------------------------------
+     Control borders and accent rings. Thicker on interactive elements.
+     -------------------------------------------------------------------------- */
+	--border-sm: 1px;
+	--border-md: 2px;
+	--border-lg: 4px;
+}

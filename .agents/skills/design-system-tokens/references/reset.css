@@ -1,0 +1,134 @@
+/* ============================================================================
+   2. RESET / BASE
+   ========================================================================== */
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+html {
+	-webkit-text-size-adjust: 100%;
+	scroll-behavior: smooth;
+}
+@media (prefers-reduced-motion: reduce) {
+	html {
+		scroll-behavior: auto;
+	}
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
+	}
+}
+body {
+	margin: 0;
+	font-family: var(--font-family-base);
+	font-size: var(--font-size-base);
+	line-height: var(--line-height-regular);
+	color: var(--color-text);
+	background: var(--color-surface);
+	-webkit-font-smoothing: antialiased;
+	text-rendering: optimizeLegibility;
+}
+img,
+svg,
+video {
+	display: block;
+	max-width: 100%;
+	height: auto;
+}
+
+/* Link colors are not design tokens — the component picks the color tokens
+   it needs for its states (see the Link example in DESIGN.md). */
+a {
+	color: var(--color-text);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+a:hover,
+a:active {
+	background: var(--color-brand-accent-muted);
+}
+a:visited {
+	color: var(--color-text-muted);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+	font-family: var(--font-family-display);
+	line-height: var(--line-height-tight);
+	margin: 0;
+	letter-spacing: var(--letter-spacing-tight);
+}
+
+p {
+	margin: 0;
+}
+ul,
+ol {
+	margin: 0;
+	padding: 0;
+}
+li {
+	list-style: none;
+}
+button {
+	font: inherit;
+	color: inherit;
+	cursor: pointer;
+	border: 0;
+	background: none;
+}
+/* Focus rings are not tokens — they are built from border width + a color
+   token. Each component may define its own ring in DESIGN.md. */
+:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 var(--border-md) var(--color-brand-primary);
+	border-radius: var(--rounded-sm);
+}
+::selection {
+	background: var(--color-brand-primary);
+	color: var(--color-surface);
+}
+
+/* ----------------------------------------------------------------------------
+   Type helper classes — apply these on components to tweak font-size
+   ----------------------------------------------------------------------------
+   Usage: <h2 class="text-lg"> or <p class="text-sm">
+   ---------------------------------------------------------------------------- */
+.text-xs {
+	font-size: var(--font-size-xs);
+}
+.text-sm {
+	font-size: var(--font-size-sm);
+}
+.text-base {
+	font-size: var(--font-size-base);
+}
+.text-lg {
+	font-size: var(--font-size-lg);
+}
+.text-xl {
+	font-size: var(--font-size-xl);
+}
+.text-2xl {
+	font-size: var(--font-size-2xl);
+}
+.text-display {
+	font-size: var(--font-size-display);
+}
+
+/* Print */
+@media print {
+	body {
+		background: white;
+		color: black;
+	}
+}
