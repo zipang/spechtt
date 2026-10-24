@@ -8,6 +8,7 @@
 //! - [`app`] — the widget window views (shell now; states + dialogs next).
 
 pub mod app;
+pub mod components;
 pub mod theme;
 pub mod tokens;
 
@@ -16,7 +17,10 @@ use gpui_kit::{AppContext, Bounds, Point, Size, WindowBounds, WindowOptions, px}
 // SpeechTT's own icon set — embedded as borrowed static bytes, nothing more.
 // Components that need their own internals (spinners, carets, close buttons)
 // still get them via the gpui-kit default `Assets` through [`AppAssets`].
-gpui_kit::assets::icon_assets!(AppIcons, [CircleQuestionMark, Settings]);
+gpui_kit::assets::icon_assets!(
+    AppIcons,
+    [CircleQuestionMark, Settings, Mic, Plus, Square, Pause, Play, Copy, HardDriveDownload, FileText]
+);
 
 /// Composed asset source: SpeechTT's curated icons first, then the
 /// gpui-kit component defaults as fallback. Keeps the binary slim while
@@ -72,7 +76,7 @@ pub fn run() {
 
             gpui_kit::open_window(widget_window_options(), cx, |window, cx| {
                 window.set_window_title(app::APP_TITLE);
-                cx.new(|_| app::SpeechTtApp::new())
+                cx.new(|cx| app::SpeechTtApp::new(window, cx))
             })
             .expect("failed to open SpeechTT widget window");
         });

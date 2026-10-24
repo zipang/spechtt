@@ -1,2 +1,4 @@
-// speechtt-core: audio capture, FFT waveform, state machine, clipboard,
-// hotkeys, save. Populated by Phases 3–5; placeholder for Phase 2 wiring.
+// speechtt-core: audio capture, FFT waveform, session state machine,
+// clipboard, hotkeys, save. Audio/FFT arrive in Phase 3; the session
+// machine is Phase 2's behavioral backbone.
+pub mod session;

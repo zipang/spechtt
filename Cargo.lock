@@ -6490,6 +6490,7 @@ name = "speechtt-ui"
 version = "0.1.0"
 dependencies = [
  "gpui-kit",
+ "speechtt-core",
 ]
 
 [[package]]

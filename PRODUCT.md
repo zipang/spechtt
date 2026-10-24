@@ -192,6 +192,40 @@ always reflects the currently bound shortcuts.
 Each feature task starts with writing the failing test(s), then the
 implementation, following red → green → refactor.
 
+### Session workflow (state machine, as implemented)
+
+The machine lives in `crates/speechtt-core/src/session.rs`; the UI derives
+every screen from it (plus one UI-owned result state).
+
+| State | Entered when | Screen / controls |
+|---|---|---|
+| `Blank` | at least one of the five parameters is missing | New Session prompt (`+`) → setup form |
+| `Ready` | all five parameters present | READY badge + mic circle |
+| `Recording` | `start` from `Ready` | RECORDING badge + timer + waveform + caption; **Pause + Stop**, Stop **disabled** |
+| `Paused` | `pause` from `Recording` | PAUSED badge + timer + muted waveform + caption; **Resume + Stop**, Stop **enabled** |
+| *Stopped (UI)* | `stop` from `Paused` | result: memory → transcript + Copy/Save; file → written path + Open File |
+
+Rules:
+- **Five parameters are required before any recording**: audio source
+  (defaults to the system mic in the mock), provider, model, session name,
+  output mode (`Memory` or `File`). Setup changes are frozen during a take.
+- **Transport controls never move between Recording and Paused**: both show
+  Play/Pause + Stop in the same positions. Stop is inert while recording and
+  live only while paused.
+- **Stop semantics**: the machine hands back a `FinishedSession` (source,
+  provider, model, name, output) and resets to `Blank`, keeping audio source
+  / provider / model and clearing session name + output — the next take must
+  be named. The UI keeps the finished take to show the `Stopped` screen until
+  **New take** dismisses it (machine is already `Blank` underneath).
+- **Two Stopped layouts, one per output mode**:
+  - *To memory*: transcript well + **Copy** + **Save**, no file path.
+  - *To file*: `TRANSCRIPT WRITTEN TO` + path + **Open File**; no transcript
+    well, no Copy, no Save.
+- Copy/Save/Open File handlers are stubs until the Phase 5 adapters exist
+  (clipboard, file write, editor launch).
+- File path defaults to `~/Documents/<session-name>.md` until a file picker
+  exists.
+
 ### Phase 0 — Design system foundation
 - [x] Install `design-system-tokens` skill into `.agents/skills/`.
 - [x] Install the Vercel AI SDK skill (`bunx skills add vercel/ai --skill ai-sdk`).
@@ -220,32 +254,60 @@ implementation, following red → green → refactor.
       auto-exported `.tsx` value dumps — see §4 for their roles).
 
 ### Phase 2 — GPUI UI shell (no backend, mock state)
-- [ ] Workspace scaffold: workspace `Cargo.toml`, `crates/speechtt-ui`,
+- [x] Workspace scaffold: workspace `Cargo.toml`, `crates/speechtt-ui`,
       `crates/speechtt-core` placeholder; `gpui-kit = "0.8"` dependency;
       app opens a 480×280 always-on-top, draggable window
       (`application()` → `init(cx)` → `open_window`).
-- [ ] Test: headless (`#[gpui_kit::test]`) render shows the header with
+- [x] Test: headless (`#[gpui_kit::test]`) render shows the header with
       the app title and the `?` + cog icon buttons, found by their stable
       ElementIds (presence + visibility only — never placement, never
       labels).
-- [ ] Custom theme: map every `design-tokens.css` token (colors, radii,
+- [x] Custom theme: map every `design-tokens.css` token (colors, radii,
       type scale ×1.25, spacing, elevation) into a gpui-kit dark Theme.
-- [ ] Test: theme contract — Rust theme values equal the CSS token values
+- [x] Test: theme contract — Rust theme values equal the CSS token values
       (cargo-test extension of the design-token contract).
-- [ ] Recording state machine (pure Rust in `speechtt-core`, consumed
-      with mock events by the UI): valid transitions Idle → Recording →
-      Paused → Recording → Stopped; invalid transitions rejected.
-- [ ] Test: state machine transitions (unit, no UI).
-- [ ] Test: clicking the main action / pause / stop buttons transitions
-      the state (headless click, assert resulting state — no geometry).
-- [ ] Base `RenderOnce` components + headless tests: `IconButton`,
-      `HeaderStrip`, `StatusBadge` (state → color), `BigAction`
-      (record/stop/resume circle), `KeyCap`, `Waveform` (bars from
-      bins), `CaptionWell` (muted text + accent live words).
-- [ ] Idle view per `mockups/app-window/idle.png` (manual visual check).
-- [ ] Recording / Paused views per `mockups/app-window/*.png`, driven by
-      a mock feed (fake elapsed timer, fake waveform bins, fake streaming
-      transcript).
+- [x] Session state machine (pure Rust in `speechtt-core`): five required
+      session parameters (audio source, provider, model, session name,
+      output target) drive `Blank ⇄ Ready`; then `Ready → Recording ⇄
+      Paused`; `Stop` returns the finished session to the caller and resets
+      to `Blank` keeping audio source/provider/model (name + output clear
+      for the next take). Setup changes freeze during a take. Invalid
+      transitions return an error and never mutate state.
+- [x] Test: session machine transitions (unit, no UI) — 10 cases in
+      `crates/speechtt-core/tests/session_machine.rs`.
+- [x] UI wiring: `SpeechTtApp` owns a `SessionMachine`; the New Session
+      form fills the parameters; clicking the main action / pause / resume /
+      stop buttons transitions the state (headless click, assert the
+      resulting state — no geometry, find by stable ids). 7 behavior tests in
+      `crates/speechtt-ui/tests/session_flow.rs`.
+- [x] Blank state screen (inferred — no mockup frame): `NO SESSION` pill,
+      74px `+` circle labelled "New Session", hint line; opens the form.
+- [x] New Session form (inferred — no mockup frame): provider + model
+      (mock registry, dependent cycling), session title input, output
+      Memory/File segment, Cancel / Create session (inert until all five
+      parameters are set). Body view, not a dialog (480×280 has no room).
+- [x] Core visual components (`crates/speechtt-ui/src/components.rs`):
+      `StatusBadge`, `ElapsedTimer`, `Waveform`, `CaptionWell`, plus the
+      circular transport action. Behavior is covered through
+      `tests/session_flow.rs`. Remaining: `KeyCap` (needed by the Help
+      dialog) and the header strip extraction.
+- [x] Idle/Ready view per `mockups/app-window/idle.png`: READY badge,
+      74px mic circle, "Press to start dictating".
+- [x] Recording / Paused views per `mockups/app-window/*.png`: badge +
+      `mm:ss` timer row, waveform (active bars / muted dots when paused),
+      caption well (muted committed text + brand live words). Fed by static
+      mock constants (`MOCK_ELAPSED_SECONDS`, `MOCK_BARS`, transcript
+      lines); live animation + real bins arrive with the core wiring.
+- [x] Transport controls by state (decided): Recording and Paused share the
+      **same two controls** (Play/Pause toggle + Stop) so nothing shifts
+      between states. Stop is **disabled/inert while Recording** and only
+      becomes live when Paused. Copy/Save appear only on the Stopped
+      screen, and only for memory takes.
+- [x] Stopped screen (result), split by output mode: **file takes** show
+      only the written path + **Open File** (no transcript, no Copy/Save);
+      **memory takes** show the transcript + **Copy/Save**; both offer
+      **New take** → Blank (name + output required again). Copy/Save/Open
+      File handlers are stubs until the Phase 5 adapters exist.
 - [ ] Settings dialog per `mockups/dialogs/settings.png` (provider select,
       model select, masked API key field, connected badge, local fallback
       note, Cancel/Save). Test: cog click opens, Cancel/Save close —
@@ -265,12 +327,12 @@ implementation, following red → green → refactor.
 - [ ] Implement FFT + bin-to-bar-amplitude mapping for the waveform.
 - [ ] Test: silence (near-zero amplitude) maps to a flat/minimal waveform.
 
-### Phase 4 — Rust core: recording lifecycle
-- [ ] Test: state machine transitions Idle → Recording → Paused → Recording
-      → Stopped are valid; invalid transitions rejected.
-- [ ] Implement recording state machine.
-- [ ] Test: global hotkey events map to the correct state-machine actions.
-- [ ] Implement hotkey listener + dispatch.
+### Phase 4 — Rust core: hotkeys & lifecycle events
+- [ ] Test: global hotkey events map to the correct session actions
+      (start, pause, resume, finish).
+- [ ] Implement hotkey listener + dispatch into `SessionMachine`.
+- [ ] Test: a finished take (memory or file mode) is routed to the right
+      consumer — transcript buffer vs file writer.
 
 ### Phase 5 — Rust core: clipboard, paste, save
 - [ ] Test: transcript buffer copy produces exact clipboard content

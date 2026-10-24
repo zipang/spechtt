@@ -4,7 +4,7 @@
 #![allow(dead_code)]
 
 use gpui_kit::{
-    AnyWindowHandle, App, AppContext, Bounds, Context, Entity, Point, Pixels, Render, Size,
+    App, AppContext, Bounds, Entity, Point, Pixels, Render, Size,
     TestAppContext, Window, WindowBounds, WindowHandle, WindowOptions, base::Root, px, size,
 };
 
@@ -49,6 +49,6 @@ pub fn open_speechtt_window(cx: &mut TestAppContext) -> (WindowHandle<Root>, Ent
     });
     open_window(cx, None, |window, cx| {
         window.set_window_title(speechtt_ui::app::APP_TITLE);
-        cx.new(|_| speechtt_ui::app::SpeechTtApp::new())
+        cx.new(|cx| speechtt_ui::app::SpeechTtApp::new(window, cx))
     })
 }
