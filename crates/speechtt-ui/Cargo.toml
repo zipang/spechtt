@@ -1,0 +1,11 @@
+[package]
+name = "speechtt-ui"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+gpui-kit.workspace = true
+
+[dev-dependencies]
+# Headless UI integration tests (gpui-kit's #[gpui_kit::test] machinery).
+gpui-kit = { workspace = true, features = ["test-support"] }

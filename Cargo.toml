@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = ["crates/speechtt-core", "crates/speechtt-ui"]
+
+# Full debug info makes each link of a gpui test binary write gigabytes to
+# disk (btrfs chokes, link ~minutes). Line tables are ample for UI debugging.
+[profile.dev]
+debug = "line-tables-only"
+
+[workspace.dependencies]
+gpui-kit = "0.8"
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
