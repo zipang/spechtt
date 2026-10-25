@@ -4,8 +4,8 @@
 //! Mirrors `tests/design-contract.test.ts` two-layer contract:
 //! 1. CSS literals == `speechtt_ui::tokens` (hard literals below),
 //! 2. `speechtt_ui::tokens` == the installed gpui-kit Theme (role asserts).
-//! Update both sides together when the design changes (`design-tokens.css`,
-//! then this file), and let the tests disagree noisily in between.
+//!    Update both sides together when the design changes (`design-tokens.css`,
+//!    then this file), and let the tests disagree noisily in between.
 
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::Theme;
@@ -45,7 +45,14 @@ fn token_constants_mirror_design_tokens_css() {
         (4.0, 8.0, 12.0, 16.0, 20.0, 32.0, 48.0)
     );
     assert_eq!(
-        (font::XS, font::SM, font::MD, font::LG, font::XL, font::TWO_XL),
+        (
+            font::XS,
+            font::SM,
+            font::MD,
+            font::LG,
+            font::XL,
+            font::TWO_XL
+        ),
         (10.24, 12.8, 16.0, 20.0, 25.0, 31.25)
     );
 }
@@ -107,7 +114,11 @@ fn the_active_theme_carries_the_speechtt_token_values(cx: &mut TestAppContext) {
 
         // Primary brand
         assert_role("primary", c.primary, rgb(color::BRAND_PRIMARY));
-        assert_role("primary_foreground", c.primary_foreground, rgb(color::ON_COLOR));
+        assert_role(
+            "primary_foreground",
+            c.primary_foreground,
+            rgb(color::ON_COLOR),
+        );
         assert_role("primary_hover", c.primary_hover, rgb(color::BRAND_ACCENT));
 
         // Neutral buttons
@@ -116,13 +127,25 @@ fn the_active_theme_carries_the_speechtt_token_values(cx: &mut TestAppContext) {
 
         // Action fills — all carry black ink
         assert_role("success", c.success, rgb(color::SUCCESS));
-        assert_role("success_foreground", c.success_foreground, rgb(color::ON_COLOR));
+        assert_role(
+            "success_foreground",
+            c.success_foreground,
+            rgb(color::ON_COLOR),
+        );
         assert_role("info", c.info, rgb(color::INFO));
         assert_role("info_foreground", c.info_foreground, rgb(color::ON_COLOR));
         assert_role("warning", c.warning, rgb(color::WARNING));
-        assert_role("warning_foreground", c.warning_foreground, rgb(color::ON_COLOR));
+        assert_role(
+            "warning_foreground",
+            c.warning_foreground,
+            rgb(color::ON_COLOR),
+        );
         assert_role("danger", c.danger, rgb(color::DANGER));
-        assert_role("danger_foreground", c.danger_foreground, rgb(color::ON_COLOR));
+        assert_role(
+            "danger_foreground",
+            c.danger_foreground,
+            rgb(color::ON_COLOR),
+        );
 
         // Typography / radii — sizes and radii are exact-value contracts.
         // Font families are bundled (theme.rs embeds Inter + JetBrains

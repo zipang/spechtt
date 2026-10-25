@@ -64,7 +64,12 @@ fn embed_fonts(cx: &mut App) {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         cx.text_system()
-            .add_fonts(BUNDLED_FONTS.iter().map(|bytes| Cow::Borrowed(*bytes)).collect())
+            .add_fonts(
+                BUNDLED_FONTS
+                    .iter()
+                    .map(|bytes| Cow::Borrowed(*bytes))
+                    .collect(),
+            )
             .expect("bundled fonts must load (broken build asset?)");
     });
 }

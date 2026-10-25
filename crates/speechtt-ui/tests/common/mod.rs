@@ -4,8 +4,8 @@
 #![allow(dead_code)]
 
 use gpui_kit::{
-    App, AppContext, Bounds, Entity, Point, Pixels, Render, Size,
-    TestAppContext, Window, WindowBounds, WindowHandle, WindowOptions, base::Root, px, size,
+    App, AppContext, Bounds, Entity, Pixels, Point, Render, Size, TestAppContext, Window,
+    WindowBounds, WindowHandle, WindowOptions, base::Root, px, size,
 };
 
 /// Opens the production `gpui_kit::open_window` entry point with the
@@ -42,7 +42,9 @@ pub fn open_window<V: Render>(
 }
 
 /// Opens the real SpeechTT widget window (theme applied, production view).
-pub fn open_speechtt_window(cx: &mut TestAppContext) -> (WindowHandle<Root>, Entity<speechtt_ui::app::SpeechTtApp>) {
+pub fn open_speechtt_window(
+    cx: &mut TestAppContext,
+) -> (WindowHandle<Root>, Entity<speechtt_ui::app::SpeechTtApp>) {
     cx.update(|cx| {
         gpui_kit::init(cx);
         speechtt_ui::theme::apply(cx);

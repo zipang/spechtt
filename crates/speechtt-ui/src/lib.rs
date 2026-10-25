@@ -5,10 +5,13 @@
 //! Layout:
 //! - [`tokens`] — the Rust mirror of the stylesheet token contract.
 //! - [`theme`] — that token set mapped onto gpui-kit's Theme.
-//! - [`app`] — the widget window views (shell now; states + dialogs next).
+//! - [`controller`] — the pure session/view-model state (no window needed).
+//! - [`components`] — SpeechTT's `RenderOnce` visual pieces.
+//! - [`app`] — the widget window view (shell now; dialogs next).
 
 pub mod app;
 pub mod components;
+pub mod controller;
 pub mod theme;
 pub mod tokens;
 
@@ -19,7 +22,18 @@ use gpui_kit::{AppContext, Bounds, Point, Size, WindowBounds, WindowOptions, px}
 // still get them via the gpui-kit default `Assets` through [`AppAssets`].
 gpui_kit::assets::icon_assets!(
     AppIcons,
-    [CircleQuestionMark, Settings, Mic, Plus, Square, Pause, Play, Copy, HardDriveDownload, FileText]
+    [
+        CircleQuestionMark,
+        Settings,
+        Mic,
+        Plus,
+        Square,
+        Pause,
+        Play,
+        Copy,
+        HardDriveDownload,
+        FileText
+    ]
 );
 
 /// Composed asset source: SpeechTT's curated icons first, then the
@@ -28,10 +42,7 @@ gpui_kit::assets::icon_assets!(
 struct AppAssets;
 
 impl gpui_kit::AssetSource for AppAssets {
-    fn load(
-        &self,
-        path: &str,
-    ) -> gpui_kit::Result<Option<std::borrow::Cow<'static, [u8]>>> {
+    fn load(&self, path: &str) -> gpui_kit::Result<Option<std::borrow::Cow<'static, [u8]>>> {
         match AppIcons.load(path) {
             Ok(Some(data)) => Ok(Some(data)),
             Ok(None) => gpui_kit::assets::Assets.load(path),

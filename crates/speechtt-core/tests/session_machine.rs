@@ -178,7 +178,9 @@ fn setup_changes_are_frozen_while_recording_or_paused() {
 fn stopping_returns_the_finished_session_and_resets_to_blank() {
     let mut machine = SessionMachine::new();
     full_config(&mut machine);
-    machine.set_output(OutputTarget::File("/tmp/meeting-notes.md".into())).unwrap();
+    machine
+        .set_output(OutputTarget::File("/tmp/meeting-notes.md".into()))
+        .unwrap();
     machine.start().unwrap();
     machine.pause().unwrap();
 
@@ -196,9 +198,15 @@ fn stopping_returns_the_finished_session_and_resets_to_blank() {
 
     // Next take: identity is remembered, name and output are not.
     assert_eq!(machine.state(), SessionState::Blank);
-    assert_eq!(machine.config().audio_source.as_deref(), Some("Built-in Microphone"));
+    assert_eq!(
+        machine.config().audio_source.as_deref(),
+        Some("Built-in Microphone")
+    );
     assert_eq!(machine.config().provider.as_deref(), Some("mistral"));
-    assert_eq!(machine.config().model.as_deref(), Some("voxtral-mini-latest"));
+    assert_eq!(
+        machine.config().model.as_deref(),
+        Some("voxtral-mini-latest")
+    );
     assert_eq!(machine.config().session_name, None);
     assert_eq!(machine.config().output, None);
     assert_eq!(

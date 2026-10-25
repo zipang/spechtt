@@ -10,7 +10,7 @@
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::prelude::*;
-use gpui_kit::{App, FontWeight, Hsla, IntoElement, RenderOnce, TestSupportExt as _, Window, div, px};
+use gpui_kit::{App, FontWeight, Hsla, IntoElement, RenderOnce, Window, div, px};
 
 use crate::tokens::{color, font, radius};
 
@@ -153,7 +153,6 @@ impl RenderOnce for Waveform {
 
         h_flex()
             .id("waveform")
-            .test_support()
             .items_center()
             .justify_center()
             .h(px(36.))
@@ -168,7 +167,11 @@ impl RenderOnce for Waveform {
                     .w(px(3.))
                     .h(px(height))
                     .rounded(px(1.5))
-                    .bg(if self.active { active_color } else { idle_color })
+                    .bg(if self.active {
+                        active_color
+                    } else {
+                        idle_color
+                    })
             }))
     }
 }
@@ -197,7 +200,6 @@ impl RenderOnce for CaptionWell {
 
         v_flex()
             .id("caption-well")
-            .test_support()
             .w_full()
             .gap_1()
             .px(px(14.))

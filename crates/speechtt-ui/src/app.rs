@@ -1,6 +1,6 @@
 //! The SpeechTT widget window view.
 //!
-//! Phase 2 shell: header + body views derived from the session machine.
+//! Phase 2 shell: header + body views derived from the session controller.
 //!
 //! ```text
 //! Blank  → "New Session" prompt → New Session form → Ready (record)
@@ -12,8 +12,9 @@
 //! the settings-dialog row language (uppercase micro-label, helper line,
 //! value pill on the right).
 //!
-//! ElementIds here are the test contract — they must stay stable; labels,
-//! copy and layout are free to change (`tests/session_flow.rs`).
+//! All workflow state lives in [`SessionController`]; this module only
+//! translates it into elements and forwards user actions. Layout, copy and
+//! element structure are free to change without affecting the tests.
 
 use gpui_kit::assets::IconName;
 use gpui_kit::base::{h_flex, v_flex};
@@ -21,228 +22,160 @@ use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _};
 use gpui_kit::prelude::*;
-use gpui_kit::{
-    Context, Entity, FontWeight, Hsla, Subscription, TestSupportExt as _, Window, div, px, rgb,
-};
-use speechtt_core::session::{FinishedSession, OutputTarget, SessionMachine, SessionState};
+use gpui_kit::{Context, Entity, FontWeight, Hsla, Subscription, Window, div, px, rgb};
+use speechtt_core::session::{OutputTarget, SessionField, SessionState};
 
 use crate::components::{BadgeTone, CaptionWell, ElapsedTimer, StatusBadge, Waveform};
-
+use crate::controller::{
+    FinishedTake, MOCK_BARS, MOCK_COMMITTED, MOCK_ELAPSED_SECONDS, MOCK_LIVE, SessionController,
+    ViewState,
+};
 use crate::tokens::{color, font, radius};
-
-/// Mock feed until the core (Phase 3/8) is wired: elapsed time, FFT-shaped
-/// bars and transcript lines mirroring `recording.png` / `paused.png`.
-pub const MOCK_ELAPSED_SECONDS: u32 = 42;
-const MOCK_BARS: [f32; 36] = [
-    0.28, 0.55, 0.34, 0.60, 0.78, 0.41, 0.52, 0.33, 0.72, 0.95, 0.85, 0.48, 0.30, 0.42,
-    0.66, 0.87, 0.94, 0.58, 0.36, 0.26, 0.47, 0.70, 0.89, 0.81, 0.44, 0.32, 0.56, 0.75,
-    0.90, 0.63, 0.39, 0.29, 0.50, 0.68, 0.46, 0.24,
-];
-const MOCK_COMMITTED: &str = "...so I think the best approach here is to split the work into two phases, starting with the";
-const MOCK_LIVE: &str = "audio capture layer";
-
-/// The finished take shown in the `Stopped` screen. The machine hands the
-/// session identity back on `stop`; the transcript itself is owned here
-/// (mock text until the core streams it in Phase 8).
-struct FinishedTake {
-    session: FinishedSession,
-    committed: String,
-    live: String,
-}
 
 /// Application title shown in the header strip.
 pub const APP_TITLE: &str = "SpeechTT";
 
-/// Mock audio source until device enumeration lands (Phase 3).
-pub const DEFAULT_AUDIO_SOURCE: &str = "System default microphone";
-
-/// Mock provider registry until the TypeScript/provider layer is wired
-/// (Phases 6/8). The form cycles through these; the real Select control and
-/// capability detection replace it later.
-struct Provider {
-    name: &'static str,
-    models: &'static [&'static str],
-}
-
-const PROVIDERS: &[Provider] = &[
-    Provider {
-        name: "Vercel AI Gateway",
-        models: &["voxtral-mini-transcribe-3", "whisper-large-v3"],
-    },
-    Provider {
-        name: "Mistral AI",
-        models: &["voxtral-mini-latest", "voxtral-small-latest"],
-    },
-];
-
-/// Which setup screen the body shows while the machine is `Blank`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Screen {
-    Prompt,
-    Form,
-}
-
-/// Form values not yet committed to the machine.
-#[derive(Default)]
-struct SessionDraft {
-    provider: Option<usize>,
-    model: Option<usize>,
-    output: Option<OutputTarget>,
-}
-
 /// Root view of the widget window.
 pub struct SpeechTtApp {
-    machine: SessionMachine,
-    screen: Screen,
-    draft: SessionDraft,
+    controller: SessionController,
     session_name: Entity<InputState>,
-    /// Set when a take finishes: drives the `Stopped` screen even though the
-    /// machine has already reset to `Blank` for the next take.
-    result: Option<FinishedTake>,
     /// Keeps the input subscription alive; dropped with the view.
     _subscriptions: Vec<Subscription>,
 }
 
 impl SpeechTtApp {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let mut machine = SessionMachine::new();
-        // The mock "idle" frame assumes a usable default mic: no device
-        // row on the setup form.
-        machine
-            .set_audio_source(DEFAULT_AUDIO_SOURCE)
-            .expect("blank machine accepts setup");
-
         let session_name =
             cx.new(|cx| InputState::new(window, cx).placeholder("e.g. meeting-notes"));
-        // Re-render as the user types so `Create session` enables live.
+        // Mirror the input into the controller so `Create session` enables live.
         let subscription = cx.subscribe_in(
             &session_name,
             window,
-            |_this, _input, event: &InputEvent, _window, cx| {
+            |this, input, event: &InputEvent, _window, cx| {
                 if matches!(event, InputEvent::Change) {
+                    this.controller
+                        .set_draft_name(input.read(cx).value().to_string());
                     cx.notify();
                 }
             },
         );
 
         Self {
-            machine,
-            screen: Screen::Prompt,
-            draft: SessionDraft::default(),
+            controller: SessionController::new(),
             session_name,
-            result: None,
             _subscriptions: vec![subscription],
         }
     }
 
-    /// Test surface: the machine owns the truth, the view just reflects it.
+    // ----- Queries -----------------------------------------------------
+
+    /// What screen the widget currently shows (test surface, no window needed
+    /// once the view exists — the controller alone answers this).
+    pub fn view_state(&self) -> ViewState {
+        self.controller.view_state()
+    }
+
     pub fn session_state(&self) -> SessionState {
-        self.machine.state()
+        self.controller.session_state()
     }
 
-    pub fn session_missing(&self) -> Vec<speechtt_core::session::SessionField> {
-        self.machine.missing()
+    pub fn session_missing(&self) -> Vec<SessionField> {
+        self.controller.session_missing()
     }
 
-    fn draft_complete(&self, cx: &Context<Self>) -> bool {
-        self.draft.provider.is_some()
-            && self.draft.model.is_some()
-            && self.draft.output.is_some()
-            && !self.session_name.read(cx).value().trim().is_empty()
+    pub fn is_draft_complete(&self) -> bool {
+        self.controller.is_draft_complete()
     }
 
-    fn open_form(&mut self, cx: &mut Context<Self>) {
-        self.screen = Screen::Form;
-        self.draft = SessionDraft::default();
+    pub fn finished_take(&self) -> Option<&FinishedTake> {
+        self.controller.finished_take()
+    }
+
+    // ----- Commands ----------------------------------------------------
+
+    pub fn open_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.controller.open_form();
+        self.clear_session_name(window, cx);
         cx.notify();
     }
 
-    fn cancel_form(&mut self, cx: &mut Context<Self>) {
-        self.screen = Screen::Prompt;
-        self.draft = SessionDraft::default();
+    pub fn cancel_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.controller.cancel_form();
+        self.clear_session_name(window, cx);
         cx.notify();
     }
 
-    fn cycle_provider(&mut self, cx: &mut Context<Self>) {
-        let next = self
-            .draft
-            .provider
-            .map_or(0, |index| (index + 1) % PROVIDERS.len());
-        self.draft.provider = Some(next);
-        // A model belongs to its provider: reset the dependent choice.
-        self.draft.model = None;
+    pub fn cycle_provider(&mut self, cx: &mut Context<Self>) {
+        self.controller.cycle_provider();
         cx.notify();
     }
 
-    fn cycle_model(&mut self, cx: &mut Context<Self>) {
-        let Some(provider) = self.draft.provider else {
-            return;
-        };
-        let models = PROVIDERS[provider].models;
-        self.draft.model = Some(self.draft.model.map_or(0, |index| (index + 1) % models.len()));
+    pub fn cycle_model(&mut self, cx: &mut Context<Self>) {
+        self.controller.cycle_model();
         cx.notify();
     }
 
-    fn create_session(&mut self, cx: &mut Context<Self>) {
-        if !self.draft_complete(cx) {
-            return;
-        }
-        let provider = &PROVIDERS[self.draft.provider.expect("checked by draft_complete")];
-        let model = provider.models[self.draft.model.expect("checked by draft_complete")];
-        let name = self.session_name.read(cx).value().trim().to_string();
-
-        // All five parameters present → the machine derives `Ready`.
-        self.machine.set_provider(provider.name).ok();
-        self.machine.set_model(model).ok();
-        let output = match self.draft.output.clone().expect("checked by draft_complete") {
-            OutputTarget::Memory => OutputTarget::Memory,
-            // No file picker yet: the default location follows the title.
-            OutputTarget::File(_) => OutputTarget::File(format!("~/Documents/{name}.md")),
-        };
-        self.machine.set_session_name(name).ok();
-        self.machine.set_output(output).ok();
-
-        self.screen = Screen::Prompt;
-        self.draft = SessionDraft::default();
+    pub fn select_output(&mut self, output: OutputTarget, cx: &mut Context<Self>) {
+        self.controller.set_draft_output(output);
         cx.notify();
     }
 
-    fn start_recording(&mut self, cx: &mut Context<Self>) {
-        self.machine.start().ok();
+    /// Set the session name in both the controller and the editable input.
+    pub fn set_draft_name(
+        &mut self,
+        name: impl Into<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let name = name.into();
+        self.controller.set_draft_name(name.clone());
+        self.session_name
+            .update(cx, |state, cx| state.set_value(name, window, cx));
         cx.notify();
     }
 
-    fn pause_recording(&mut self, cx: &mut Context<Self>) {
-        self.machine.pause().ok();
+    pub fn create_session(&mut self, cx: &mut Context<Self>) {
+        self.controller.create_session();
         cx.notify();
     }
 
-    fn resume_recording(&mut self, cx: &mut Context<Self>) {
-        self.machine.resume().ok();
+    pub fn start_recording(&mut self, cx: &mut Context<Self>) {
+        self.controller.start_recording();
         cx.notify();
     }
 
-    fn finish_take(&mut self, cx: &mut Context<Self>) {
-        if let Ok(session) = self.machine.stop() {
-            self.result = Some(FinishedTake {
-                session,
-                committed: MOCK_COMMITTED.to_string(),
-                live: MOCK_LIVE.to_string(),
-            });
-        }
+    pub fn pause_recording(&mut self, cx: &mut Context<Self>) {
+        self.controller.pause_recording();
         cx.notify();
     }
 
-    /// Leave the `Stopped` screen and start over from `Blank`.
-    fn new_take(&mut self, cx: &mut Context<Self>) {
-        self.result = None;
-        self.screen = Screen::Prompt;
+    pub fn resume_recording(&mut self, cx: &mut Context<Self>) {
+        self.controller.resume_recording();
         cx.notify();
+    }
+
+    pub fn finish_take(&mut self, cx: &mut Context<Self>) {
+        self.controller.finish_take();
+        cx.notify();
+    }
+
+    pub fn new_take(&mut self, cx: &mut Context<Self>) {
+        self.controller.new_take();
+        cx.notify();
+    }
+
+    fn clear_session_name(&self, window: &mut Window, cx: &mut Context<Self>) {
+        self.session_name
+            .update(cx, |state, cx| state.set_value("", window, cx));
     }
 }
 
 impl gpui_kit::Render for SpeechTtApp {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl gpui_kit::IntoElement {
+    fn render(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl gpui_kit::IntoElement {
         v_flex()
             .size_full()
             .bg(cx.theme().background)
@@ -260,11 +193,15 @@ impl gpui_kit::Render for SpeechTtApp {
                     .child(
                         div()
                             .id("app-title")
-                            .test_support()
                             .font_weight(FontWeight::BOLD)
                             .child(APP_TITLE),
                     )
-                    .child(h_flex().gap_1().child(help_button()).child(settings_button())),
+                    .child(
+                        h_flex()
+                            .gap_1()
+                            .child(help_button())
+                            .child(settings_button()),
+                    ),
             )
             .child(
                 v_flex()
@@ -272,17 +209,13 @@ impl gpui_kit::Render for SpeechTtApp {
                     .px(px(20.))
                     .py(px(10.))
                     .justify_between()
-                    .child(match (self.result.as_ref(), self.machine.state()) {
-                        (Some(_), _) => self.render_stopped(cx).into_any_element(),
-                        (None, SessionState::Blank) => match self.screen {
-                            Screen::Prompt => self.render_prompt(cx).into_any_element(),
-                            Screen::Form => self.render_form(cx).into_any_element(),
-                        },
-                        (None, SessionState::Ready) => self.render_ready(cx).into_any_element(),
-                        (None, SessionState::Recording) => {
-                            self.render_recording(cx).into_any_element()
-                        }
-                        (None, SessionState::Paused) => self.render_paused(cx).into_any_element(),
+                    .child(match self.view_state() {
+                        ViewState::Prompt => self.render_prompt(cx).into_any_element(),
+                        ViewState::Form => self.render_form(cx).into_any_element(),
+                        ViewState::Ready => self.render_ready(cx).into_any_element(),
+                        ViewState::Recording => self.render_recording(cx).into_any_element(),
+                        ViewState::Paused => self.render_paused(cx).into_any_element(),
+                        ViewState::Stopped => self.render_stopped(cx).into_any_element(),
                     }),
             )
     }
@@ -300,12 +233,11 @@ impl SpeechTtApp {
         hover_bg: Hsla,
         fg: Hsla,
         cx: &mut Context<Self>,
-        on_click: impl Fn(&mut Self, &mut Context<Self>) + 'static,
+        on_click: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
     ) -> gpui_kit::AnyElement {
-        let listener = cx.listener(move |this, _event, _window, cx| on_click(this, cx));
+        let listener = cx.listener(move |this, _event, window, cx| on_click(this, window, cx));
         h_flex()
             .id(id)
-            .test_support()
             .size(px(diameter))
             .rounded(px(diameter / 2.0))
             .justify_center()
@@ -324,7 +256,7 @@ impl SpeechTtApp {
         id: &'static str,
         icon: IconName,
         cx: &mut Context<Self>,
-        on_click: impl Fn(&mut Self, &mut Context<Self>) + 'static,
+        on_click: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
     ) -> gpui_kit::AnyElement {
         let (bg, hover, fg) = (
             cx.theme().primary,
@@ -345,7 +277,6 @@ impl SpeechTtApp {
         let listener = cx.listener(move |this, _event, _window, cx| on_click(this, cx));
         h_flex()
             .id(id)
-            .test_support()
             .size(px(34.))
             .rounded(px(10.))
             .justify_center()
@@ -362,13 +293,15 @@ impl SpeechTtApp {
     fn render_prompt(&mut self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         v_flex()
             .id("blank-prompt")
-            .test_support()
             .items_center()
             .gap_4()
             .child(StatusBadge::new("NO SESSION"))
-            .child(self.primary_circle("btn-new-session", IconName::Plus, cx, |this, cx| {
-                this.open_form(cx)
-            }))
+            .child(self.primary_circle(
+                "btn-new-session",
+                IconName::Plus,
+                cx,
+                |this, window, cx| this.open_form(window, cx),
+            ))
             .child(
                 v_flex()
                     .items_center()
@@ -410,11 +343,7 @@ impl SpeechTtApp {
                             .text_color(cx.theme().muted_foreground)
                             .child(label),
                     )
-                    .child(
-                        div()
-                            .text_size(px(font::SM))
-                            .child(help),
-                    ),
+                    .child(div().text_size(px(font::SM)).child(help)),
             )
             .child(control)
             .into_any_element()
@@ -436,7 +365,6 @@ impl SpeechTtApp {
         };
         div()
             .id(id)
-            .test_support()
             .px_3()
             .py_1()
             .rounded(px(radius::SM))
@@ -452,17 +380,19 @@ impl SpeechTtApp {
 
     fn render_form(&mut self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         let provider_label = self
-            .draft
-            .provider
-            .map_or("Choose…".to_string(), |index| PROVIDERS[index].name.to_string());
-        let model_label = match (self.draft.provider, self.draft.model) {
-            (Some(provider), Some(model)) => PROVIDERS[provider].models[model].to_string(),
-            _ => "Choose…".to_string(),
-        };
-        let can_create = self.draft_complete(cx);
-        let has_provider = self.draft.provider.is_some();
-        let has_model = self.draft.model.is_some();
-        let selected_output = self.draft.output.clone();
+            .controller
+            .provider_label()
+            .unwrap_or("Choose…")
+            .to_string();
+        let model_label = self
+            .controller
+            .model_label()
+            .unwrap_or("Choose…")
+            .to_string();
+        let can_create = self.controller.is_draft_complete();
+        let has_provider = self.controller.has_provider();
+        let has_model = self.controller.has_model();
+        let selected_output = self.controller.selected_output().cloned();
 
         // Build interactive controls first: they need `&mut Context`, while
         // the row helper below only reads it.
@@ -473,22 +403,15 @@ impl SpeechTtApp {
             cx,
             |this, cx| this.cycle_provider(cx),
         );
-        let model_pill = self.value_pill(
-            "field-model",
-            model_label,
-            has_model,
-            cx,
-            |this, cx| this.cycle_model(cx),
-        );
+        let model_pill = self.value_pill("field-model", model_label, has_model, cx, |this, cx| {
+            this.cycle_model(cx)
+        });
         let memory_pill = self.value_pill(
             "field-output-memory",
             "In memory".to_string(),
             selected_output == Some(OutputTarget::Memory),
             cx,
-            |this, cx| {
-                this.draft.output = Some(OutputTarget::Memory);
-                cx.notify();
-            },
+            |this, cx| this.select_output(OutputTarget::Memory, cx),
         );
         let file_selected = matches!(selected_output, Some(OutputTarget::File(_)));
         let file_pill = self.value_pill(
@@ -496,40 +419,36 @@ impl SpeechTtApp {
             "To file".to_string(),
             file_selected,
             cx,
-            |this, cx| {
-                this.draft.output = Some(OutputTarget::File(String::new()));
-                cx.notify();
-            },
+            |this, cx| this.select_output(OutputTarget::File(String::new()), cx),
         );
 
         v_flex()
             .id("session-form")
-            .test_support()
             .size_full()
             // Compact: the 480×280 widget body must fit pill + 4 rows +
             // footer without clipping.
             .gap_1()
-            .child(StatusBadge::accent("NEW SESSION", rgb(color::BRAND_ACCENT).into()))
+            .child(StatusBadge::accent(
+                "NEW SESSION",
+                rgb(color::BRAND_ACCENT).into(),
+            ))
             .child(self.form_row(
                 "TRANSCRIPTION SERVICE",
                 "Which engine transcribes your voice",
                 provider_pill,
                 cx,
             ))
-            .child(self.form_row(
-                "MODEL",
-                "Used for this session",
-                model_pill,
-                cx,
-            ))
-            .child(self.form_row(
-                "SESSION TITLE",
-                "Names this take and its default file",
-                Input::new(&self.session_name)
-                    .id("input-session-name")
-                    .w(px(200.)),
-                cx,
-            ))
+            .child(self.form_row("MODEL", "Used for this session", model_pill, cx))
+            .child(
+                self.form_row(
+                    "SESSION TITLE",
+                    "Names this take and its default file",
+                    Input::new(&self.session_name)
+                        .id("input-session-name")
+                        .w(px(200.)),
+                    cx,
+                ),
+            )
             .child(self.form_row(
                 "OUTPUT",
                 "Keep it in the app or write a file",
@@ -543,7 +462,6 @@ impl SpeechTtApp {
                     .child(
                         div()
                             .id("btn-cancel-session")
-                            .test_support()
                             .px_3()
                             .py_1()
                             .rounded(px(radius::SM))
@@ -551,13 +469,16 @@ impl SpeechTtApp {
                             .text_size(px(font::SM))
                             .cursor_pointer()
                             .hover(|this| this.bg(cx.theme().secondary_hover))
-                            .on_click(cx.listener(|this, _event, _window, cx| this.cancel_form(cx)))
+                            .on_click(
+                                cx.listener(|this, _event, window, cx| {
+                                    this.cancel_form(window, cx)
+                                }),
+                            )
                             .child("Cancel"),
                     )
                     .child(
                         div()
                             .id("btn-create-session")
-                            .test_support()
                             .px_3()
                             .py_1()
                             .rounded(px(radius::SM))
@@ -567,7 +488,9 @@ impl SpeechTtApp {
                             .font_weight(FontWeight::MEDIUM)
                             .when(can_create, |this| this.cursor_pointer())
                             .opacity(if can_create { 1.0 } else { 0.4 })
-                            .on_click(cx.listener(|this, _event, _window, cx| this.create_session(cx)))
+                            .on_click(
+                                cx.listener(|this, _event, _window, cx| this.create_session(cx)),
+                            )
                             .child("Create session"),
                     ),
             )
@@ -585,9 +508,12 @@ impl SpeechTtApp {
                     .items_center()
                     .justify_center()
                     .gap_4()
-                    .child(self.primary_circle("btn-record", IconName::Mic, cx, |this, cx| {
-                        this.start_recording(cx)
-                    }))
+                    .child(self.primary_circle(
+                        "btn-record",
+                        IconName::Mic,
+                        cx,
+                        |this, _window, cx| this.start_recording(cx),
+                    ))
                     .child(
                         div()
                             .text_size(px(font::SM))
@@ -619,9 +545,12 @@ impl SpeechTtApp {
                     .items_center()
                     .justify_center()
                     .gap(px(24.))
-                    .child(self.primary_circle("btn-pause", IconName::Pause, cx, |this, cx| {
-                        this.pause_recording(cx)
-                    }))
+                    .child(self.primary_circle(
+                        "btn-pause",
+                        IconName::Pause,
+                        cx,
+                        |this, _window, cx| this.pause_recording(cx),
+                    ))
                     .child(self.stop_control(false, cx)),
             )
             .into_any_element()
@@ -654,7 +583,7 @@ impl SpeechTtApp {
                         rgb(color::WARNING).into(),
                         rgb(color::ON_COLOR).into(),
                         cx,
-                        |this, cx| this.resume_recording(cx),
+                        |this, _window, cx| this.resume_recording(cx),
                     ))
                     .child(self.stop_control(true, cx)),
             )
@@ -666,7 +595,6 @@ impl SpeechTtApp {
     fn stop_control(&self, enabled: bool, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         let mut control = h_flex()
             .id("btn-stop")
-            .test_support()
             .size(px(34.))
             .rounded(px(10.))
             .justify_center()
@@ -689,16 +617,16 @@ impl SpeechTtApp {
     /// The `Stopped` screen. File takes only expose the written path (and a
     /// way to open it); memory takes expose the transcript with copy/save.
     fn render_stopped(&mut self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
-        let Some(result) = self.result.as_ref() else {
+        let Some(result) = self.controller.finished_take() else {
             return StatusBadge::new("STOPPED").into_any_element();
         };
-        let is_file = matches!(result.session.output, OutputTarget::File(_));
-        let path = match &result.session.output {
+        let is_file = matches!(result.session().output, OutputTarget::File(_));
+        let path = match &result.session().output {
             OutputTarget::File(path) => path.clone(),
             OutputTarget::Memory => String::new(),
         };
-        let transcript_committed = result.committed.clone();
-        let transcript_live = result.live.clone();
+        let transcript_committed = result.committed().to_string();
+        let transcript_live = result.live().to_string();
 
         let controls = if is_file {
             h_flex().gap_2().child(self.ghost_control(
@@ -730,7 +658,6 @@ impl SpeechTtApp {
 
         v_flex()
             .id("result-body")
-            .test_support()
             .size_full()
             .gap_2()
             .child(
@@ -741,7 +668,6 @@ impl SpeechTtApp {
                     .child(
                         div()
                             .id("btn-new-take")
-                            .test_support()
                             .px_3()
                             .py_1()
                             .rounded(px(radius::SM))
@@ -771,7 +697,6 @@ impl SpeechTtApp {
                         .child(
                             div()
                                 .id("result-path")
-                                .test_support()
                                 .font_family(cx.theme().mono_font_family.clone())
                                 .text_size(px(font::SM))
                                 .text_color(cx.theme().foreground)
@@ -782,16 +707,9 @@ impl SpeechTtApp {
             .when(!is_file, |this| {
                 this.child(CaptionWell::new(transcript_committed, transcript_live))
             })
-            .child(
-                h_flex()
-                    .flex_1()
-                    .items_end()
-                    .justify_end()
-                    .child(controls),
-            )
+            .child(h_flex().flex_1().items_end().justify_end().child(controls))
             .into_any_element()
     }
-
 }
 
 /// The `?` (help/shortcuts) header button. Opens the Help dialog in its

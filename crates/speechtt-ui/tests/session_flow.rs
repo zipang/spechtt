@@ -1,202 +1,213 @@
-//! Session setup flow (headless, behavior only).
+//! Session setup and transport flow — pure view-model tests.
 //!
-//! Per PRODUCT.md §5 policy: assert transitions and screen changes found by
-//! stable ElementIds. Never assert labels, placement or pixels.
-//!
-//! Covers the two screens inferred for the Blank state (no mockup frame):
-//! the "New Session" prompt and the setup form.
+//! These tests drive [`SessionController`] directly. They never open a window,
+//! click elements or assert what the UI renders, so the widget screens remain
+//! free to be redesigned (elements moved, merged, replaced) without breaking
+//! the workflow contract. Rendering is covered only by the smoke test in
+//! `tests/widget.rs`.
 
-use gpui_kit::test::TestWindowExt;
-use gpui_kit::{AppContext as _, TestAppContext};
-use speechtt_core::session::SessionState;
+use speechtt_core::session::{OutputTarget, SessionField, SessionState};
+use speechtt_ui::controller::{SessionController, ViewState};
 
-mod common;
-
-use common::open_speechtt_window;
-
-/// Read the view's machine state through the test app context.
-fn state(
-    view: &gpui_kit::Entity<speechtt_ui::app::SpeechTtApp>,
-    cx: &mut TestAppContext,
-) -> SessionState {
-    cx.update(|cx| view.read(cx).session_state())
+/// A controller whose draft is complete except for `create_session`.
+fn complete_draft(output: OutputTarget) -> SessionController {
+    let mut controller = SessionController::new();
+    controller.open_form();
+    controller.cycle_provider();
+    controller.cycle_model();
+    controller.set_draft_output(output);
+    controller.set_draft_name("meeting notes");
+    controller
 }
 
-#[gpui_kit::test]
-fn blank_state_shows_the_new_session_prompt(cx: &mut TestAppContext) {
-    let (window, _view) = open_speechtt_window(cx);
+#[test]
+fn blank_state_shows_the_new_session_prompt() {
+    let controller = SessionController::new();
 
-    cx.update_window(window.into(), |_, window, cx| {
-        window.render_frame(cx);
-        assert!(window.try_find("blank-prompt").is_some());
-        assert!(window.try_find("btn-new-session").is_some());
-        // No transport until a session exists.
-        assert!(window.try_find("btn-record").is_none());
-    })
-    .unwrap();
+    assert_eq!(controller.view_state(), ViewState::Prompt);
+    assert_eq!(controller.session_state(), SessionState::Blank);
+    assert_eq!(
+        controller.session_missing(),
+        vec![
+            SessionField::Provider,
+            SessionField::Model,
+            SessionField::SessionName,
+            SessionField::Output,
+        ]
+    );
 }
 
-#[gpui_kit::test]
-fn clicking_new_session_opens_the_setup_form(cx: &mut TestAppContext) {
-    let (window, _view) = open_speechtt_window(cx);
+#[test]
+fn opening_the_form_switches_the_view_and_starts_an_empty_draft() {
+    let mut controller = SessionController::new();
+    controller.open_form();
 
-    cx.update_window(window.into(), |_, window, cx| {
-        window.click("btn-new-session", cx);
-        assert!(window.try_find("session-form").is_some());
-        assert!(window.try_find("btn-create-session").is_some());
-    })
-    .unwrap();
+    assert_eq!(controller.view_state(), ViewState::Form);
+    assert!(!controller.is_draft_complete());
+    assert_eq!(controller.session_state(), SessionState::Blank);
 }
 
-#[gpui_kit::test]
-fn cancelling_the_form_returns_to_the_prompt(cx: &mut TestAppContext) {
-    let (window, view) = open_speechtt_window(cx);
+#[test]
+fn cancelling_the_form_returns_to_the_prompt_and_discards_the_draft() {
+    let mut controller = SessionController::new();
+    controller.open_form();
+    controller.cycle_provider();
+    controller.set_draft_name("discarded");
+    assert!(controller.has_provider());
 
-    cx.update_window(window.into(), |_, window, cx| {
-        window.click("btn-new-session", cx);
-        window.click("btn-cancel-session", cx);
-        assert!(window.try_find("blank-prompt").is_some());
-    })
-    .unwrap();
+    controller.cancel_form();
 
-    assert_eq!(state(&view, cx), SessionState::Blank);
+    assert_eq!(controller.view_state(), ViewState::Prompt);
+    assert!(!controller.has_provider());
+    assert_eq!(controller.session_state(), SessionState::Blank);
 }
 
-#[gpui_kit::test]
-fn create_is_inert_until_every_required_field_is_set(cx: &mut TestAppContext) {
-    let (window, view) = open_speechtt_window(cx);
+#[test]
+fn create_is_inert_until_every_required_field_is_set() {
+    let mut controller = SessionController::new();
+    controller.open_form();
 
-    cx.update_window(window.into(), |_, window, cx| {
-        window.click("btn-new-session", cx);
+    // Nothing chosen yet.
+    assert!(!controller.create_session());
+    assert_eq!(controller.view_state(), ViewState::Form);
 
-        // Nothing chosen yet: click must not create a session.
-        window.click("btn-create-session", cx);
-        assert!(window.try_find("session-form").is_some());
+    // Partial setup (provider only) is still not enough.
+    controller.cycle_provider();
+    assert!(!controller.create_session());
+    assert_eq!(controller.view_state(), ViewState::Form);
 
-        // Partial setup (provider only) is still not enough.
-        window.click("field-provider", cx);
-        window.click("btn-create-session", cx);
-        assert!(window.try_find("session-form").is_some());
-    })
-    .unwrap();
+    // Everything but a name.
+    controller.cycle_model();
+    controller.set_draft_output(OutputTarget::Memory);
+    assert!(!controller.create_session());
+    assert_eq!(controller.view_state(), ViewState::Form);
 
-    assert_eq!(state(&view, cx), SessionState::Blank);
+    // Whitespace is not a name.
+    controller.set_draft_name("   ");
+    assert!(!controller.is_draft_complete());
+    assert!(!controller.create_session());
+    assert_eq!(controller.view_state(), ViewState::Form);
 }
 
-#[gpui_kit::test]
-fn completing_the_form_moves_the_machine_to_ready(cx: &mut TestAppContext) {
-    let (window, view) = open_speechtt_window(cx);
+#[test]
+fn completing_the_form_moves_the_machine_to_ready() {
+    let mut controller = complete_draft(OutputTarget::Memory);
 
-    cx.update_window(window.into(), |_, window, cx| {
-        window.click("btn-new-session", cx);
-        window.click("field-provider", cx);
-        window.click("field-model", cx);
-        window.click("field-output-memory", cx);
-        window.click("input-session-name", cx);
-        window.input("meeting notes", cx);
-        window.click("btn-create-session", cx);
+    assert!(controller.is_draft_complete());
+    assert!(controller.create_session());
 
-        // Form gone, Ready transport visible.
-        assert!(window.try_find("session-form").is_none());
-        assert!(window.try_find("btn-record").is_some());
-        assert!(view.read(cx).session_missing().is_empty());
-    })
-    .unwrap();
-
-    assert_eq!(state(&view, cx), SessionState::Ready);
+    assert_eq!(controller.view_state(), ViewState::Ready);
+    assert_eq!(controller.session_state(), SessionState::Ready);
+    assert!(controller.session_missing().is_empty());
 }
 
-#[gpui_kit::test]
-fn recording_pausing_finishing_memory_take(cx: &mut TestAppContext) {
-    let (window, view) = open_speechtt_window(cx);
+#[test]
+fn changing_the_provider_resets_the_dependent_model_choice() {
+    let mut controller = SessionController::new();
+    controller.open_form();
+    controller.cycle_provider();
+    controller.cycle_model();
+    assert!(controller.has_model());
 
-    cx.update_window(window.into(), |_, window, cx| {
-        // Configure a session.
-        window.click("btn-new-session", cx);
-        window.click("field-provider", cx);
-        window.click("field-model", cx);
-        window.click("field-output-memory", cx);
-        window.click("input-session-name", cx);
-        window.input("standup", cx);
-        window.click("btn-create-session", cx);
-        assert_eq!(view.read(cx).session_state(), SessionState::Ready);
+    controller.cycle_provider();
 
-        // Ready → Recording → Paused → Recording.
-        window.click("btn-record", cx);
-        assert_eq!(view.read(cx).session_state(), SessionState::Recording);
-        window.click("btn-pause", cx);
-        assert_eq!(view.read(cx).session_state(), SessionState::Paused);
-        window.click("btn-resume", cx);
-        assert_eq!(view.read(cx).session_state(), SessionState::Recording);
-
-        // Recording and Paused share the same two controls so the layout
-        // does not move: Play/Pause + Stop. Stop is inert while recording.
-        assert!(window.try_find("btn-pause").is_some());
-        assert!(window.try_find("btn-stop").is_some());
-        assert!(window.try_find("btn-copy").is_none());
-        assert!(window.try_find("btn-save").is_none());
-        window.click("btn-stop", cx);
-        assert_eq!(view.read(cx).session_state(), SessionState::Recording);
-
-        window.click("btn-pause", cx);
-        assert_eq!(view.read(cx).session_state(), SessionState::Paused);
-
-        // Paused: same row, Stop now live; copy/save wait for Stopped.
-        assert!(window.try_find("btn-resume").is_some());
-        assert!(window.try_find("btn-stop").is_some());
-        assert!(window.try_find("btn-copy").is_none());
-        assert!(window.try_find("btn-save").is_none());
-
-        // Finish (memory mode) → Stopped screen with copy/save.
-        window.click("btn-stop", cx);
-        assert_eq!(view.read(cx).session_state(), SessionState::Blank);
-        assert!(window.try_find("result-body").is_some());
-        assert!(window.try_find("btn-copy").is_some());
-        assert!(window.try_find("btn-save").is_some());
-        assert!(window.try_find("btn-open-file").is_none());
-
-        // New take returns to the Blank prompt (name + output required again).
-        window.click("btn-new-take", cx);
-        assert!(window.try_find("blank-prompt").is_some());
-        let missing_fields = view.read(cx).session_missing();
-        assert_eq!(
-            missing_fields,
-            vec![
-                speechtt_core::session::SessionField::SessionName,
-                speechtt_core::session::SessionField::Output,
-            ]
-        );
-    })
-    .unwrap();
+    assert!(!controller.has_model());
+    assert!(!controller.is_draft_complete());
 }
 
-#[gpui_kit::test]
-fn file_take_shows_only_the_path_and_an_open_file_control(cx: &mut TestAppContext) {
-    let (window, view) = open_speechtt_window(cx);
+#[test]
+fn recording_pauses_resumes_and_finishes_a_memory_take() {
+    let mut controller = complete_draft(OutputTarget::Memory);
+    assert!(controller.create_session());
 
-    cx.update_window(window.into(), |_, window, cx| {
-        // Configure a "to file" session named standup.
-        window.click("btn-new-session", cx);
-        window.click("field-provider", cx);
-        window.click("field-model", cx);
-        window.click("field-output-file", cx);
-        window.click("input-session-name", cx);
-        window.input("standup", cx);
-        window.click("btn-create-session", cx);
-        assert_eq!(view.read(cx).session_state(), SessionState::Ready);
+    assert!(controller.start_recording());
+    assert_eq!(controller.view_state(), ViewState::Recording);
 
-        window.click("btn-record", cx);
-        window.click("btn-pause", cx);
-        window.click("btn-stop", cx);
+    assert!(controller.pause_recording());
+    assert_eq!(controller.view_state(), ViewState::Paused);
 
-        // The Stopped screen for a file take shows the written path only:
-        // no transcript, no copy/save — just the way to open the file.
-        assert!(window.try_find("result-body").is_some());
-        assert!(window.try_find("result-path").is_some());
-        assert!(window.try_find("btn-open-file").is_some());
-        assert!(window.try_find("btn-copy").is_none());
-        assert!(window.try_find("btn-save").is_none());
-        assert!(window.try_find("caption-well").is_none());
-    })
-    .unwrap();
+    assert!(controller.resume_recording());
+    assert_eq!(controller.view_state(), ViewState::Recording);
+
+    assert!(controller.pause_recording());
+    assert!(controller.finish_take());
+
+    // The machine is Blank again, but the view still shows the finished take.
+    assert_eq!(controller.session_state(), SessionState::Blank);
+    assert_eq!(controller.view_state(), ViewState::Stopped);
+
+    let take = controller
+        .finished_take()
+        .expect("a finished take is shown");
+    assert_eq!(take.session().session_name, "meeting notes");
+    assert_eq!(take.session().output, OutputTarget::Memory);
+    assert!(!take.committed().is_empty());
+    assert!(!take.live().is_empty());
+}
+
+#[test]
+fn transport_actions_are_refused_in_the_wrong_view_state() {
+    let mut controller = SessionController::new();
+    assert!(!controller.start_recording());
+    assert!(!controller.pause_recording());
+    assert!(!controller.resume_recording());
+    assert!(!controller.finish_take());
+
+    let mut ready = complete_draft(OutputTarget::Memory);
+    ready.create_session();
+    assert!(!ready.pause_recording());
+    assert!(!ready.resume_recording());
+    assert!(!ready.finish_take());
+}
+
+#[test]
+fn a_file_take_records_the_default_path_for_its_name() {
+    let mut controller = complete_draft(OutputTarget::File(String::new()));
+    assert!(controller.create_session());
+
+    controller.start_recording();
+    controller.pause_recording();
+    assert!(controller.finish_take());
+
+    let take = controller
+        .finished_take()
+        .expect("a finished take is shown");
+    assert_eq!(
+        take.session().output,
+        OutputTarget::File("~/Documents/meeting notes.md".into())
+    );
+}
+
+#[test]
+fn a_new_take_returns_to_the_prompt_and_requires_a_name_and_output() {
+    let mut controller = complete_draft(OutputTarget::Memory);
+    controller.create_session();
+    controller.start_recording();
+    controller.pause_recording();
+    controller.finish_take();
+
+    controller.new_take();
+
+    assert_eq!(controller.view_state(), ViewState::Prompt);
+    assert!(controller.finished_take().is_none());
+    assert_eq!(controller.session_state(), SessionState::Blank);
+    // Source, provider and model persist; the next take must be named.
+    assert_eq!(
+        controller.session_missing(),
+        vec![SessionField::SessionName, SessionField::Output]
+    );
+}
+
+#[test]
+fn setup_changes_are_frozen_while_a_take_is_active() {
+    let mut controller = complete_draft(OutputTarget::Memory);
+    controller.create_session();
+    controller.start_recording();
+
+    // The form is unreachable from the transport screens; the controller's
+    // draft is independent of the frozen machine configuration.
+    controller.cycle_provider();
+    controller.set_draft_name("renamed");
+    assert_eq!(controller.view_state(), ViewState::Recording);
+    assert_eq!(controller.session_missing(), Vec::<SessionField>::new());
 }
