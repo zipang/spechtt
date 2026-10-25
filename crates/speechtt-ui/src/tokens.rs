@@ -81,6 +81,17 @@ pub mod font {
     pub const TWO_XL: f32 = 31.25;
 }
 
+/// The same typographic scale expressed in `rem`, for builders that resolve
+/// against the window's rem size (`rems(rem::SM)`) so type follows theme zoom.
+pub mod rem {
+    pub const XS: f32 = 0.64;
+    pub const SM: f32 = 0.8;
+    pub const MD: f32 = 1.0;
+    pub const LG: f32 = 1.25;
+    pub const XL: f32 = 1.5625;
+    pub const TWO_XL: f32 = 1.953125;
+}
+
 /// Window dimensions of the widget (mockups: 480×280).
 pub const WIDGET_WIDTH: f32 = 480.0;
 pub const WIDGET_HEIGHT: f32 = 280.0;

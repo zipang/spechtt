@@ -22,7 +22,7 @@ use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _};
 use gpui_kit::prelude::*;
-use gpui_kit::{Context, Entity, FontWeight, Hsla, Subscription, Window, div, px, rgb};
+use gpui_kit::{Context, Entity, FontWeight, Hsla, Subscription, Window, div, px, rems, rgb};
 use speechtt_core::session::{OutputTarget, SessionField, SessionState};
 
 use crate::components::{BadgeTone, CaptionWell, ElapsedTimer, StatusBadge, Waveform};
@@ -30,7 +30,7 @@ use crate::controller::{
     FinishedTake, MOCK_BARS, MOCK_COMMITTED, MOCK_ELAPSED_SECONDS, MOCK_LIVE, SessionController,
     ViewState,
 };
-use crate::tokens::{color, font, radius};
+use crate::tokens::{color, radius, rem};
 
 /// Application title shown in the header strip.
 pub const APP_TITLE: &str = "SpeechTT";
@@ -206,8 +206,11 @@ impl gpui_kit::Render for SpeechTtApp {
             .child(
                 v_flex()
                     .flex_1()
-                    .px(px(20.))
-                    .py(px(10.))
+                    .min_h_0()
+                    .w_full()
+                    .overflow_hidden()
+                    .px_5()
+                    .py_2p5()
                     .justify_between()
                     .child(match self.view_state() {
                         ViewState::Prompt => self.render_prompt(cx).into_any_element(),
@@ -293,6 +296,8 @@ impl SpeechTtApp {
     fn render_prompt(&mut self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         v_flex()
             .id("blank-prompt")
+            .size_full()
+            .min_h_0()
             .items_center()
             .gap_4()
             .child(StatusBadge::new("NO SESSION"))
@@ -308,13 +313,13 @@ impl SpeechTtApp {
                     .gap_1()
                     .child(
                         div()
-                            .text_size(px(font::LG))
+                            .text_size(rems(rem::LG))
                             .font_weight(FontWeight::MEDIUM)
                             .child("New Session"),
                     )
                     .child(
                         div()
-                            .text_size(px(font::SM))
+                            .text_size(rems(rem::SM))
                             .text_color(cx.theme().muted_foreground)
                             .child("Choose a service, model and output"),
                     ),
@@ -335,17 +340,26 @@ impl SpeechTtApp {
             .gap_3()
             .child(
                 v_flex()
-                    .gap(px(2.))
+                    .flex_shrink_1()
+                    .min_w_0()
+                    .gap_0p5()
                     .child(
                         div()
-                            .text_size(px(font::XS))
+                            .text_size(rems(rem::XS))
                             .font_weight(FontWeight::BOLD)
                             .text_color(cx.theme().muted_foreground)
                             .child(label),
                     )
-                    .child(div().text_size(px(font::SM)).child(help)),
+                    .child(div().text_size(rems(rem::SM)).child(help)),
             )
-            .child(control)
+            .child(
+                h_flex()
+                    .flex_1()
+                    .min_w(rems(8.0))
+                    .max_w(rems(18.0))
+                    .justify_end()
+                    .child(control),
+            )
             .into_any_element()
     }
 
@@ -370,7 +384,7 @@ impl SpeechTtApp {
             .rounded(px(radius::SM))
             .bg(bg)
             .text_color(fg)
-            .text_size(px(font::SM))
+            .text_size(rems(rem::SM))
             .cursor_pointer()
             .hover(|this| this.bg(cx.theme().secondary_hover))
             .on_click(listener)
@@ -425,9 +439,10 @@ impl SpeechTtApp {
         v_flex()
             .id("session-form")
             .size_full()
+            .min_h_0()
             // Compact: the 480×280 widget body must fit pill + 4 rows +
             // footer without clipping.
-            .gap_1()
+            .gap_0p5()
             .child(StatusBadge::accent(
                 "NEW SESSION",
                 rgb(color::BRAND_ACCENT).into(),
@@ -445,7 +460,7 @@ impl SpeechTtApp {
                     "Names this take and its default file",
                     Input::new(&self.session_name)
                         .id("input-session-name")
-                        .w(px(200.)),
+                        .w_full(),
                     cx,
                 ),
             )
@@ -466,7 +481,7 @@ impl SpeechTtApp {
                             .py_1()
                             .rounded(px(radius::SM))
                             .bg(cx.theme().secondary)
-                            .text_size(px(font::SM))
+                            .text_size(rems(rem::SM))
                             .cursor_pointer()
                             .hover(|this| this.bg(cx.theme().secondary_hover))
                             .on_click(
@@ -484,7 +499,7 @@ impl SpeechTtApp {
                             .rounded(px(radius::SM))
                             .bg(cx.theme().primary)
                             .text_color(cx.theme().primary_foreground)
-                            .text_size(px(font::SM))
+                            .text_size(rems(rem::SM))
                             .font_weight(FontWeight::MEDIUM)
                             .when(can_create, |this| this.cursor_pointer())
                             .opacity(if can_create { 1.0 } else { 0.4 })
@@ -500,6 +515,7 @@ impl SpeechTtApp {
     fn render_ready(&mut self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         v_flex()
             .size_full()
+            .min_h_0()
             .gap_2()
             .child(StatusBadge::tone("READY", BadgeTone::Ready))
             .child(
@@ -516,7 +532,7 @@ impl SpeechTtApp {
                     ))
                     .child(
                         div()
-                            .text_size(px(font::SM))
+                            .text_size(rems(rem::SM))
                             .text_color(cx.theme().muted_foreground)
                             .child("Press to start dictating"),
                     ),
@@ -527,6 +543,7 @@ impl SpeechTtApp {
     fn render_recording(&mut self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         v_flex()
             .size_full()
+            .min_h_0()
             .gap_1()
             .child(
                 h_flex()
@@ -541,10 +558,10 @@ impl SpeechTtApp {
             // the take, Stop stays disabled until the take is paused.
             .child(
                 h_flex()
-                    .flex_1()
+                    .flex_shrink_0()
                     .items_center()
                     .justify_center()
-                    .gap(px(24.))
+                    .gap_6()
                     .child(self.primary_circle(
                         "btn-pause",
                         IconName::Pause,
@@ -559,6 +576,7 @@ impl SpeechTtApp {
     fn render_paused(&mut self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         v_flex()
             .size_full()
+            .min_h_0()
             .gap_1()
             .child(
                 h_flex()
@@ -571,10 +589,10 @@ impl SpeechTtApp {
             .child(CaptionWell::new(MOCK_COMMITTED, MOCK_LIVE))
             .child(
                 h_flex()
-                    .flex_1()
+                    .flex_shrink_0()
                     .items_center()
                     .justify_center()
-                    .gap(px(24.))
+                    .gap_6()
                     .child(self.circle_action(
                         "btn-resume",
                         IconName::Play,
@@ -659,6 +677,7 @@ impl SpeechTtApp {
         v_flex()
             .id("result-body")
             .size_full()
+            .min_h_0()
             .gap_2()
             .child(
                 h_flex()
@@ -672,7 +691,7 @@ impl SpeechTtApp {
                             .py_1()
                             .rounded(px(radius::SM))
                             .bg(cx.theme().secondary)
-                            .text_size(px(font::SM))
+                            .text_size(rems(rem::SM))
                             .cursor_pointer()
                             .hover(|this| this.bg(cx.theme().secondary_hover))
                             .on_click(cx.listener(|this, _event, _window, cx| this.new_take(cx)))
@@ -683,13 +702,13 @@ impl SpeechTtApp {
                 this.child(
                     v_flex()
                         .gap_1()
-                        .px(px(14.))
-                        .py(px(8.))
+                        .px_3p5()
+                        .py_2()
                         .rounded(px(radius::MD))
                         .bg(cx.theme().popover)
                         .child(
                             div()
-                                .text_size(px(font::XS))
+                                .text_size(rems(rem::XS))
                                 .font_weight(FontWeight::BOLD)
                                 .text_color(cx.theme().muted_foreground)
                                 .child("TRANSCRIPT WRITTEN TO"),
@@ -698,7 +717,7 @@ impl SpeechTtApp {
                             div()
                                 .id("result-path")
                                 .font_family(cx.theme().mono_font_family.clone())
-                                .text_size(px(font::SM))
+                                .text_size(rems(rem::SM))
                                 .text_color(cx.theme().foreground)
                                 .child(path),
                         ),

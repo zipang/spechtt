@@ -54,3 +54,20 @@ pub fn open_speechtt_window(
         cx.new(|cx| speechtt_ui::app::SpeechTtApp::new(window, cx))
     })
 }
+
+/// Opens the real SpeechTT widget window at an explicit size, for adaptive
+/// layout smoke tests.
+pub fn open_speechtt_window_at(
+    cx: &mut TestAppContext,
+    width: f32,
+    height: f32,
+) -> (WindowHandle<Root>, Entity<speechtt_ui::app::SpeechTtApp>) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        speechtt_ui::theme::apply(cx);
+    });
+    open_window(cx, Some(size(px(width), px(height))), |window, cx| {
+        window.set_window_title(speechtt_ui::app::APP_TITLE);
+        cx.new(|cx| speechtt_ui::app::SpeechTtApp::new(window, cx))
+    })
+}

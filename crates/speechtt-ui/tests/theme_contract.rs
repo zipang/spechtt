@@ -11,7 +11,7 @@ use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::Theme;
 use gpui_kit::{Hsla, Rgba, TestAppContext, px, rgb};
 
-use speechtt_ui::tokens::{color, font, radius, space};
+use speechtt_ui::tokens::{color, font, radius, rem, space};
 
 /// Layer 1 — the tokens module mirrors `design-tokens.css` (hard literals).
 #[test]
@@ -54,6 +54,18 @@ fn token_constants_mirror_design_tokens_css() {
             font::TWO_XL
         ),
         (10.24, 12.8, 16.0, 20.0, 25.0, 31.25)
+    );
+    // The rem mirror must stay the px scale divided by the 16px anchor.
+    assert_eq!(
+        (rem::XS, rem::SM, rem::MD, rem::LG, rem::XL, rem::TWO_XL),
+        (
+            font::XS / 16.0,
+            font::SM / 16.0,
+            font::MD / 16.0,
+            font::LG / 16.0,
+            font::XL / 16.0,
+            font::TWO_XL / 16.0
+        )
     );
 }
 
