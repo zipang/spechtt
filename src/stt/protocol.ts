@@ -1,0 +1,227 @@
+/**
+ * NDJSON wire protocol shared with `crates/speechtt-core/src/protocol.rs`.
+ *
+ * `stdin` carries `InboundCommand` lines (Rust -> Bun) and `stdout` carries
+ * `OutboundEvent` lines (Bun -> Rust). Every message is one JSON object
+ * terminated by `\n`. Nothing in this module may write to `stdout`.
+ */
+
+export type SttErrorCode =
+	| "invalid_protocol"
+	| "missing_api_key"
+	| "unsupported_provider"
+	| "stream_failed"
+	| "aborted";
+
+export interface StartCommand {
+	type: "start";
+	sessionId: string;
+	provider: string;
+	model: string;
+	sampleRate: number;
+	apiKey?: string;
+}
+
+export interface AudioCommand {
+	type: "audio";
+	pcm16Base64: string;
+}
+
+export interface PauseCommand {
+	type: "pause";
+}
+
+export interface ResumeCommand {
+	type: "resume";
+}
+
+export interface StopCommand {
+	type: "stop";
+}
+
+export type InboundCommand =
+	| StartCommand
+	| AudioCommand
+	| PauseCommand
+	| ResumeCommand
+	| StopCommand;
+
+export interface ReadyEvent {
+	type: "ready";
+}
+
+export interface StartedEvent {
+	type: "started";
+	sessionId: string;
+}
+
+export interface PartialEvent {
+	type: "partial";
+	sessionId: string;
+	text: string;
+}
+
+export interface DeltaEvent {
+	type: "delta";
+	sessionId: string;
+	delta: string;
+}
+
+export interface CommittedEvent {
+	type: "committed";
+	sessionId: string;
+	text: string;
+}
+
+export interface StoppedEvent {
+	type: "stopped";
+	sessionId: string;
+	fullText: string;
+}
+
+export interface ErrorEvent {
+	type: "error";
+	sessionId?: string;
+	code: SttErrorCode;
+	message: string;
+}
+
+export type OutboundEvent =
+	| ReadyEvent
+	| StartedEvent
+	| PartialEvent
+	| DeltaEvent
+	| CommittedEvent
+	| StoppedEvent
+	| ErrorEvent;
+
+export type ParseInboundResult =
+	| { ok: true; command: InboundCommand }
+	| { ok: false; code: "invalid_protocol"; message: string };
+
+const BASE64_PATTERN = /^[A-Za-z0-9+/]*={0,2}$/;
+
+function invalid(message: string): ParseInboundResult {
+	return { ok: false, code: "invalid_protocol", message };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+	return typeof value === "string" && value.length > 0;
+}
+
+function isBase64(value: unknown): value is string {
+	return (
+		typeof value === "string" &&
+		value.length % 4 === 0 &&
+		BASE64_PATTERN.test(value)
+	);
+}
+
+function parseStart(payload: Record<string, unknown>): ParseInboundResult {
+	if (!isNonEmptyString(payload.sessionId)) {
+		return invalid("start.sessionId must be a non-empty string");
+	}
+	if (!isNonEmptyString(payload.provider)) {
+		return invalid("start.provider must be a non-empty string");
+	}
+	if (!isNonEmptyString(payload.model)) {
+		return invalid("start.model must be a non-empty string");
+	}
+	if (
+		typeof payload.sampleRate !== "number" ||
+		!Number.isInteger(payload.sampleRate) ||
+		payload.sampleRate <= 0
+	) {
+		return invalid("start.sampleRate must be a positive integer");
+	}
+	if (payload.apiKey !== undefined && typeof payload.apiKey !== "string") {
+		return invalid("start.apiKey must be a string when present");
+	}
+
+	const command: StartCommand = {
+		type: "start",
+		sessionId: payload.sessionId,
+		provider: payload.provider,
+		model: payload.model,
+		sampleRate: payload.sampleRate,
+	};
+	if (typeof payload.apiKey === "string") {
+		command.apiKey = payload.apiKey;
+	}
+	return { ok: true, command };
+}
+
+/**
+ * Parses one NDJSON line into a validated command. Malformed input never
+ * throws: callers translate `invalid_protocol` into an `error` event and keep
+ * reading the next line.
+ */
+export function parseInboundLine(line: string): ParseInboundResult {
+	const trimmed = line.trim();
+	if (trimmed.length === 0) {
+		return invalid("Empty command line");
+	}
+
+	let payload: unknown;
+	try {
+		payload = JSON.parse(trimmed);
+	} catch {
+		// Never echo the raw line: it may contain an API key.
+		return invalid("Invalid JSON payload");
+	}
+
+	if (!isRecord(payload)) {
+		return invalid("Command must be a JSON object");
+	}
+
+	switch (payload.type) {
+		case "start":
+			return parseStart(payload);
+
+		case "audio":
+			if (!isBase64(payload.pcm16Base64)) {
+				return invalid("audio.pcm16Base64 must be a base64 string");
+			}
+			return {
+				ok: true,
+				command: { type: "audio", pcm16Base64: payload.pcm16Base64 },
+			};
+
+		case "pause":
+			return { ok: true, command: { type: "pause" } };
+
+		case "resume":
+			return { ok: true, command: { type: "resume" } };
+
+		case "stop":
+			return { ok: true, command: { type: "stop" } };
+
+		default:
+			return invalid(
+				typeof payload.type === "string"
+					? `Unknown command type: ${payload.type}`
+					: "Missing command type",
+			);
+	}
+}
+
+/** Serializes an outbound event as one NDJSON line. */
+export function serializeOutboundEvent(event: OutboundEvent): string {
+	return `${JSON.stringify(event)}\n`;
+}
+
+/**
+ * Returns a copy of `command` safe for diagnostics. A `start` API key is
+ * replaced with `"[REDACTED]"`; all other commands pass through unchanged.
+ */
+export function redactCommand(command: InboundCommand): InboundCommand {
+	if (command.type !== "start" || command.apiKey === undefined) {
+		return command;
+	}
+
+	return { ...command, apiKey: "[REDACTED]" };
+}

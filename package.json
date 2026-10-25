@@ -8,6 +8,7 @@
     "fmt": "bun fmt",
     "lint": "bun lint",
     "test": "bun test",
+    "stt:worker": "bun run src/stt/worker.ts",
     "design:validate": "bun scripts/validate-design.ts",
     "design:contrast": "bun scripts/sync-contrast.ts",
     "ui": "cargo run -p speechtt-ui",
@@ -15,6 +16,14 @@
     "ui:test": "cargo test -p speechtt-ui"
   },
   "devDependencies": {
-    "@applied-design-systems/design-tokens": "file:vendor/design-tokens"
+    "@applied-design-systems/design-tokens": "file:vendor/design-tokens",
+    "@types/bun": "^1.4.4"
+  },
+  "dependencies": {
+    "@ai-sdk/elevenlabs": "^3.0.71",
+    "@ai-sdk/mistral": "^4.0.72",
+    "@ai-sdk/openai": "^4.0.102",
+    "@ai-sdk/xai": "^5.0.30",
+    "ai": "^7.0.153"
   }
 }
