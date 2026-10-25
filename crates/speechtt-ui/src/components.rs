@@ -7,11 +7,12 @@
 //! Behavior lives in `app.rs` / `speechtt-core`; these components render
 //! what they are given (bars, seconds, text).
 
-use gpui_kit::base::{h_flex, v_flex};
+use gpui_kit::base::h_flex;
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::prelude::*;
 use gpui_kit::{App, FontWeight, Hsla, IntoElement, RenderOnce, Window, div, px, relative, rems};
 
+use crate::layout::SurfaceBox;
 use crate::tokens::{color, radius, rem};
 
 /// Which transport state a badge describes.
@@ -203,17 +204,9 @@ impl RenderOnce for CaptionWell {
         let mono = cx.theme().mono_font_family.clone();
         let text_size = rems(rem::SM);
 
-        v_flex()
-            .id("caption-well")
-            .w_full()
+        SurfaceBox::new()
             .flex_1()
-            .min_h_0()
-            .overflow_y_hidden()
-            .gap_1()
-            .px_3p5()
-            .py_2()
-            .rounded(px(radius::MD))
-            .bg(cx.theme().popover)
+            .clip()
             .child(
                 div()
                     .font_family(mono.clone())

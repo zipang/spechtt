@@ -30,6 +30,7 @@ use crate::controller::{
     FinishedTake, MOCK_BARS, MOCK_COMMITTED, MOCK_ELAPSED_SECONDS, MOCK_LIVE, SessionController,
     ViewState,
 };
+use crate::layout::{ScreenShell, SurfaceBox};
 use crate::tokens::{color, radius, rem};
 
 /// Application title shown in the header strip.
@@ -294,20 +295,15 @@ impl SpeechTtApp {
     }
 
     fn render_prompt(&mut self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
-        v_flex()
-            .id("blank-prompt")
-            .size_full()
-            .min_h_0()
-            .items_center()
-            .gap_4()
-            .child(StatusBadge::new("NO SESSION"))
-            .child(self.primary_circle(
-                "btn-new-session",
-                IconName::Plus,
-                cx,
-                |this, window, cx| this.open_form(window, cx),
-            ))
-            .child(
+        ScreenShell::new(StatusBadge::new("NO SESSION"))
+            .centered()
+            .body_gap(rems(1.0))
+            .body(
+                self.primary_circle("btn-new-session", IconName::Plus, cx, |this, window, cx| {
+                    this.open_form(window, cx)
+                }),
+            )
+            .body(
                 v_flex()
                     .items_center()
                     .gap_1()
@@ -436,129 +432,105 @@ impl SpeechTtApp {
             |this, cx| this.select_output(OutputTarget::File(String::new()), cx),
         );
 
-        v_flex()
-            .id("session-form")
-            .size_full()
-            .min_h_0()
-            // Compact: the 480×280 widget body must fit pill + 4 rows +
-            // footer without clipping.
-            .gap_0p5()
-            .child(StatusBadge::accent(
-                "NEW SESSION",
-                rgb(color::BRAND_ACCENT).into(),
-            ))
-            .child(self.form_row(
-                "TRANSCRIPTION SERVICE",
-                "Which engine transcribes your voice",
-                provider_pill,
+        // Compact: the 480×280 widget body must fit pill + 4 rows +
+        // footer without clipping.
+        ScreenShell::new(StatusBadge::accent(
+            "NEW SESSION",
+            rgb(color::BRAND_ACCENT).into(),
+        ))
+        .gap(rems(0.125))
+        .body_gap(rems(0.125))
+        .body(self.form_row(
+            "TRANSCRIPTION SERVICE",
+            "Which engine transcribes your voice",
+            provider_pill,
+            cx,
+        ))
+        .body(self.form_row("MODEL", "Used for this session", model_pill, cx))
+        .body(
+            self.form_row(
+                "SESSION TITLE",
+                "Names this take and its default file",
+                Input::new(&self.session_name)
+                    .id("input-session-name")
+                    .w_full(),
                 cx,
-            ))
-            .child(self.form_row("MODEL", "Used for this session", model_pill, cx))
-            .child(
-                self.form_row(
-                    "SESSION TITLE",
-                    "Names this take and its default file",
-                    Input::new(&self.session_name)
-                        .id("input-session-name")
-                        .w_full(),
-                    cx,
+            ),
+        )
+        .body(self.form_row(
+            "OUTPUT",
+            "Keep it in the app or write a file",
+            h_flex().gap_1().child(memory_pill).child(file_pill),
+            cx,
+        ))
+        .body(
+            h_flex()
+                .justify_end()
+                .gap_2()
+                .child(
+                    div()
+                        .id("btn-cancel-session")
+                        .px_3()
+                        .py_1()
+                        .rounded(px(radius::SM))
+                        .bg(cx.theme().secondary)
+                        .text_size(rems(rem::SM))
+                        .cursor_pointer()
+                        .hover(|this| this.bg(cx.theme().secondary_hover))
+                        .on_click(
+                            cx.listener(|this, _event, window, cx| this.cancel_form(window, cx)),
+                        )
+                        .child("Cancel"),
+                )
+                .child(
+                    div()
+                        .id("btn-create-session")
+                        .px_3()
+                        .py_1()
+                        .rounded(px(radius::SM))
+                        .bg(cx.theme().primary)
+                        .text_color(cx.theme().primary_foreground)
+                        .text_size(rems(rem::SM))
+                        .font_weight(FontWeight::MEDIUM)
+                        .when(can_create, |this| this.cursor_pointer())
+                        .opacity(if can_create { 1.0 } else { 0.4 })
+                        .on_click(cx.listener(|this, _event, _window, cx| this.create_session(cx)))
+                        .child("Create session"),
                 ),
-            )
-            .child(self.form_row(
-                "OUTPUT",
-                "Keep it in the app or write a file",
-                h_flex().gap_1().child(memory_pill).child(file_pill),
-                cx,
-            ))
-            .child(
-                h_flex()
-                    .justify_end()
-                    .gap_2()
-                    .child(
-                        div()
-                            .id("btn-cancel-session")
-                            .px_3()
-                            .py_1()
-                            .rounded(px(radius::SM))
-                            .bg(cx.theme().secondary)
-                            .text_size(rems(rem::SM))
-                            .cursor_pointer()
-                            .hover(|this| this.bg(cx.theme().secondary_hover))
-                            .on_click(
-                                cx.listener(|this, _event, window, cx| {
-                                    this.cancel_form(window, cx)
-                                }),
-                            )
-                            .child("Cancel"),
-                    )
-                    .child(
-                        div()
-                            .id("btn-create-session")
-                            .px_3()
-                            .py_1()
-                            .rounded(px(radius::SM))
-                            .bg(cx.theme().primary)
-                            .text_color(cx.theme().primary_foreground)
-                            .text_size(rems(rem::SM))
-                            .font_weight(FontWeight::MEDIUM)
-                            .when(can_create, |this| this.cursor_pointer())
-                            .opacity(if can_create { 1.0 } else { 0.4 })
-                            .on_click(
-                                cx.listener(|this, _event, _window, cx| this.create_session(cx)),
-                            )
-                            .child("Create session"),
-                    ),
-            )
-            .into_any_element()
+        )
+        .into_any_element()
     }
 
     fn render_ready(&mut self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
-        v_flex()
-            .size_full()
-            .min_h_0()
-            .gap_2()
-            .child(StatusBadge::tone("READY", BadgeTone::Ready))
-            .child(
-                v_flex()
-                    .flex_1()
-                    .items_center()
-                    .justify_center()
-                    .gap_4()
-                    .child(self.primary_circle(
-                        "btn-record",
-                        IconName::Mic,
-                        cx,
-                        |this, _window, cx| this.start_recording(cx),
-                    ))
-                    .child(
-                        div()
-                            .text_size(rems(rem::SM))
-                            .text_color(cx.theme().muted_foreground)
-                            .child("Press to start dictating"),
-                    ),
+        ScreenShell::new(StatusBadge::tone("READY", BadgeTone::Ready))
+            .centered()
+            .gap(rems(0.5))
+            .body_gap(rems(1.0))
+            .body(
+                self.primary_circle("btn-record", IconName::Mic, cx, |this, _window, cx| {
+                    this.start_recording(cx)
+                }),
+            )
+            .body(
+                div()
+                    .text_size(rems(rem::SM))
+                    .text_color(cx.theme().muted_foreground)
+                    .child("Press to start dictating"),
             )
             .into_any_element()
     }
 
     fn render_recording(&mut self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
-        v_flex()
-            .size_full()
-            .min_h_0()
-            .gap_1()
-            .child(
-                h_flex()
-                    .justify_between()
-                    .items_center()
-                    .child(StatusBadge::tone("RECORDING", BadgeTone::Recording))
-                    .child(ElapsedTimer::new(MOCK_ELAPSED_SECONDS)),
-            )
-            .child(Waveform::new(MOCK_BARS, true))
-            .child(CaptionWell::new(MOCK_COMMITTED, MOCK_LIVE))
+        ScreenShell::new(StatusBadge::tone("RECORDING", BadgeTone::Recording))
+            .header_trailing(ElapsedTimer::new(MOCK_ELAPSED_SECONDS))
+            .gap(rems(0.25))
+            .body_gap(rems(0.25))
+            .body(Waveform::new(MOCK_BARS, true))
+            .body(CaptionWell::new(MOCK_COMMITTED, MOCK_LIVE))
             // Same two controls as Paused (layout stays put): Pause toggles
             // the take, Stop stays disabled until the take is paused.
-            .child(
+            .footer(
                 h_flex()
-                    .flex_shrink_0()
                     .items_center()
                     .justify_center()
                     .gap_6()
@@ -574,22 +546,14 @@ impl SpeechTtApp {
     }
 
     fn render_paused(&mut self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
-        v_flex()
-            .size_full()
-            .min_h_0()
-            .gap_1()
-            .child(
+        ScreenShell::new(StatusBadge::tone("PAUSED", BadgeTone::Paused))
+            .header_trailing(ElapsedTimer::new(MOCK_ELAPSED_SECONDS))
+            .gap(rems(0.25))
+            .body_gap(rems(0.25))
+            .body(Waveform::new(MOCK_BARS, false))
+            .body(CaptionWell::new(MOCK_COMMITTED, MOCK_LIVE))
+            .footer(
                 h_flex()
-                    .justify_between()
-                    .items_center()
-                    .child(StatusBadge::tone("PAUSED", BadgeTone::Paused))
-                    .child(ElapsedTimer::new(MOCK_ELAPSED_SECONDS)),
-            )
-            .child(Waveform::new(MOCK_BARS, false))
-            .child(CaptionWell::new(MOCK_COMMITTED, MOCK_LIVE))
-            .child(
-                h_flex()
-                    .flex_shrink_0()
                     .items_center()
                     .justify_center()
                     .gap_6()
@@ -674,59 +638,46 @@ impl SpeechTtApp {
                 ))
         };
 
-        v_flex()
-            .id("result-body")
-            .size_full()
-            .min_h_0()
-            .gap_2()
-            .child(
-                h_flex()
-                    .justify_between()
-                    .items_center()
-                    .child(StatusBadge::new("STOPPED"))
-                    .child(
-                        div()
-                            .id("btn-new-take")
-                            .px_3()
-                            .py_1()
-                            .rounded(px(radius::SM))
-                            .bg(cx.theme().secondary)
-                            .text_size(rems(rem::SM))
-                            .cursor_pointer()
-                            .hover(|this| this.bg(cx.theme().secondary_hover))
-                            .on_click(cx.listener(|this, _event, _window, cx| this.new_take(cx)))
-                            .child("New take"),
-                    ),
-            )
-            .when(is_file, |this| {
-                this.child(
-                    v_flex()
-                        .gap_1()
-                        .px_3p5()
-                        .py_2()
-                        .rounded(px(radius::MD))
-                        .bg(cx.theme().popover)
-                        .child(
-                            div()
-                                .text_size(rems(rem::XS))
-                                .font_weight(FontWeight::BOLD)
-                                .text_color(cx.theme().muted_foreground)
-                                .child("TRANSCRIPT WRITTEN TO"),
-                        )
-                        .child(
-                            div()
-                                .id("result-path")
-                                .font_family(cx.theme().mono_font_family.clone())
-                                .text_size(rems(rem::SM))
-                                .text_color(cx.theme().foreground)
-                                .child(path),
-                        ),
+        let body = if is_file {
+            SurfaceBox::new()
+                .child(
+                    div()
+                        .text_size(rems(rem::XS))
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(cx.theme().muted_foreground)
+                        .child("TRANSCRIPT WRITTEN TO"),
                 )
-            })
-            .when(!is_file, |this| {
-                this.child(CaptionWell::new(transcript_committed, transcript_live))
-            })
-            .child(h_flex().flex_1().items_end().justify_end().child(controls))
+                .child(
+                    div()
+                        .id("result-path")
+                        .font_family(cx.theme().mono_font_family.clone())
+                        .text_size(rems(rem::SM))
+                        .text_color(cx.theme().foreground)
+                        .child(path),
+                )
+                .into_any_element()
+        } else {
+            CaptionWell::new(transcript_committed, transcript_live).into_any_element()
+        };
+
+        ScreenShell::new(StatusBadge::new("STOPPED"))
+            .header_trailing(
+                div()
+                    .id("btn-new-take")
+                    .px_3()
+                    .py_1()
+                    .rounded(px(radius::SM))
+                    .bg(cx.theme().secondary)
+                    .text_size(rems(rem::SM))
+                    .cursor_pointer()
+                    .hover(|this| this.bg(cx.theme().secondary_hover))
+                    .on_click(cx.listener(|this, _event, _window, cx| this.new_take(cx)))
+                    .child("New take"),
+            )
+            .gap(rems(0.5))
+            .body_gap(rems(0.5))
+            .body(body)
+            .footer(h_flex().items_end().justify_end().child(controls))
             .into_any_element()
     }
 }
