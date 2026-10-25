@@ -28,8 +28,8 @@ pub(crate) fn render_stopped(app: &mut SpeechTtApp, cx: &mut Context<SpeechTtApp
         (
             is_file,
             path,
-            result.committed().to_string(),
-            result.live().to_string(),
+            result.committed().clone(),
+            result.live().clone(),
         )
     };
 

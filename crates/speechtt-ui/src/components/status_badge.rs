@@ -3,7 +3,9 @@
 use gpui_kit::base::h_flex;
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::prelude::*;
-use gpui_kit::{App, FontWeight, Hsla, IntoElement, RenderOnce, Window, div, px, rems};
+use gpui_kit::{
+    App, FontWeight, Hsla, IntoElement, RenderOnce, SharedString, Window, div, px, rems,
+};
 
 use crate::tokens::{color, radius, rem};
 
@@ -35,32 +37,32 @@ impl BadgeTone {
 /// Uppercase state pill from the mockups.
 #[derive(IntoElement)]
 pub struct StatusBadge {
-    label: &'static str,
+    label: SharedString,
     tone: Option<BadgeTone>,
     accent: Option<Hsla>,
 }
 
 impl StatusBadge {
-    pub fn new(label: &'static str) -> Self {
+    pub fn new(label: impl Into<SharedString>) -> Self {
         Self {
-            label,
+            label: label.into(),
             tone: None,
             accent: None,
         }
     }
 
-    pub fn tone(label: &'static str, tone: BadgeTone) -> Self {
+    pub fn tone(label: impl Into<SharedString>, tone: BadgeTone) -> Self {
         Self {
-            label,
+            label: label.into(),
             tone: Some(tone),
             accent: None,
         }
     }
 
     /// For setup screens: a brand-colored dot without a transport tone.
-    pub fn accent(label: &'static str, dot: Hsla) -> Self {
+    pub fn accent(label: impl Into<SharedString>, dot: Hsla) -> Self {
         Self {
-            label,
+            label: label.into(),
             tone: None,
             accent: Some(dot),
         }

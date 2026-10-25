@@ -6,19 +6,19 @@
 
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::prelude::*;
-use gpui_kit::{App, IntoElement, RenderOnce, Window, div, rems};
+use gpui_kit::{App, IntoElement, RenderOnce, SharedString, Window, div, rems};
 
 use crate::layout::SurfaceBox;
 use crate::tokens::{color, rem};
 
 #[derive(IntoElement)]
 pub struct CaptionWell {
-    committed: String,
-    live: String,
+    committed: SharedString,
+    live: SharedString,
 }
 
 impl CaptionWell {
-    pub fn new(committed: impl Into<String>, live: impl Into<String>) -> Self {
+    pub fn new(committed: impl Into<SharedString>, live: impl Into<SharedString>) -> Self {
         Self {
             committed: committed.into(),
             live: live.into(),

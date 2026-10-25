@@ -216,6 +216,24 @@ fn stopping_returns_the_finished_session_and_resets_to_blank() {
 }
 
 #[test]
+fn session_errors_render_a_message_and_implement_std_error() {
+    let mut machine = SessionMachine::new();
+    let error = machine.start().unwrap_err();
+    assert!(error.to_string().contains("not ready"));
+    let source = std::error::Error::source(&error);
+    assert!(source.is_none());
+
+    machine.set_audio_source("Built-in Microphone").unwrap();
+    assert!(
+        machine
+            .pause()
+            .unwrap_err()
+            .to_string()
+            .contains("not valid")
+    );
+}
+
+#[test]
 fn full_happy_path_blank_to_ready_to_recording_to_blank_to_ready() {
     let mut machine = SessionMachine::new();
     assert_eq!(machine.state(), SessionState::Blank);

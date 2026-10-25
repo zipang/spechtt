@@ -13,16 +13,15 @@ use crate::tokens::color;
 
 #[derive(IntoElement)]
 pub struct Waveform {
-    bars: Vec<f32>,
+    bars: &'static [f32],
     active: bool,
 }
 
 impl Waveform {
-    pub fn new(bars: impl Into<Vec<f32>>, active: bool) -> Self {
-        Self {
-            bars: bars.into(),
-            active,
-        }
+    /// `bars` is borrowed: the render path performs no allocation per frame.
+    /// Live FFT data can move to `Arc<[f32]>` once the audio core lands.
+    pub fn new(bars: &'static [f32], active: bool) -> Self {
+        Self { bars, active }
     }
 }
 

@@ -72,6 +72,35 @@ struct SessionDraft {
     session_name: String,
 }
 
+/// A draft whose required fields all resolved to real values. Only
+/// constructible through [`SessionDraft::validate`], so committing a session
+/// cannot hit a partially-filled draft.
+#[derive(Debug)]
+struct ValidatedDraft {
+    provider: &'static str,
+    model: &'static str,
+    session_name: String,
+    output: OutputTarget,
+}
+
+impl SessionDraft {
+    fn validate(&self) -> Option<ValidatedDraft> {
+        let provider = PROVIDERS.get(self.provider?)?;
+        let model = *provider.models.get(self.model?)?;
+        let output = self.output.clone()?;
+        let session_name = self.session_name.trim().to_string();
+        if session_name.is_empty() {
+            return None;
+        }
+        Some(ValidatedDraft {
+            provider: provider.name,
+            model,
+            session_name,
+            output,
+        })
+    }
+}
+
 /// The finished take shown in the `Stopped` screen. The machine hands the
 /// session identity back on `stop`; the transcript itself is mocked here until
 /// the core streams it in Phase 8.
@@ -236,34 +265,22 @@ impl SessionController {
     /// Commit the draft to the machine. Returns `false` (and changes nothing)
     /// while the draft is incomplete or the machine refuses a setup change.
     pub fn create_session(&mut self) -> bool {
-        let Some(provider_ix) = self.draft.provider else {
+        let Some(draft) = self.draft.validate() else {
             return false;
         };
-        let Some(model_ix) = self.draft.model else {
-            return false;
-        };
-        let Some(output) = self.draft.output.clone() else {
-            return false;
-        };
-        let name = self.draft.session_name.trim().to_string();
-        if name.is_empty() {
-            return false;
-        }
 
-        let provider = &PROVIDERS[provider_ix];
-        let Some(model) = provider.models.get(model_ix) else {
-            return false;
-        };
         // No file picker yet: the default location follows the title.
-        let output = match output {
+        let output = match draft.output {
             OutputTarget::Memory => OutputTarget::Memory,
-            OutputTarget::File(_) => OutputTarget::File(format!("~/Documents/{name}.md")),
+            OutputTarget::File(_) => {
+                OutputTarget::File(format!("~/Documents/{}.md", draft.session_name))
+            }
         };
 
         let setup = (|| -> Result<(), SessionError> {
-            self.machine.set_provider(provider.name)?;
-            self.machine.set_model(*model)?;
-            self.machine.set_session_name(name)?;
+            self.machine.set_provider(draft.provider)?;
+            self.machine.set_model(draft.model)?;
+            self.machine.set_session_name(draft.session_name)?;
             self.machine.set_output(output)?;
             Ok(())
         })();

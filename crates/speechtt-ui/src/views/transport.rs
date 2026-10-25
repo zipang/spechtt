@@ -39,7 +39,7 @@ pub(crate) fn render_recording(cx: &mut Context<SpeechTtApp>) -> AnyElement {
         .header_trailing(ElapsedTimer::new(MOCK_ELAPSED_SECONDS))
         .gap(rems(0.25))
         .body_gap(rems(0.25))
-        .body(Waveform::new(MOCK_BARS, true))
+        .body(Waveform::new(&MOCK_BARS, true))
         .body(CaptionWell::new(MOCK_COMMITTED, MOCK_LIVE))
         // Same two controls as Paused (layout stays put): Pause toggles the
         // take, Stop stays disabled until the take is paused.
@@ -63,7 +63,7 @@ pub(crate) fn render_paused(cx: &mut Context<SpeechTtApp>) -> AnyElement {
         .header_trailing(ElapsedTimer::new(MOCK_ELAPSED_SECONDS))
         .gap(rems(0.25))
         .body_gap(rems(0.25))
-        .body(Waveform::new(MOCK_BARS, false))
+        .body(Waveform::new(&MOCK_BARS, false))
         .body(CaptionWell::new(MOCK_COMMITTED, MOCK_LIVE))
         .footer(
             h_flex()

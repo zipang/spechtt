@@ -35,6 +35,7 @@ pub enum SessionState {
 
 impl SessionState {
     /// True while a take is active (setup changes are frozen).
+    #[must_use]
     pub fn is_active(self) -> bool {
         matches!(self, SessionState::Recording | SessionState::Paused)
     }
@@ -62,6 +63,7 @@ pub enum OutputTarget {
 /// Session configuration. `None` means "not chosen yet"; `set_session_name`
 /// rejects whitespace-only names, storing `None` instead.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SessionConfig {
     pub audio_source: Option<String>,
     pub provider: Option<String>,
@@ -72,6 +74,7 @@ pub struct SessionConfig {
 
 impl SessionConfig {
     /// Required parameters still missing, in declaration order.
+    #[must_use]
     pub fn missing(&self) -> Vec<SessionField> {
         let mut missing = Vec::new();
         if self.audio_source.is_none() {
@@ -93,6 +96,7 @@ impl SessionConfig {
     }
 
     /// True when every required parameter is present.
+    #[must_use]
     pub fn is_complete(&self) -> bool {
         self.missing().is_empty()
     }
@@ -101,6 +105,7 @@ impl SessionConfig {
 /// The take handed back by [`SessionMachine::stop`]. The caller owns the
 /// transcript; this carries the identity needed to label, save or paste it.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct FinishedSession {
     pub audio_source: String,
     pub provider: String,
@@ -110,13 +115,17 @@ pub struct FinishedSession {
 }
 
 /// Why an action was refused. Refusals never mutate the machine.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum SessionError {
     /// `start` while configuration is incomplete.
+    #[error("session is not ready: still missing {missing:?}")]
     NotReady { missing: Vec<SessionField> },
     /// Transport action not valid for the current state.
+    #[error("action is not valid while {from:?}")]
     InvalidTransition { from: SessionState },
     /// Setup change attempted while a take is active.
+    #[error("session setup is frozen while {state:?}")]
     Frozen { state: SessionState },
 }
 
@@ -133,16 +142,19 @@ impl SessionMachine {
         Self::default()
     }
 
+    #[must_use]
     pub fn state(&self) -> SessionState {
         self.state
     }
 
+    #[must_use]
     pub fn config(&self) -> &SessionConfig {
         &self.config
     }
 
     /// Required parameters still missing, in declaration order. Empty only
     /// when the machine is `Ready` (or a take is active).
+    #[must_use]
     pub fn missing(&self) -> Vec<SessionField> {
         self.config.missing()
     }
