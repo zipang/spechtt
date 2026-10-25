@@ -25,16 +25,19 @@ speechtt/
 │   └── speechtt-ui/            # Native gpui-kit application (single process)
 │       ├── src/main.rs         # Binary entry point → speechtt_ui::run()
 │       ├── src/lib.rs          # `run()`, window options, embedded icons and assets
-│       ├── src/app.rs          # Window shell, screens, dialogs, user actions
-│       ├── src/components.rs   # Reusable RenderOnce pieces (badge, timer, waveform, caption)
+│       ├── src/app.rs          # Window shell, workflow state and public commands
+│       ├── src/controller.rs   # Pure session/view-model state (no GPUI window)
+│       ├── src/layout.rs       # ScreenShell (3-band screen) + SurfaceBox card
+│       ├── src/views/          # Screen composition: setup, transport, stopped
+│       ├── src/components/     # Reusable RenderOnce controls (badge, pills, transport…)
 │       ├── src/theme.rs        # Token → gpui-kit Theme mapping + bundled font loading
 │       ├── src/tokens.rs       # Rust mirror of design-tokens.css
 │       ├── assets/fonts/       # Embedded Inter + JetBrains Mono faces and OFL licenses
 │       └── tests/
 │           ├── common/mod.rs       # Shared headless-window helpers
-│           ├── session_flow.rs     # Behavior tests (state + controls, found by stable ids)
+│           ├── session_flow.rs     # Controller behavior tests (no window)
 │           ├── theme_contract.rs   # CSS ↔ tokens ↔ Theme value contract
-│           └── widget.rs           # Window/header shell tests
+│           └── widget.rs           # Render smoke test across screens and window sizes
 │
 ├── mockups/                    # Visual ground truth exported from Paper
 │   ├── app-window/             # idle / recording / paused frames (.png + .tsx value dumps)
@@ -59,10 +62,12 @@ speechtt/
   GPUI dependency, so the rules (session parameters, transport transitions,
   finished-take hand-off) are testable headlessly. Audio capture, FFT,
   clipboard, hotkeys and file save will land here in later phases.
-- **`crates/speechtt-ui`** — everything native and visual. `app.rs` owns the
-  view state and derives each screen from the session machine; `components.rs`
-  holds stateless pieces; `theme.rs` maps the token contract onto gpui-kit and
-  embeds the fonts, so the binary carries its own typography.
+- **`crates/speechtt-ui`** — everything native and visual. `controller.rs` owns
+  the pure view model (session machine, setup draft, finished take); `app.rs`
+  owns the window shell, state and command surface; `views/` composes each
+  screen from `layout.rs` primitives and the reusable `components/` controls.
+  `theme.rs` maps the token contract onto gpui-kit and embeds the fonts, so the
+  binary carries its own typography.
 - **Root design files** — `design-tokens.css` is the single source of truth
   for visual values; `DESIGN.md` describes their intent; `color-variants.css`
   and `reset.css` support the reference renderings. The UI never hardcodes

@@ -152,10 +152,17 @@ impl SessionController {
     }
 
     pub fn is_draft_complete(&self) -> bool {
+        self.is_draft_complete_with_name(&self.draft.session_name)
+    }
+
+    /// Completeness check against a name supplied by the view's input entity.
+    /// The UI reads the editable input directly; the controller may not have
+    /// received a change event yet.
+    pub fn is_draft_complete_with_name(&self, session_name: &str) -> bool {
         self.draft.provider.is_some()
             && self.draft.model.is_some()
             && self.draft.output.is_some()
-            && !self.draft.session_name.trim().is_empty()
+            && !session_name.trim().is_empty()
     }
 
     pub fn finished_take(&self) -> Option<&FinishedTake> {

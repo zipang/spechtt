@@ -16,6 +16,8 @@ pub mod layout;
 pub mod theme;
 pub mod tokens;
 
+mod views;
+
 use gpui_kit::{AppContext, Bounds, Point, Size, WindowBounds, WindowOptions, px};
 
 // SpeechTT's own icon set — embedded as borrowed static bytes, nothing more.

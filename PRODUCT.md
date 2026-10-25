@@ -286,11 +286,10 @@ Rules:
       (mock registry, dependent cycling), session title input, output
       Memory/File segment, Cancel / Create session (inert until all five
       parameters are set). Body view, not a dialog (480×280 has no room).
-- [x] Core visual components (`crates/speechtt-ui/src/components.rs`):
+- [x] Core visual components (`crates/speechtt-ui/src/components/`):
       `StatusBadge`, `ElapsedTimer`, `Waveform`, `CaptionWell`, plus the
-      circular transport action. Behavior is covered through
-      `tests/session_flow.rs`. Remaining: `KeyCap` (needed by the Help
-      dialog) and the header strip extraction.
+      reusable `TransportButton`, `IconAction`, `SettingRow` and `ChoicePill`
+      controls. Behavior is covered through `tests/session_flow.rs`.
 - [x] Idle/Ready view per `mockups/app-window/idle.png`: READY badge,
       74px mic circle, "Press to start dictating".
 - [x] Recording / Paused views per `mockups/app-window/*.png`: badge +

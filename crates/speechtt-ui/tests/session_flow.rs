@@ -179,6 +179,21 @@ fn a_file_take_records_the_default_path_for_its_name() {
 }
 
 #[test]
+fn completeness_can_be_checked_against_the_live_input_name() {
+    let mut controller = SessionController::new();
+    controller.open_form();
+    controller.cycle_provider();
+    controller.cycle_model();
+    controller.set_draft_output(OutputTarget::Memory);
+
+    // The view reads the editable input directly, so the controller must be
+    // able to judge a name it has not received a change event for yet.
+    assert!(!controller.is_draft_complete_with_name("   "));
+    assert!(controller.is_draft_complete_with_name("standup"));
+    assert!(!controller.is_draft_complete());
+}
+
+#[test]
 fn a_new_take_returns_to_the_prompt_and_requires_a_name_and_output() {
     let mut controller = complete_draft(OutputTarget::Memory);
     controller.create_session();
