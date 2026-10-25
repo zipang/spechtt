@@ -17,7 +17,8 @@ use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::{ActiveTheme as _, Icon};
 use gpui_kit::prelude::*;
-use gpui_kit::{Context, Entity, FontWeight, Subscription, Window, div};
+use gpui_kit::{Context, Entity, FontWeight, Subscription, Task, Window, div};
+use speechtt_core::backend::SttSessionSink;
 use speechtt_core::session::{OutputTarget, SessionField, SessionState};
 
 use crate::controller::{FinishedTake, SessionController, ViewState};
@@ -32,6 +33,8 @@ pub struct SpeechTtApp {
     session_name: Entity<InputState>,
     /// Keeps the input subscription alive; dropped with the view.
     _subscriptions: Vec<Subscription>,
+    /// Backend event pump; dropped (and cancelled) with the view.
+    _event_task: Option<Task<()>>,
 }
 
 impl SpeechTtApp {
@@ -47,11 +50,16 @@ impl SpeechTtApp {
             }
         });
 
-        Self {
+        let mut app = Self {
             controller: SessionController::new(),
             session_name,
             _subscriptions: vec![subscription],
-        }
+            _event_task: None,
+        };
+        // No backend is attached yet (the Bun worker lands in T0003), so this
+        // is dormant until `connect_backend` supplies a duplex sink.
+        app.start_event_loop(cx);
+        app
     }
 
     // ----- Queries -----------------------------------------------------
@@ -165,6 +173,40 @@ impl SpeechTtApp {
         cx.notify();
     }
 
+    /// Attach the duplex STT backend and pump its events into the controller.
+    ///
+    /// Each received event updates live take state and re-renders once, so the
+    /// caption well grows token by token while the take is running.
+    pub fn connect_backend(&mut self, sink: Box<dyn SttSessionSink>, cx: &mut Context<Self>) {
+        self.controller.set_sink(sink);
+        self.start_event_loop(cx);
+        cx.notify();
+    }
+
+    /// Own the backend event receiver, if the controller has one. The task
+    /// lives as long as the view; dropping it cancels the pump.
+    fn start_event_loop(&mut self, cx: &mut Context<Self>) {
+        // Replacing the backend cancels any pump that was reading the old one.
+        self._event_task = None;
+        let Some(events) = self.controller.take_event_stream() else {
+            return;
+        };
+        self._event_task = Some(cx.spawn(async move |this, cx| {
+            while let Ok(message) = events.recv().await {
+                let updated = this.update(cx, |this, cx| {
+                    match message {
+                        Ok(event) => this.controller.handle_stt_event(event),
+                        Err(error) => this.controller.report_backend_error(&error),
+                    }
+                    cx.notify();
+                });
+                if updated.is_err() {
+                    break;
+                }
+            }
+        }));
+    }
+
     fn clear_session_name(&self, window: &mut Window, cx: &mut Context<Self>) {
         self.session_name
             .update(cx, |state, cx| state.set_value("", window, cx));
@@ -217,8 +259,8 @@ impl gpui_kit::Render for SpeechTtApp {
                         ViewState::Prompt => views::setup::render_prompt(cx),
                         ViewState::Form => views::setup::render_form(self, cx),
                         ViewState::Ready => views::transport::render_ready(cx),
-                        ViewState::Recording => views::transport::render_recording(cx),
-                        ViewState::Paused => views::transport::render_paused(cx),
+                        ViewState::Recording => views::transport::render_recording(self, cx),
+                        ViewState::Paused => views::transport::render_paused(self, cx),
                         ViewState::Stopped => views::stopped::render_stopped(self, cx),
                     }),
             )

@@ -18,9 +18,10 @@ The product is split in two cooperating parts:
   `design-tokens.css`**. Custom pieces (record button, waveform, status
   pills, keycaps) are gpui-kit `RenderOnce` components. The UI must be
   fully renderable from mock state before any backend is wired in.
-- **TypeScript/Bun adapters**: STT provider integrations (e.g. Vercel AI
-  SDK for streaming transcription) consumed by the Rust layer — bridge
-  topology is an open decision (see §7).
+- **TypeScript/Bun STT worker**: stateless streaming STT provider adapter
+  layer (Vercel AI SDK `experimental_streamTranscribe` / `transcribe`)
+  spawned by `speechtt-core` and communicating over **`stdin`/`stdout`
+  NDJSON** (see §5 and §7).
 
 The UI must be built from a **Design System contract** (`DESIGN.md` +
 `design-tokens.css`) using the `design-system-tokens` skill, so that the
@@ -154,19 +155,32 @@ always reflects the currently bound shortcuts.
     state, focus, layout, accessibility).
   - **Works without a backend**: state fed by a mock (fake timer, fake
     waveform bins, fake streaming transcript) until the core is wired.
-- **Rust — core**:
+- **Rust — core (`crates/speechtt-core`)**:
   - Audio capture: `cpal`.
   - FFT / frequency analysis for waveform: `rustfft` (or `realfft`).
   - Global shortcuts: platform-appropriate crate (e.g. `global-hotkey`).
   - Clipboard: `arboard`.
   - Synthetic keyboard paste (type into focused field):
     `enigo` or platform input simulation.
-- **TypeScript + Bun** (provider adapter layer — topology open, §7):
-  - STT provider integrations: Vercel AI SDK (streaming transcription)
-    for Vercel AI Gateway-hosted models; direct Mistral AI API client
-    for Mistral-hosted models; interface abstracted so new providers
-    can be added.
-  - Bun used as the runtime/test runner for the TS layer.
+  - Settings store, API key masking, transcript streaming accumulator, and
+    `TranscriptionBackend` trait + `StdioNdjsonBackend` child-process bridge.
+- **TypeScript + Bun** (stateless STT worker — DECIDED: `stdin`/`stdout` NDJSON subprocess, §7):
+  - Requires `bun` pre-installed on the host (`bun run src/stt/worker.ts`; no
+    compiled JS binary required).
+  - STT provider integrations: Vercel AI SDK (`experimental_streamTranscribe`
+    and `transcribe`) for Vercel AI Gateway-hosted models (`openai/gpt-realtime-whisper`,
+    `elevenlabs/eleven-scribe-2-realtime`, `xai/grok-stt`, etc.) and
+    provider-specific adapters (e.g. Mistral AI `voxtral-mini-transcribe-3-0`);
+    interface abstracted so new providers can be added.
+  - Full-duplex **NDJSON over `stdin`/`stdout`** (`stderr` reserved for
+    human-readable diagnostics):
+    - **Rust → Bun (`stdin`)**: `start` (session config + in-memory API key),
+      `audio` (`pcm16Base64` ~40–50ms frames fed directly to AI SDK
+      `ReadableStream<string>`), `pause`, `resume`, `stop`.
+    - **Bun → Rust (`stdout`)**: `ready`, `started`, `partial` (uncommitted
+      live words), `delta` (incremental token delta), `committed` (finalized
+      segment), `stopped` (full text), `error`.
+  - Bun used as the runtime and test runner (`bun test`) for the TS layer.
 - **Testing**: TDD for both sides.
   - **UI test policy — test the function, not the pixels (decided).**
     Headless UI tests assert *behavior*: state transitions
@@ -344,43 +358,52 @@ Rules:
       filename pattern; rejects unsupported extensions.
 - [ ] Implement file save.
 
-### Phase 6 — TypeScript: provider abstraction
-- [ ] Test: provider registry only lists a remote provider when its env
-      var/key is present.
-- [ ] Implement provider registry + capability detection.
-- [ ] Test: Vercel AI Gateway adapter streams partial transcripts and
-      emits incremental text events (mock SDK/stream).
-- [ ] Implement Vercel AI Gateway adapter.
-- [ ] Test: Mistral AI adapter streams/returns transcripts correctly
-      (mocked API).
-- [ ] Implement Mistral AI adapter.
-- [ ] Test: switching provider/model in settings updates the active
-      adapter used by the recording session.
+### Phase 6 — TypeScript/Bun: NDJSON STT subprocess & Vercel AI SDK adapters (`specs/T0003.md`)
+- [ ] Test: NDJSON protocol parser/serializer validates inbound (`start`,
+      `audio`, `pause`, `resume`, `stop`) and outbound (`ready`, `started`,
+      `partial`, `delta`, `committed`, `stopped`, `error`) messages without
+      leaking API keys to `stderr`.
+- [ ] Implement `src/stt/protocol.ts` and line-framed `stdin`/`stdout` loop
+      in `src/stt/worker.ts` (clean shutdown on `stdin` EOF).
+- [ ] Test: Vercel AI SDK streaming adapter (`experimental_streamTranscribe`)
+      pipes `pcm16Base64` chunks into a `ReadableStream<string>` and maps
+      `transcript-partial`, `transcript-delta`, and `transcript-final` parts
+      into `partial`, `delta`, and `committed` NDJSON events in real time.
+- [ ] Implement Vercel AI Gateway / AI SDK streaming adapter + pause/resume
+      audio gate and `AbortController` cancellation on `stop`.
+- [ ] Test: batch/chunked fallback adapter (`transcribe`) for providers/models
+      that do not expose a live WebSocket stream (e.g. Mistral Voxtral batch).
+- [ ] Implement Mistral AI / batch transcription adapter behind the same
+      worker session interface.
+- [ ] Test: provider registry reports available providers/models based on
+      environment variables or supplied API keys.
 
-### Phase 7 — TypeScript: settings store & UI state
-- [ ] Test: settings store persists provider choice, masked API keys, and
-      default model; round-trips correctly.
-- [ ] Implement settings store (Bun-backed, e.g. local config file).
-- [ ] Test: API keys are masked in any serialized UI state/log output.
-- [ ] Implement masking.
-- [ ] Test: transcript streaming reducer appends partial chunks in order
-      and exposes the full transcript + "is streaming" flag.
-- [ ] Implement transcript reducer.
-- [ ] Test: shortcut-to-action mapper resolves configured bindings to the
-      correct UI/IPC action, including rebinding.
-- [ ] Implement shortcut mapper.
+### Phase 7 — Rust core & UI: settings store, transcript reducer & duplex NDJSON bridge (`specs/T0002.md`)
+- [ ] Test (Rust): NDJSON protocol types (`InboundCommand`, `OutboundEvent`)
+      serialize/deserialize deterministically and redact `api_key` in `Debug`.
+- [ ] Test (Rust): transcript streaming accumulator (`TranscriptBuffer`)
+      applies `partial`, `delta`, and `committed` events in order, exposing
+      `committed()` and `live()` for `CaptionWell` and full text on `stopped`.
+- [ ] Implement `TranscriptBuffer` and duplex `TranscriptionBackend` trait +
+      `BunStdioBackend` (`Command::new("bun")`, piped `stdin`/`stdout`) in
+      `crates/speechtt-core`.
+- [ ] Test (Rust): `SessionController` / `SpeechTtApp` duplex flow — `start`,
+      `audio` chunks, `pause`, `resume`, `stop`, and incoming `partial` /
+      `delta` / `committed` / `stopped` / `error` messages drive `CaptionWell`,
+      `Waveform`, `ElapsedTimer`, and `FinishedTake`.
+- [ ] Wire `SpeechTtApp` to the duplex session bridge so live transcript
+      deltas and waveform frames update the UI in real time.
+- [ ] Test & implement Rust settings store (persisting provider choice,
+      masked API keys, default model, and shortcut bindings).
 
-### Phase 8 — UI ↔ core & provider wiring
-- [ ] Test (Rust): core state-machine events drive UI state in the gpui
-      views (replace the mock feed); wiring follows the §7 topology
-      decision (single process or daemon + IPC).
-- [ ] Wire live waveform bins and elapsed timer from the core into the
-      `Waveform`/`CaptionWell` components.
-- [ ] Wire global hotkeys → state machine → UI updates.
-- [ ] Settings dialog writes to the settings store; the selected
-      provider adapter streams into the transcript reducer.
-- [ ] End-to-end manual test: record → live waveform + live text → stop →
-      copy / paste / save all work.
+### Phase 8 — End-to-end hardware & provider integration
+- [ ] Wire live `cpal` PCM chunks + FFT waveform bins into `SessionController`
+      and the `BunStdioBackend` `stdin` stream.
+- [ ] Wire global hotkeys → `SessionController` → UI updates.
+- [ ] Settings dialog writes to the Rust settings store; active provider and
+      API key are passed in `InboundCommand::Start`.
+- [ ] End-to-end manual test: record → live waveform + live streaming text
+      from Vercel AI SDK → pause → resume → stop → copy / paste / save.
 
 ### Phase 9 — Polish & packaging
 - [ ] Error states (mic permission denied, provider auth failure, network
@@ -391,11 +414,23 @@ Rules:
 ## 7. Open questions / future scope
 
 - **UI ↔ core topology — DECIDED: single process.** Core (audio, hotkeys,
-  clipboard, save) and the gpui-kit UI live in one program and talk
-  directly. We never wanted a background daemon; if hotkeys must later
-  survive a closed window, that is a new requirement to be scoped.
-- **Provider adapters**: stay in TypeScript/Bun (as currently scoped) or
-  move into Rust (now that the UI is native) — affects Phases 6/7.
+  clipboard, save, settings, transcript buffer) and the gpui-kit UI live in
+  one Rust program and talk directly. We never wanted a background daemon; if
+  hotkeys must later survive a closed window, that is a new requirement to be
+  scoped.
+- **Rust ↔ TypeScript/Bun STT bridge — DECIDED: child process over `stdin`/`stdout` NDJSON (`specs/T0002.md`, `specs/T0003.md`).**
+  - `speechtt-core` spawns `bun run src/stt/worker.ts` (assuming `bun` is
+    pre-installed; no compiled JS binary needed) with piped `stdin`/`stdout`.
+  - Rust streams 16-bit mono PCM audio chunks encoded as `pcm16Base64` inside
+    NDJSON lines (`{"type":"audio","pcm16Base64":"..."}`) along with session
+    lifecycle commands (`start`, `pause`, `resume`, `stop`).
+  - Bun feeds the base64 chunks directly into the Vercel AI SDK's
+    `experimental_streamTranscribe` (`ReadableStream<string>`) and emits
+    real-time NDJSON events on `stdout` (`ready`, `started`, `partial`,
+    `delta`, `committed`, `stopped`, `error`).
+  - `stderr` is reserved exclusively for diagnostics/logging (API keys are
+    never logged). When the Rust process exits or closes `stdin`, Bun sees
+    `EOF`, aborts any in-flight stream, and exits automatically.
 - Local model support (which runtime/engine — e.g. whisper.cpp) is listed as
   a placeholder in the README and not yet specified in detail.
 - Multi-language transcription support not yet scoped.

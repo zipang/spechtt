@@ -9,6 +9,40 @@
 use speechtt_core::session::{OutputTarget, SessionField, SessionState};
 use speechtt_ui::controller::{SessionController, ViewState};
 
+use std::sync::{Arc, Mutex};
+
+use speechtt_core::backend::{BackendError, SttSessionSink};
+use speechtt_core::protocol::{SttCommand, SttEvent};
+use speechtt_ui::controller::SAMPLE_RATE;
+
+/// Records every command the controller emits, shared with the test.
+#[derive(Clone, Default)]
+struct RecordingSink {
+    commands: Arc<Mutex<Vec<SttCommand>>>,
+}
+
+impl RecordingSink {
+    fn take(&self) -> Vec<SttCommand> {
+        std::mem::take(&mut *self.commands.lock().expect("sink lock"))
+    }
+}
+
+impl SttSessionSink for RecordingSink {
+    fn send(&mut self, cmd: SttCommand) -> Result<(), BackendError> {
+        self.commands.lock().expect("sink lock").push(cmd);
+        Ok(())
+    }
+}
+
+/// A ready-to-record controller wired to a recording sink.
+fn duplex_controller() -> (SessionController, RecordingSink) {
+    let mut controller = complete_draft(OutputTarget::Memory);
+    assert!(controller.create_session());
+    let sink = RecordingSink::default();
+    controller.set_sink(Box::new(sink.clone()));
+    (controller, sink)
+}
+
 /// A controller whose draft is complete except for `create_session`.
 fn complete_draft(output: OutputTarget) -> SessionController {
     let mut controller = SessionController::new();
@@ -225,4 +259,211 @@ fn setup_changes_are_frozen_while_a_take_is_active() {
     controller.set_draft_name("renamed");
     assert_eq!(controller.view_state(), ViewState::Recording);
     assert_eq!(controller.session_missing(), Vec::<SessionField>::new());
+}
+
+#[test]
+fn transport_commands_are_emitted_in_order_and_paused_audio_is_dropped() {
+    let (mut controller, sink) = duplex_controller();
+
+    // Nothing is emitted before a take starts.
+    controller.push_audio_chunk(&[9, 9], Arc::<[f32]>::from([0.9]));
+    assert!(sink.take().is_empty());
+
+    assert!(controller.start_recording());
+    assert_eq!(controller.session_label(), "take-1");
+
+    let active_bars = Arc::<[f32]>::from([0.1, 0.2]);
+    controller.push_audio_chunk(&[0, 1], Arc::clone(&active_bars));
+    assert_eq!(&*controller.waveform_bars(), &[0.1, 0.2]);
+
+    assert!(controller.pause_recording());
+    // Audio arriving while paused must not reach the backend nor move the bars.
+    controller.push_audio_chunk(&[2, 3], Arc::<[f32]>::from([0.9, 0.9]));
+    assert_eq!(&*controller.waveform_bars(), &[0.1, 0.2]);
+
+    assert!(controller.resume_recording());
+    controller.push_audio_chunk(&[-1, 0], Arc::<[f32]>::from([0.3]));
+
+    assert!(controller.finish_take());
+
+    let commands = sink.take();
+    assert_eq!(commands.len(), 6, "{commands:?}");
+
+    match &commands[0] {
+        SttCommand::Start {
+            session_id,
+            provider,
+            model,
+            sample_rate,
+            api_key,
+        } => {
+            assert_eq!(session_id, "take-1");
+            assert_eq!(provider, "Vercel AI Gateway");
+            assert_eq!(model, "voxtral-mini-transcribe-3");
+            assert_eq!(*sample_rate, SAMPLE_RATE);
+            assert!(api_key.is_none());
+        }
+        other => panic!("expected a start command, got {other:?}"),
+    }
+    assert_eq!(commands[1], SttCommand::audio_from_pcm16(&[0, 1]));
+    assert_eq!(commands[2], SttCommand::Pause);
+    assert_eq!(commands[3], SttCommand::Resume);
+    assert_eq!(commands[4], SttCommand::audio_from_pcm16(&[-1, 0]));
+    assert_eq!(commands[5], SttCommand::Stop);
+}
+
+#[test]
+fn streamed_events_update_the_caption_well_in_real_time() {
+    let (mut controller, _sink) = duplex_controller();
+    assert!(controller.start_recording());
+
+    controller.handle_stt_event(SttEvent::Partial {
+        session_id: "take-1".into(),
+        text: "audio".into(),
+    });
+    assert_eq!(controller.transcript_committed(), "");
+    assert_eq!(controller.transcript_live(), "audio");
+
+    controller.handle_stt_event(SttEvent::Delta {
+        session_id: "take-1".into(),
+        delta: " capture".into(),
+    });
+    assert_eq!(controller.transcript_live(), "audio capture");
+
+    controller.handle_stt_event(SttEvent::Committed {
+        session_id: "take-1".into(),
+        text: "audio capture layer.".into(),
+    });
+    assert_eq!(controller.transcript_committed(), "audio capture layer.");
+    assert_eq!(controller.transcript_live(), "");
+
+    controller.handle_stt_event(SttEvent::Partial {
+        session_id: "take-1".into(),
+        text: "next words".into(),
+    });
+    controller.handle_stt_event(SttEvent::Delta {
+        session_id: "take-1".into(),
+        delta: " now".into(),
+    });
+    assert_eq!(controller.transcript_live(), "next words now");
+
+    assert!(controller.pause_recording());
+    assert!(controller.finish_take());
+
+    let take = controller.finished_take().expect("shows the finished take");
+    assert_eq!(take.committed().to_string(), "audio capture layer.");
+    assert_eq!(take.live().to_string(), "next words now");
+
+    // The final `stopped` flush replaces what the stopped screen showed.
+    controller.handle_stt_event(SttEvent::Stopped {
+        session_id: "take-1".into(),
+        full_text: "audio capture layer. next words now.".into(),
+    });
+
+    let take = controller.finished_take().expect("still shows the take");
+    assert_eq!(
+        take.committed().to_string(),
+        "audio capture layer. next words now."
+    );
+    assert_eq!(take.live().to_string(), "");
+}
+
+#[test]
+fn backend_errors_are_surfaced_and_cleared_by_the_next_take() {
+    let (mut controller, _sink) = duplex_controller();
+    assert!(controller.start_recording());
+
+    controller.handle_stt_event(SttEvent::Error {
+        session_id: Some("take-1".into()),
+        code: "missing_api_key".into(),
+        message: "set MISTRAL_API_KEY".into(),
+    });
+    assert_eq!(
+        controller.last_error().map(ToString::to_string).as_deref(),
+        Some("missing_api_key: set MISTRAL_API_KEY")
+    );
+
+    // A stale error cannot overwrite the current take's status.
+    controller.handle_stt_event(SttEvent::Error {
+        session_id: Some("take-0".into()),
+        code: "stream_failed".into(),
+        message: "old take".into(),
+    });
+    assert_eq!(
+        controller.last_error().map(ToString::to_string).as_deref(),
+        Some("missing_api_key: set MISTRAL_API_KEY")
+    );
+
+    assert!(controller.pause_recording());
+    assert!(controller.finish_take());
+    controller.new_take();
+    controller.open_form();
+    controller.cycle_provider();
+    controller.cycle_model();
+    controller.set_draft_output(OutputTarget::Memory);
+    controller.set_draft_name("second take");
+    assert!(controller.create_session());
+    assert!(controller.start_recording());
+
+    assert!(controller.last_error().is_none());
+}
+
+#[test]
+fn stale_events_from_a_finished_take_are_ignored() {
+    let (mut controller, _sink) = duplex_controller();
+    assert!(controller.start_recording());
+    controller.handle_stt_event(SttEvent::Partial {
+        session_id: "take-1".into(),
+        text: "first take".into(),
+    });
+    assert_eq!(controller.transcript_live(), "first take");
+    assert!(controller.finish_take());
+
+    controller.new_take();
+    controller.open_form();
+    controller.cycle_provider();
+    controller.cycle_model();
+    controller.set_draft_output(OutputTarget::Memory);
+    controller.set_draft_name("second take");
+    assert!(controller.create_session());
+    assert!(controller.start_recording());
+    assert_eq!(controller.session_label(), "take-2");
+
+    controller.handle_stt_event(SttEvent::Partial {
+        session_id: "take-1".into(),
+        text: "stale words".into(),
+    });
+    controller.handle_stt_event(SttEvent::Stopped {
+        session_id: "take-1".into(),
+        full_text: "stale flush".into(),
+    });
+    assert_eq!(controller.transcript_live(), "");
+    assert_eq!(controller.transcript_committed(), "");
+
+    controller.handle_stt_event(SttEvent::Partial {
+        session_id: "take-2".into(),
+        text: "fresh words".into(),
+    });
+    assert_eq!(controller.transcript_live(), "fresh words");
+}
+
+#[test]
+fn the_elapsed_clock_resets_when_a_new_take_starts() {
+    let (mut controller, _sink) = duplex_controller();
+    assert!(controller.start_recording());
+    controller.set_elapsed_seconds(42);
+    assert_eq!(controller.elapsed_seconds(), 42);
+    assert!(controller.pause_recording());
+    assert!(controller.finish_take());
+
+    controller.new_take();
+    controller.open_form();
+    controller.cycle_provider();
+    controller.cycle_model();
+    controller.set_draft_output(OutputTarget::Memory);
+    controller.set_draft_name("next take");
+    assert!(controller.create_session());
+    assert!(controller.start_recording());
+
+    assert_eq!(controller.elapsed_seconds(), 0);
 }

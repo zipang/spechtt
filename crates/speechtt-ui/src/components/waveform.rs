@@ -3,6 +3,11 @@
 //! Recording draws brand-orange bars; paused draws the flat muted dotted row
 //! from `paused.png`. The row fills the available width and scales with the
 //! window rem size.
+//!
+//! Bars live in an `Arc<[f32]>` so a live frame reaches the renderer with a
+//! refcount bump instead of a per-frame copy or `Vec` allocation.
+
+use std::sync::Arc;
 
 use gpui_kit::base::h_flex;
 use gpui_kit::component::ActiveTheme as _;
@@ -13,15 +18,18 @@ use crate::tokens::color;
 
 #[derive(IntoElement)]
 pub struct Waveform {
-    bars: &'static [f32],
+    bars: Arc<[f32]>,
     active: bool,
 }
 
 impl Waveform {
-    /// `bars` is borrowed: the render path performs no allocation per frame.
-    /// Live FFT data can move to `Arc<[f32]>` once the audio core lands.
-    pub fn new(bars: &'static [f32], active: bool) -> Self {
-        Self { bars, active }
+    /// `bars` accepts any slice-like source (`&[f32]`, `Vec<f32>`,
+    /// `Arc<[f32]>`) and is stored shared, never copied per frame.
+    pub fn new(bars: impl Into<Arc<[f32]>>, active: bool) -> Self {
+        Self {
+            bars: bars.into(),
+            active,
+        }
     }
 }
 

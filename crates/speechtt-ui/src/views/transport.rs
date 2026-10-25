@@ -1,4 +1,7 @@
 //! Transport screens: ready, recording and paused.
+//!
+//! Recording and paused read live take telemetry from the controller:
+//! elapsed seconds, the latest FFT frame and the streaming transcript.
 
 use gpui_kit::assets::IconName;
 use gpui_kit::base::h_flex;
@@ -11,7 +14,6 @@ use crate::components::{
     BadgeTone, CaptionWell, ElapsedTimer, IconAction, StatusBadge, TransportButton, TransportTone,
     Waveform,
 };
-use crate::controller::{MOCK_BARS, MOCK_COMMITTED, MOCK_ELAPSED_SECONDS, MOCK_LIVE};
 use crate::layout::ScreenShell;
 use crate::tokens::rem;
 
@@ -34,13 +36,19 @@ pub(crate) fn render_ready(cx: &mut Context<SpeechTtApp>) -> AnyElement {
         .into_any_element()
 }
 
-pub(crate) fn render_recording(cx: &mut Context<SpeechTtApp>) -> AnyElement {
+pub(crate) fn render_recording(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyElement {
+    let controller = app.controller();
+    let elapsed = controller.elapsed_seconds();
+    let bars = controller.waveform_bars();
+    let committed = controller.transcript_committed();
+    let live = controller.transcript_live();
+
     ScreenShell::new(StatusBadge::tone("RECORDING", BadgeTone::Recording))
-        .header_trailing(ElapsedTimer::new(MOCK_ELAPSED_SECONDS))
+        .header_trailing(ElapsedTimer::new(elapsed))
         .gap(rems(0.25))
         .body_gap(rems(0.25))
-        .body(Waveform::new(&MOCK_BARS, true))
-        .body(CaptionWell::new(MOCK_COMMITTED, MOCK_LIVE))
+        .body(Waveform::new(bars, true))
+        .body(CaptionWell::new(committed, live))
         // Same two controls as Paused (layout stays put): Pause toggles the
         // take, Stop stays disabled until the take is paused.
         .footer(
@@ -58,13 +66,19 @@ pub(crate) fn render_recording(cx: &mut Context<SpeechTtApp>) -> AnyElement {
         .into_any_element()
 }
 
-pub(crate) fn render_paused(cx: &mut Context<SpeechTtApp>) -> AnyElement {
+pub(crate) fn render_paused(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyElement {
+    let controller = app.controller();
+    let elapsed = controller.elapsed_seconds();
+    let bars = controller.waveform_bars();
+    let committed = controller.transcript_committed();
+    let live = controller.transcript_live();
+
     ScreenShell::new(StatusBadge::tone("PAUSED", BadgeTone::Paused))
-        .header_trailing(ElapsedTimer::new(MOCK_ELAPSED_SECONDS))
+        .header_trailing(ElapsedTimer::new(elapsed))
         .gap(rems(0.25))
         .body_gap(rems(0.25))
-        .body(Waveform::new(&MOCK_BARS, false))
-        .body(CaptionWell::new(MOCK_COMMITTED, MOCK_LIVE))
+        .body(Waveform::new(bars, false))
+        .body(CaptionWell::new(committed, live))
         .footer(
             h_flex()
                 .items_center()
