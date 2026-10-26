@@ -203,8 +203,19 @@ always reflects the currently bound shortcuts.
 
 ## 6. Task list (TDD-first)
 
+Work is tracked as a file-system Kanban under [`tickets/`](tickets/README.md):
+`planned/` → `in_progress/` → `review/` → `done/`. Each ticket is a
+self-contained TDD specification with its scope boundary, tests, tasks and
+acceptance criteria; move the file when the stage changes instead of checking
+boxes here. The phases below summarise the product plan and point at the
+owning ticket.
+
 Each feature task starts with writing the failing test(s), then the
 implementation, following red → green → refactor.
+
+**Board snapshot** (see `tickets/README.md` for the live table):
+T0001–T0003 are in `tickets/done/`; T0004–T0008 are the independent Wave 1
+tickets in `tickets/planned/`; T0009 is the Wave 2 integration ticket.
 
 ### Session workflow (state machine, as implemented)
 
@@ -268,6 +279,7 @@ Rules:
       auto-exported `.tsx` value dumps — see §4 for their roles).
 
 ### Phase 2 — GPUI UI shell (no backend, mock state)
+> Dialogs tracked in [`tickets/planned/T0004-ui-dialogs-help-and-settings.md`](tickets/planned/T0004-ui-dialogs-help-and-settings.md).
 - [x] Workspace scaffold: workspace `Cargo.toml`, `crates/speechtt-ui`,
       `crates/speechtt-core` placeholder; `gpui-kit = "0.8"` dependency;
       app opens a 480×280 always-on-top, draggable window
@@ -332,6 +344,7 @@ Rules:
       `mockups/**/*.png`.
 
 ### Phase 3 — Rust core: audio capture & waveform
+> Tracked in [`tickets/planned/T0005-core-audio-capture-and-fft.md`](tickets/planned/T0005-core-audio-capture-and-fft.md).
 - [ ] Test: audio input stream yields fixed-size PCM chunks at expected
       sample rate.
 - [ ] Implement `cpal`-based capture producing chunks.
@@ -341,6 +354,7 @@ Rules:
 - [ ] Test: silence (near-zero amplitude) maps to a flat/minimal waveform.
 
 ### Phase 4 — Rust core: hotkeys & lifecycle events
+> Tracked in [`tickets/planned/T0006-core-settings-and-shortcuts.md`](tickets/planned/T0006-core-settings-and-shortcuts.md) (hotkey half).
 - [ ] Test: global hotkey events map to the correct session actions
       (start, pause, resume, finish).
 - [ ] Implement hotkey listener + dispatch into `SessionMachine`.
@@ -348,6 +362,7 @@ Rules:
       consumer — transcript buffer vs file writer.
 
 ### Phase 5 — Rust core: clipboard, paste, save
+> Tracked in [`tickets/planned/T0007-core-output-clipboard-paste-save.md`](tickets/planned/T0007-core-output-clipboard-paste-save.md).
 - [ ] Test: transcript buffer copy produces exact clipboard content
       (clipboard backend mocked behind a trait).
 - [ ] Implement clipboard adapter (`arboard`).
@@ -358,45 +373,46 @@ Rules:
       filename pattern; rejects unsupported extensions.
 - [ ] Implement file save.
 
-### Phase 6 — TypeScript/Bun: NDJSON STT subprocess & Vercel AI SDK adapters (`specs/T0003.md`)
-- [ ] Test: NDJSON protocol parser/serializer validates inbound (`start`,
+### Phase 6 — TypeScript/Bun: NDJSON STT subprocess & Vercel AI SDK adapters (`tickets/done/T0003-bun-stt-worker.md`)
+- [x] Test: NDJSON protocol parser/serializer validates inbound (`start`,
       `audio`, `pause`, `resume`, `stop`) and outbound (`ready`, `started`,
       `partial`, `delta`, `committed`, `stopped`, `error`) messages without
       leaking API keys to `stderr`.
-- [ ] Implement `src/stt/protocol.ts` and line-framed `stdin`/`stdout` loop
+- [x] Implement `src/stt/protocol.ts` and line-framed `stdin`/`stdout` loop
       in `src/stt/worker.ts` (clean shutdown on `stdin` EOF).
-- [ ] Test: Vercel AI SDK streaming adapter (`experimental_streamTranscribe`)
+- [x] Test: Vercel AI SDK streaming adapter (`experimental_streamTranscribe`)
       pipes `pcm16Base64` chunks into a `ReadableStream<string>` and maps
       `transcript-partial`, `transcript-delta`, and `transcript-final` parts
       into `partial`, `delta`, and `committed` NDJSON events in real time.
-- [ ] Implement Vercel AI Gateway / AI SDK streaming adapter + pause/resume
+- [x] Implement Vercel AI Gateway / AI SDK streaming adapter + pause/resume
       audio gate and `AbortController` cancellation on `stop`.
-- [ ] Test: batch/chunked fallback adapter (`transcribe`) for providers/models
+- [x] Test: batch/chunked fallback adapter (`transcribe`) for providers/models
       that do not expose a live WebSocket stream (e.g. Mistral Voxtral batch).
-- [ ] Implement Mistral AI / batch transcription adapter behind the same
+- [x] Implement Mistral AI / batch transcription adapter behind the same
       worker session interface.
-- [ ] Test: provider registry reports available providers/models based on
+- [x] Test: provider registry reports available providers/models based on
       environment variables or supplied API keys.
 
-### Phase 7 — Rust core & UI: settings store, transcript reducer & duplex NDJSON bridge (`specs/T0002.md`)
-- [ ] Test (Rust): NDJSON protocol types (`InboundCommand`, `OutboundEvent`)
+### Phase 7 — Rust core & UI: transcript reducer & duplex NDJSON bridge (`tickets/done/T0002-rust-duplex-bridge.md`; settings store in `tickets/planned/T0006-core-settings-and-shortcuts.md`)
+- [x] Test (Rust): NDJSON protocol types (`InboundCommand`, `OutboundEvent`)
       serialize/deserialize deterministically and redact `api_key` in `Debug`.
-- [ ] Test (Rust): transcript streaming accumulator (`TranscriptBuffer`)
+- [x] Test (Rust): transcript streaming accumulator (`TranscriptBuffer`)
       applies `partial`, `delta`, and `committed` events in order, exposing
       `committed()` and `live()` for `CaptionWell` and full text on `stopped`.
-- [ ] Implement `TranscriptBuffer` and duplex `TranscriptionBackend` trait +
+- [x] Implement `TranscriptBuffer` and duplex `TranscriptionBackend` trait +
       `BunStdioBackend` (`Command::new("bun")`, piped `stdin`/`stdout`) in
       `crates/speechtt-core`.
-- [ ] Test (Rust): `SessionController` / `SpeechTtApp` duplex flow — `start`,
+- [x] Test (Rust): `SessionController` / `SpeechTtApp` duplex flow — `start`,
       `audio` chunks, `pause`, `resume`, `stop`, and incoming `partial` /
       `delta` / `committed` / `stopped` / `error` messages drive `CaptionWell`,
       `Waveform`, `ElapsedTimer`, and `FinishedTake`.
-- [ ] Wire `SpeechTtApp` to the duplex session bridge so live transcript
+- [x] Wire `SpeechTtApp` to the duplex session bridge so live transcript
       deltas and waveform frames update the UI in real time.
 - [ ] Test & implement Rust settings store (persisting provider choice,
       masked API keys, default model, and shortcut bindings).
 
 ### Phase 8 — End-to-end hardware & provider integration
+> Tracked in [`tickets/planned/T0009-e2e-wiring-and-error-ux.md`](tickets/planned/T0009-e2e-wiring-and-error-ux.md).
 - [ ] Wire live `cpal` PCM chunks + FFT waveform bins into `SessionController`
       and the `BunStdioBackend` `stdin` stream.
 - [ ] Wire global hotkeys → `SessionController` → UI updates.
@@ -406,6 +422,7 @@ Rules:
       from Vercel AI SDK → pause → resume → stop → copy / paste / save.
 
 ### Phase 9 — Polish & packaging
+> Error UX is part of [`tickets/planned/T0009-e2e-wiring-and-error-ux.md`](tickets/planned/T0009-e2e-wiring-and-error-ux.md); packaging remains unticketed.
 - [ ] Error states (mic permission denied, provider auth failure, network
       loss during streaming) surfaced in UI.
 - [ ] Idle resource usage check (CPU/mem).
@@ -418,7 +435,7 @@ Rules:
   one Rust program and talk directly. We never wanted a background daemon; if
   hotkeys must later survive a closed window, that is a new requirement to be
   scoped.
-- **Rust ↔ TypeScript/Bun STT bridge — DECIDED: child process over `stdin`/`stdout` NDJSON (`specs/T0002.md`, `specs/T0003.md`).**
+- **Rust ↔ TypeScript/Bun STT bridge — DECIDED: child process over `stdin`/`stdout` NDJSON (`tickets/done/T0002-rust-duplex-bridge.md`, `tickets/done/T0003-bun-stt-worker.md`).**
   - `speechtt-core` spawns `bun run src/stt/worker.ts` (assuming `bun` is
     pre-installed; no compiled JS binary needed) with piped `stdin`/`stdout`.
   - Rust streams 16-bit mono PCM audio chunks encoded as `pcm16Base64` inside

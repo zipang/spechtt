@@ -4,7 +4,7 @@
 
 SpeechTT delegates remote Speech-to-Text (STT) provider streaming to a lightweight, stateless **Bun subprocess (`src/stt/worker.ts`)** built on the **Vercel AI SDK (`ai`)** (`PRODUCT.md` §5, §6 Phase 6, §7).
 - `bun` is assumed pre-installed on the user's machine (`bun run src/stt/worker.ts`); no compiled JS binary is needed.
-- Communication with the Rust host (`speechtt-core`, see `specs/T0002.md`) uses **full-duplex Newline-Delimited JSON (NDJSON) over `stdin` and `stdout`**, with `stderr` reserved strictly for human-readable diagnostics.
+- Communication with the Rust host (`speechtt-core`, see `tickets/done/T0002-rust-duplex-bridge.md`) uses **full-duplex Newline-Delimited JSON (NDJSON) over `stdin` and `stdout`**, with `stderr` reserved strictly for human-readable diagnostics.
 - The **first target** is the **Vercel AI SDK (`ai`)** (`experimental_streamTranscribe` for live streaming transcription models via Vercel AI Gateway / provider SDKs, with a seamless fallback to `transcribe` for segment/batch models such as Mistral Voxtral).
 
 ---
@@ -36,7 +36,7 @@ src/
 
 ## 2. NDJSON Protocol Contract (`src/stt/protocol.ts`)
 
-Must match `crates/speechtt-core/src/protocol.rs` (`specs/T0002.md`) byte-for-byte.
+Must match `crates/speechtt-core/src/protocol.rs` (`tickets/done/T0002-rust-duplex-bridge.md`) byte-for-byte.
 
 ### Inbound Commands (`stdin`, Rust → Bun)
 
