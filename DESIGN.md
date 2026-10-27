@@ -236,11 +236,21 @@ dot plus an uppercase `mono` label at `--font-size-xs`,
 `RECORDING`; Paused = `action.warning` dot, static + label `PAUSED`; Idle =
 `text.muted` dot + label `READY`.
 
+### Action buttons
+
+Rendered by `components::ActionButton`, never a raw `Button` with a size set
+at the call site. One medium size everywhere: `--font-size-md`, 32px high,
+`--space-sm`/`--space-md` horizontal padding. `Primary` marks the single
+committing action in a group (Save, Create, Got it); `Secondary` marks the
+dismissing or alternative action (Cancel, Back). No other tones are needed.
+
 ### Icon buttons
 
-Copy, save, and settings: 32px circular targets on `surface-alt`, icon in
-`text.muted`, hover to `text` with `brand.primary` at 12% behind. Always
-include an accessible label; shortcuts are displayed in the top strip.
+Rendered by `components::IconButton`: 32px ghost targets in the window header
+and dialog close slots, icon in `text`/`text.muted` with a `brand.primary`
+hover tint. Always include an accessible label; shortcuts are displayed in
+the top strip. Dense inline controls inside the 480×280 widget (Reveal, select
+carets, "New take") may stay small and are not action buttons.
 
 ### Shortcut hints
 
