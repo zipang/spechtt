@@ -2,15 +2,14 @@
 
 use gpui_kit::assets::IconName;
 use gpui_kit::base::{h_flex, v_flex};
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::input::Input;
-use gpui_kit::component::{ActiveTheme as _, Disableable as _, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, Context, FontWeight, div, rems, rgb};
 use speechtt_core::session::OutputTarget;
 
 use crate::app::SpeechTtApp;
-use crate::components::{ChoicePill, SettingRow, StatusBadge, TransportButton};
+use crate::components::{ActionButton, ChoicePill, SettingRow, StatusBadge, TransportButton};
 use crate::layout::ScreenShell;
 use crate::tokens::{color, rem};
 
@@ -75,15 +74,9 @@ pub(crate) fn render_form(app: &mut SpeechTtApp, cx: &mut Context<SpeechTtApp>) 
             this.select_output(OutputTarget::File(String::new()), cx)
         }));
 
-    let cancel = Button::new("btn-cancel-session")
-        .secondary()
-        .small()
-        .label("Cancel")
+    let cancel = ActionButton::secondary("btn-cancel-session", "Cancel")
         .on_click(cx.listener(|this, _event, window, cx| this.cancel_form(window, cx)));
-    let create = Button::new("btn-create-session")
-        .primary()
-        .small()
-        .label("Create session")
+    let create = ActionButton::primary("btn-create-session", "Create session")
         .disabled(!can_create)
         .on_click(cx.listener(|this, _event, _window, cx| this.create_session(cx)));
 
