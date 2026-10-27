@@ -89,15 +89,10 @@ Decisions, deviations, verification output.
 | [T0002](done/T0002-rust-duplex-bridge.md) | Rust duplex audio & transcript bridge over NDJSON | Rust core + UI |
 | [T0003](done/T0003-bun-stt-worker.md) | Bun STT worker on the Vercel AI SDK over NDJSON | TypeScript/Bun |
 | [T0004](done/T0004-ui-dialogs-help-and-settings.md) | Help / Shortcuts and Settings as floating OS windows | Rust UI |
-
-### Planned — Wave 1 (independent, parallelisable)
-
-| Ticket | Title | Track | Primary files |
-|---|---|---|---|
-| [T0005](planned/T0005-core-audio-capture-and-fft.md) | Microphone capture and FFT waveform frames | Rust core | `crates/speechtt-core/src/audio.rs`, `fft.rs` |
-| [T0006](planned/T0006-core-settings-and-shortcuts.md) | Settings store and global hotkeys | Rust core | `crates/speechtt-core/src/settings.rs`, `hotkeys.rs` |
-| [T0007](planned/T0007-core-output-clipboard-paste-save.md) | Clipboard, paste and save-to-file adapters | Rust core | `crates/speechtt-core/src/output.rs` |
-| [T0008](planned/T0008-bun-capabilities-and-live-smoke.md) | Capability handshake and live cross-language smoke test | Bun + Rust protocol | `src/stt/`, `crates/speechtt-core/src/protocol.rs`, `tests/bridge_smoke.rs` |
+| [T0005](done/T0005-core-audio-capture-and-fft.md) | Microphone capture and FFT waveform frames | Rust core |
+| [T0006](done/T0006-core-settings-and-shortcuts.md) | Settings store and global hotkeys | Rust core |
+| [T0007](done/T0007-core-output-clipboard-paste-save.md) | Clipboard, paste and save-to-file adapters | Rust core |
+| [T0008](done/T0008-bun-capabilities-and-live-smoke.md) | Capability handshake and live cross-language smoke test | Bun + Rust protocol |
 
 ### Planned — Wave 2 (integration)
 

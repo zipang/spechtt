@@ -194,6 +194,24 @@ impl BunSubprocess {
         self.write(cmd)
     }
 
+    /// Write one raw line to the worker's `stdin`.
+    ///
+    /// Typed commands should go through [`BunSubprocess::send`]; this escape
+    /// hatch exists for protocol-fault tests and diagnostics. `line` must not
+    /// contain a newline.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BackendError::Disconnected`] after `stdin` has been closed, or
+    /// [`BackendError::Io`] when the write fails.
+    pub fn send_raw_line(&mut self, line: &str) -> Result<(), BackendError> {
+        let stdin = self.stdin.as_mut().ok_or(BackendError::Disconnected)?;
+        stdin.write_all(line.as_bytes())?;
+        stdin.write_all(b"\n")?;
+        stdin.flush()?;
+        Ok(())
+    }
+
     /// A cloneable handle to the inbound event stream.
     #[must_use]
     pub fn events(&self) -> SttEventReceiver {

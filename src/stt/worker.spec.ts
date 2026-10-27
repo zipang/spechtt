@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { OutboundEvent } from "./protocol";
+import { type OutboundEvent, serializeOutboundEvent } from "./protocol";
 import type {
 	EmitFn,
 	SttAdapter,
@@ -395,5 +395,142 @@ describe("runWorkerLoop", () => {
 
 		expect(streaming).toBeInstanceOf(VercelAiSdkAdapter);
 		expect(segmented).toBeInstanceOf(MistralAdapter);
+	});
+});
+
+describe("runWorkerLoop capabilities handshake", () => {
+	const capabilitiesLine = (overrides: Record<string, unknown> = {}) =>
+		JSON.stringify({ type: "capabilities", ...overrides });
+
+	const savedEnv: Record<string, string | undefined> = {};
+
+	beforeEach(() => {
+		for (const name of [
+			"AI_GATEWAY_API_KEY",
+			"VERCEL_AI_GATEWAY_API_KEY",
+			"MISTRAL_API_KEY",
+			"OPENAI_API_KEY",
+			"XAI_API_KEY",
+			"ELEVENLABS_API_KEY",
+		]) {
+			savedEnv[name] = process.env[name];
+			delete process.env[name];
+		}
+	});
+
+	afterEach(() => {
+		for (const [name, value] of Object.entries(savedEnv)) {
+			if (value === undefined) {
+				delete process.env[name];
+			} else {
+				process.env[name] = value;
+			}
+		}
+	});
+
+	const capabilitiesEvent = (
+		events: OutboundEvent[],
+	): Extract<OutboundEvent, { type: "capabilities" }> => {
+		const event = events.find((candidate) => candidate.type === "capabilities");
+		expect(event).toBeDefined();
+		return event as Extract<OutboundEvent, { type: "capabilities" }>;
+	};
+
+	test("answers capabilities before any session exists", async () => {
+		const { factory, adapter, events } = fakeFactory();
+
+		await runWorkerLoop(
+			linesOf([capabilitiesLine({ requestId: "cap-1" })]),
+			(event) => events.push(event),
+			factory,
+		);
+
+		expect(events[0]).toEqual({ type: "ready" });
+		const caps = capabilitiesEvent(events);
+		expect(caps.requestId).toBe("cap-1");
+		expect(caps.providers.length).toBeGreaterThanOrEqual(5);
+		for (const provider of caps.providers) {
+			expect(provider.available).toBe(false);
+			expect(provider.models.length).toBeGreaterThan(0);
+		}
+		expect(adapter.sessions).toHaveLength(0);
+	});
+
+	test("omits requestId when the request had none", async () => {
+		const { factory, events } = fakeFactory();
+
+		await runWorkerLoop(
+			linesOf([capabilitiesLine()]),
+			(event) => events.push(event),
+			factory,
+		);
+
+		const caps = capabilitiesEvent(events);
+		expect("requestId" in caps).toBe(false);
+	});
+
+	test("answers capabilities during an active session without disturbing it", async () => {
+		const { factory, adapter, events } = fakeFactory();
+
+		await runWorkerLoop(
+			linesOf([
+				START,
+				capabilitiesLine({ requestId: "cap-live" }),
+				audio("a1"),
+				JSON.stringify({ type: "stop" }),
+			]),
+			(event) => events.push(event),
+			factory,
+		);
+
+		expect(events.map((event) => event.type)).toEqual([
+			"ready",
+			"started",
+			"capabilities",
+			"partial",
+			"delta",
+			"committed",
+			"stopped",
+		]);
+		expect(capabilitiesEvent(events).requestId).toBe("cap-live");
+		expect(adapter.sessions).toHaveLength(1);
+		expect(adapter.sessions[0]?.stopped).toBe(true);
+		expect(adapter.sessions[0]?.aborted).toBe(false);
+	});
+
+	test("rejects a bad capabilities request and keeps serving", async () => {
+		const { factory, events } = fakeFactory();
+
+		await runWorkerLoop(
+			linesOf([
+				JSON.stringify({ type: "capabilities", apiKey: 42 }),
+				capabilitiesLine({ requestId: "cap-2" }),
+			]),
+			(event) => events.push(event),
+			factory,
+		);
+
+		expect(events[0]).toEqual({ type: "ready" });
+		expect(events[1]).toEqual({
+			type: "error",
+			code: "invalid_protocol",
+			message: expect.stringContaining("capabilities.apiKey"),
+		});
+		expect(capabilitiesEvent(events).requestId).toBe("cap-2");
+	});
+
+	test("never emits a supplied api key", async () => {
+		const { factory, events } = fakeFactory();
+		const secret = "sk-capability-secret";
+
+		await runWorkerLoop(
+			linesOf([capabilitiesLine({ requestId: "cap-3", apiKey: secret })]),
+			(event) => events.push(event),
+			factory,
+		);
+
+		const serialized = events.map(serializeOutboundEvent).join("");
+		expect(serialized).not.toContain(secret);
+		expect(JSON.stringify(events)).not.toContain(secret);
 	});
 });

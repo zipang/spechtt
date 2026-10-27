@@ -6,6 +6,8 @@
  * terminated by `\n`. Nothing in this module may write to `stdout`.
  */
 
+import type { ProviderCapabilityInfo } from "./registry";
+
 export type SttErrorCode =
 	| "invalid_protocol"
 	| "missing_api_key"
@@ -39,12 +41,24 @@ export interface StopCommand {
 	type: "stop";
 }
 
+/**
+ * Read-only capability handshake. `requestId` is echoed back for correlation;
+ * `apiKey` lets the UI test a key that is typed but not exported yet. The key
+ * never appears in the response.
+ */
+export interface CapabilitiesCommand {
+	type: "capabilities";
+	requestId?: string;
+	apiKey?: string;
+}
+
 export type InboundCommand =
 	| StartCommand
 	| AudioCommand
 	| PauseCommand
 	| ResumeCommand
-	| StopCommand;
+	| StopCommand
+	| CapabilitiesCommand;
 
 export interface ReadyEvent {
 	type: "ready";
@@ -86,6 +100,13 @@ export interface ErrorEvent {
 	message: string;
 }
 
+/** Provider/model catalogue returned by the read-only handshake. */
+export interface CapabilitiesEvent {
+	type: "capabilities";
+	requestId?: string;
+	providers: readonly ProviderCapabilityInfo[];
+}
+
 export type OutboundEvent =
 	| ReadyEvent
 	| StartedEvent
@@ -93,7 +114,8 @@ export type OutboundEvent =
 	| DeltaEvent
 	| CommittedEvent
 	| StoppedEvent
-	| ErrorEvent;
+	| ErrorEvent
+	| CapabilitiesEvent;
 
 export type ParseInboundResult =
 	| { ok: true; command: InboundCommand }
@@ -155,6 +177,31 @@ function parseStart(payload: Record<string, unknown>): ParseInboundResult {
 	return { ok: true, command };
 }
 
+function parseCapabilities(
+	payload: Record<string, unknown>,
+): ParseInboundResult {
+	if (
+		payload.requestId !== undefined &&
+		!isNonEmptyString(payload.requestId)
+	) {
+		return invalid(
+			"capabilities.requestId must be a non-empty string when present",
+		);
+	}
+	if (payload.apiKey !== undefined && typeof payload.apiKey !== "string") {
+		return invalid("capabilities.apiKey must be a string when present");
+	}
+
+	const command: CapabilitiesCommand = { type: "capabilities" };
+	if (typeof payload.requestId === "string") {
+		command.requestId = payload.requestId;
+	}
+	if (typeof payload.apiKey === "string") {
+		command.apiKey = payload.apiKey;
+	}
+	return { ok: true, command };
+}
+
 /**
  * Parses one NDJSON line into a validated command. Malformed input never
  * throws: callers translate `invalid_protocol` into an `error` event and keep
@@ -200,6 +247,9 @@ export function parseInboundLine(line: string): ParseInboundResult {
 		case "stop":
 			return { ok: true, command: { type: "stop" } };
 
+		case "capabilities":
+			return parseCapabilities(payload);
+
 		default:
 			return invalid(
 				typeof payload.type === "string"
@@ -215,13 +265,19 @@ export function serializeOutboundEvent(event: OutboundEvent): string {
 }
 
 /**
- * Returns a copy of `command` safe for diagnostics. A `start` API key is
- * replaced with `"[REDACTED]"`; all other commands pass through unchanged.
+ * Returns a copy of `command` safe for diagnostics. An API key carried by a
+ * `start` or `capabilities` command is replaced with `"[REDACTED]"`; all other
+ * commands pass through unchanged.
  */
 export function redactCommand(command: InboundCommand): InboundCommand {
-	if (command.type !== "start" || command.apiKey === undefined) {
-		return command;
+	switch (command.type) {
+		case "start":
+		case "capabilities":
+			if (command.apiKey === undefined) {
+				return command;
+			}
+			return { ...command, apiKey: "[REDACTED]" };
+		default:
+			return command;
 	}
-
-	return { ...command, apiKey: "[REDACTED]" };
 }

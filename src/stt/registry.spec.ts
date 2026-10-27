@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
+	MODEL_CAPABILITIES,
 	PROVIDERS,
 	getProvider,
 	isProviderAvailable,
+	listCapabilities,
 	providerEnvVars,
 	resolveModelCapability,
 	resolveProviderApiKey,
@@ -174,5 +176,103 @@ describe("model capability lookup", () => {
 
 	test("returns undefined for unknown providers", () => {
 		expect(resolveModelCapability("unknown", "some-model")).toBeUndefined();
+	});
+});
+
+describe("capability listing", () => {
+	test("lists every provider deterministically sorted by label", () => {
+		const first = listCapabilities({ env: {} });
+		const second = listCapabilities({ env: {} });
+
+		expect(first).toEqual(second);
+		expect(first.length).toBeGreaterThanOrEqual(5);
+		expect(new Set(first.map((provider) => provider.id)).size).toBe(
+			first.length,
+		);
+
+		const labels = first.map((provider) => provider.label);
+		expect(labels).toEqual([...labels].sort());
+
+		for (const provider of first) {
+			expect(provider.id.length).toBeGreaterThan(0);
+			expect(provider.label.length).toBeGreaterThan(0);
+			expect(provider.models.length).toBeGreaterThan(0);
+
+			const modelLabels = provider.models.map((model) => model.label);
+			expect(modelLabels).toEqual([...modelLabels].sort());
+			expect(new Set(provider.models.map((model) => model.id)).size).toBe(
+				provider.models.length,
+			);
+		}
+	});
+
+	test("every listed model has an explicit, valid transcription mode", () => {
+		for (const provider of listCapabilities({ env: {} })) {
+			for (const model of provider.models) {
+				expect(["streaming", "segmented"]).toContain(model.mode);
+				expect(MODEL_CAPABILITIES[model.id]).toBe(model.mode);
+				expect(model.label.length).toBeGreaterThan(0);
+			}
+		}
+	});
+
+	test("lists gateway-qualified models on the gateway providers", () => {
+		const providers = listCapabilities({ env: {} });
+		const vercel = providers.find((provider) => provider.id === "vercel");
+		expect(vercel).toBeDefined();
+		expect(vercel?.models.map((model) => model.id)).toContain(
+			"openai/gpt-realtime-whisper",
+		);
+		expect(vercel?.models.map((model) => model.id)).toContain(
+			"openai/gpt-4o-transcribe",
+		);
+
+		const openai = providers.find((provider) => provider.id === "openai");
+		expect(openai?.models.map((model) => model.id)).toContain(
+			"gpt-realtime-whisper",
+		);
+		expect(openai?.models.map((model) => model.id)).not.toContain(
+			"openai/gpt-realtime-whisper",
+		);
+	});
+
+	test("availability reflects the environment per provider", () => {
+		const availableIds = (env: Record<string, string | undefined>) =>
+			listCapabilities({ env })
+				.filter((provider) => provider.available)
+				.map((provider) => provider.id);
+
+		expect(availableIds({})).toEqual([]);
+		expect(availableIds({ MISTRAL_API_KEY: "env-key" })).toEqual(["mistral"]);
+		expect(
+			availableIds({
+				AI_GATEWAY_API_KEY: "gateway-key",
+				XAI_API_KEY: "xai-key",
+			}),
+		).toEqual(["vercel", "gateway", "xai"]);
+	});
+
+	test("a supplied key marks only the matching provider available", () => {
+		const providers = listCapabilities({
+			env: {},
+			apiKeyFor: (providerId) =>
+				providerId === "openai" ? "sk-explicit" : undefined,
+		});
+
+		expect(
+			providers.filter((provider) => provider.available).map((p) => p.id),
+		).toEqual(["openai"]);
+	});
+
+	test("never exposes key values in the capability payload", () => {
+		const payload = JSON.stringify(
+			listCapabilities({
+				env: { MISTRAL_API_KEY: "sk-env-secret" },
+				apiKeyFor: () => "sk-explicit-secret",
+			}),
+		);
+
+		expect(payload).not.toContain("sk-env-secret");
+		expect(payload).not.toContain("sk-explicit-secret");
 	});
 });

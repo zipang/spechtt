@@ -39,7 +39,10 @@ impl TranscriptBuffer {
                     self.live.clear();
                 }
             }
-            SttEvent::Ready | SttEvent::Started { .. } | SttEvent::Error { .. } => {}
+            SttEvent::Ready
+            | SttEvent::Started { .. }
+            | SttEvent::Error { .. }
+            | SttEvent::Capabilities { .. } => {}
         }
     }
 

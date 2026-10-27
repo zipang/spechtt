@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+	type CapabilitiesCommand,
 	type InboundCommand,
 	type OutboundEvent,
 	parseInboundLine,
@@ -200,6 +201,28 @@ describe("serializeOutboundEvent", () => {
 				code: "invalid_protocol",
 				message: "bad line",
 			},
+			{
+				type: "capabilities",
+				requestId: "cap-1",
+				providers: [
+					{
+						id: "vercel",
+						label: "Vercel AI Gateway",
+						available: false,
+						models: [
+							{
+								id: "openai/gpt-realtime-whisper",
+								label: "GPT Realtime Whisper",
+								mode: "streaming",
+							},
+						],
+					},
+				],
+			},
+			{
+				type: "capabilities",
+				providers: [],
+			},
 		];
 
 		for (const event of events) {
@@ -250,5 +273,165 @@ describe("redactCommand", () => {
 		] as InboundCommand[]) {
 			expect(redactCommand(command)).toEqual(command);
 		}
+	});
+});
+
+describe("capabilities parsing", () => {
+	test("parses a capabilities request without optional fields", () => {
+		const result = parseInboundLine(
+			JSON.stringify({ type: "capabilities" }),
+		);
+
+		expect(result).toEqual({ ok: true, command: { type: "capabilities" } });
+		if (!result.ok) return;
+		expect("requestId" in result.command).toBe(false);
+		expect("apiKey" in result.command).toBe(false);
+	});
+
+	test("parses requestId and apiKey when present", () => {
+		const result = parseInboundLine(
+			JSON.stringify({
+				type: "capabilities",
+				requestId: "cap-1",
+				apiKey: "sk-secret",
+			}),
+		);
+
+		expect(result).toEqual({
+			ok: true,
+			command: {
+				type: "capabilities",
+				requestId: "cap-1",
+				apiKey: "sk-secret",
+			},
+		});
+	});
+
+	test("treats unexpected extra fields as non-fatal", () => {
+		const result = parseInboundLine(
+			JSON.stringify({ type: "capabilities", extra: true }),
+		);
+
+		expect(result).toEqual({ ok: true, command: { type: "capabilities" } });
+	});
+
+	test("rejects non-string requestId or apiKey with invalid_protocol", () => {
+		const invalid: Array<Record<string, unknown>> = [
+			{ requestId: 7 },
+			{ requestId: null },
+			{ requestId: "" },
+			{ apiKey: 42 },
+			{ apiKey: null },
+			{ apiKey: ["sk-secret"] },
+		];
+
+		for (const overrides of invalid) {
+			const result = parseInboundLine(
+				JSON.stringify({ type: "capabilities", ...overrides }),
+			);
+			expect(result.ok).toBe(false);
+			if (result.ok) continue;
+			expect(result.code).toBe("invalid_protocol");
+			expect(result.message).toContain("capabilities.");
+		}
+	});
+
+	test("never echoes an api key in a parse error", () => {
+		const result = parseInboundLine(
+			JSON.stringify({ type: "capabilities", requestId: 7, apiKey: "sk-leak" }),
+		);
+
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.message).not.toContain("sk-leak");
+	});
+});
+
+describe("capabilities serialization", () => {
+	test("serializes the camelCase wire shape exactly", () => {
+		const event: OutboundEvent = {
+			type: "capabilities",
+			requestId: "cap-1",
+			providers: [
+				{
+					id: "vercel",
+					label: "Vercel AI Gateway",
+					available: true,
+					models: [
+						{
+							id: "openai/gpt-realtime-whisper",
+							label: "GPT Realtime Whisper",
+							mode: "streaming",
+						},
+						{
+							id: "openai/gpt-4o-transcribe",
+							label: "GPT-4o Transcribe",
+							mode: "segmented",
+						},
+					],
+				},
+			],
+		};
+
+		const line = serializeOutboundEvent(event);
+
+		expect(line).toBe(
+			`${JSON.stringify({
+				type: "capabilities",
+				requestId: "cap-1",
+				providers: [
+					{
+						id: "vercel",
+						label: "Vercel AI Gateway",
+						available: true,
+						models: [
+							{
+								id: "openai/gpt-realtime-whisper",
+								label: "GPT Realtime Whisper",
+								mode: "streaming",
+							},
+							{
+								id: "openai/gpt-4o-transcribe",
+								label: "GPT-4o Transcribe",
+								mode: "segmented",
+							},
+						],
+					},
+				],
+			})}\n`,
+		);
+		expect(line.endsWith("\n")).toBe(true);
+		expect(line.split("\n").filter(Boolean)).toHaveLength(1);
+	});
+
+	test("omits requestId when the request had none", () => {
+		const line = serializeOutboundEvent({ type: "capabilities", providers: [] });
+
+		expect(line).toBe('{"type":"capabilities","providers":[]}\n');
+	});
+});
+
+describe("redactCommand capabilities", () => {
+	test("masks the capabilities API key without mutating the input", () => {
+		const command: CapabilitiesCommand = {
+			type: "capabilities",
+			requestId: "cap-1",
+			apiKey: "sk-capability-secret",
+		};
+
+		const redacted = redactCommand(command);
+
+		expect(redacted).toEqual({ ...command, apiKey: "[REDACTED]" });
+		expect(command.apiKey).toBe("sk-capability-secret");
+		expect(JSON.stringify(redacted)).not.toContain("sk-capability-secret");
+	});
+
+	test("leaves capabilities commands without a key untouched", () => {
+		const command: CapabilitiesCommand = {
+			type: "capabilities",
+			requestId: "cap-1",
+		};
+
+		expect(redactCommand(command)).toEqual(command);
 	});
 });

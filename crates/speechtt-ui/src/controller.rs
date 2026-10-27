@@ -117,20 +117,52 @@ pub fn provider_options() -> &'static [ProviderOption] {
             api_key_env: "AI_GATEWAY_API_KEY",
             models: &[
                 ModelOption {
-                    id: "openai/gpt-realtime-whisper",
-                    label: "gpt-realtime-whisper",
+                    id: "fish-audio/transcribe-1",
+                    label: "transcribe-1",
+                },
+                ModelOption {
+                    id: "google/gemini-3.5-transcribe",
+                    label: "gemini-3.5-transcribe",
+                },
+                ModelOption {
+                    id: "google/gemini-3.5-transcribe-live",
+                    label: "gemini-3.5-transcribe-live",
+                },
+                ModelOption {
+                    id: "microsoft/mai-transcribe-2",
+                    label: "mai-transcribe-2",
+                },
+                ModelOption {
+                    id: "microsoft/mai-transcribe-2-streaming",
+                    label: "mai-transcribe-2-streaming",
+                },
+                ModelOption {
+                    id: "mistral/voxtral-mini-transcribe-3",
+                    label: "voxtral-mini-transcribe-3",
+                },
+                ModelOption {
+                    id: "mistral/voxtral-small-transcribe-3",
+                    label: "voxtral-small-transcribe-3",
+                },
+                ModelOption {
+                    id: "openai/gpt-4o-mini-transcribe",
+                    label: "gpt-4o-mini-transcribe",
                 },
                 ModelOption {
                     id: "openai/gpt-4o-transcribe",
                     label: "gpt-4o-transcribe",
                 },
                 ModelOption {
-                    id: "xai/grok-stt",
-                    label: "grok-stt",
+                    id: "openai/gpt-realtime-whisper",
+                    label: "gpt-realtime-whisper",
                 },
                 ModelOption {
-                    id: "elevenlabs/eleven-scribe-2-realtime",
-                    label: "eleven-scribe-2-realtime",
+                    id: "openai/whisper-1",
+                    label: "whisper-1",
+                },
+                ModelOption {
+                    id: "spacexai/grok-stt",
+                    label: "grok-stt",
                 },
             ],
         },
@@ -1126,7 +1158,7 @@ mod tests {
         assert!(controller.cycle_settings_model());
         assert_eq!(
             controller.settings_draft().model.as_deref(),
-            Some("openai/gpt-realtime-whisper")
+            Some("fish-audio/transcribe-1")
         );
     }
 }

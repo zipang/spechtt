@@ -20,6 +20,7 @@ import {
 } from "./protocol";
 import {
 	getProvider,
+	listCapabilities,
 	resolveModelCapability,
 	resolveProviderApiKey,
 } from "./registry";
@@ -133,6 +134,21 @@ export async function runWorkerLoop(
 
 	const handleCommand = async (command: InboundCommand): Promise<void> => {
 		switch (command.type) {
+			case "capabilities":
+				// Read-only handshake: never touches the active session, and
+				// works before one exists. The response is built from the
+				// registry only; the supplied key is never echoed.
+				emit({
+					type: "capabilities",
+					...(command.requestId === undefined
+						? {}
+						: { requestId: command.requestId }),
+					providers: listCapabilities({
+						apiKeyFor: () => command.apiKey,
+					}),
+				});
+				return;
+
 			case "start":
 				await handleStart(command);
 				return;

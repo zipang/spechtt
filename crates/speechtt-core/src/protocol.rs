@@ -59,6 +59,35 @@ impl fmt::Display for SecretString {
     }
 }
 
+/// How a model consumes audio: a live stream or a batch segment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TranscriptionMode {
+    /// Live WebSocket transport (`experimental_streamTranscribe`).
+    Streaming,
+    /// Batch WAV request per segment (`transcribe`).
+    Segmented,
+}
+
+/// One model offered by a provider in the capability handshake.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelCapabilityInfo {
+    pub id: String,
+    pub label: String,
+    pub mode: TranscriptionMode,
+}
+
+/// Provider-level capability, including whether its key is configured.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderCapability {
+    pub id: String,
+    pub label: String,
+    pub available: bool,
+    pub models: Vec<ModelCapabilityInfo>,
+}
+
 /// A command sent Rust → Bun over the worker's `stdin`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -82,6 +111,15 @@ pub enum SttCommand {
     Pause,
     Resume,
     Stop,
+    /// Read-only capability handshake. The optional key lets the UI test a
+    /// key that is typed but not exported yet; it is never echoed back.
+    #[serde(rename_all = "camelCase")]
+    Capabilities {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        api_key: Option<SecretString>,
+    },
 }
 
 impl SttCommand {
@@ -136,17 +174,24 @@ pub enum SttEvent {
         code: String,
         message: String,
     },
+    /// Read-only provider/model catalogue. Session-agnostic.
+    #[serde(rename_all = "camelCase")]
+    Capabilities {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        request_id: Option<String>,
+        providers: Vec<ProviderCapability>,
+    },
 }
 
 impl SttEvent {
     /// The session this event belongs to, when it carries one.
     ///
-    /// [`SttEvent::Ready`] is session-agnostic; an [`SttEvent::Error`] may be
-    /// reported before a session exists.
+    /// [`SttEvent::Ready`] and [`SttEvent::Capabilities`] are session-agnostic;
+    /// an [`SttEvent::Error`] may be reported before a session exists.
     #[must_use]
     pub fn session_id(&self) -> Option<&str> {
         match self {
-            SttEvent::Ready => None,
+            SttEvent::Ready | SttEvent::Capabilities { .. } => None,
             SttEvent::Started { session_id }
             | SttEvent::Partial { session_id, .. }
             | SttEvent::Delta { session_id, .. }
@@ -368,5 +413,155 @@ mod tests {
     fn unknown_message_types_are_rejected_rather_than_guessed() {
         assert!(serde_json::from_str::<SttCommand>(r#"{"type":"bogus"}"#).is_err());
         assert!(serde_json::from_str::<SttEvent>(r#"{"type":"bogus"}"#).is_err());
+    }
+
+    fn capabilities_command(api_key: Option<SecretString>) -> SttCommand {
+        SttCommand::Capabilities {
+            request_id: Some("cap-1".to_string()),
+            api_key,
+        }
+    }
+
+    fn capabilities_event(request_id: Option<String>) -> SttEvent {
+        SttEvent::Capabilities {
+            request_id,
+            providers: vec![ProviderCapability {
+                id: "vercel".to_string(),
+                label: "Vercel AI Gateway".to_string(),
+                available: false,
+                models: vec![
+                    ModelCapabilityInfo {
+                        id: "openai/gpt-realtime-whisper".to_string(),
+                        label: "GPT Realtime Whisper".to_string(),
+                        mode: TranscriptionMode::Streaming,
+                    },
+                    ModelCapabilityInfo {
+                        id: "openai/gpt-4o-transcribe".to_string(),
+                        label: "GPT-4o Transcribe".to_string(),
+                        mode: TranscriptionMode::Segmented,
+                    },
+                ],
+            }],
+        }
+    }
+
+    #[test]
+    fn capabilities_command_serializes_camel_case_and_omits_absent_fields() {
+        let command = capabilities_command(None);
+
+        assert_eq!(
+            serde_json::to_string(&command).expect("serializes"),
+            r#"{"type":"capabilities","requestId":"cap-1"}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<SttCommand>(r#"{"type":"capabilities","requestId":"cap-1"}"#)
+                .expect("deserializes"),
+            command
+        );
+        assert_eq!(
+            serde_json::from_str::<SttCommand>(r#"{"type":"capabilities"}"#).expect("deserializes"),
+            SttCommand::Capabilities {
+                request_id: None,
+                api_key: None,
+            }
+        );
+    }
+
+    #[test]
+    fn capabilities_command_serializes_its_key_but_redacts_debug() {
+        let command = capabilities_command(Some(SecretString::new("sk-live-secret")));
+
+        let json = serde_json::to_string(&command).expect("serializes");
+        assert!(json.contains(r#""apiKey":"sk-live-secret""#), "{json}");
+        assert_eq!(
+            serde_json::from_str::<SttCommand>(&json).expect("round-trips"),
+            command
+        );
+
+        let debug = format!("{command:?}");
+        assert!(debug.contains("[REDACTED]"), "{debug}");
+        assert!(!debug.contains("sk-live-secret"), "{debug}");
+    }
+
+    #[test]
+    fn capabilities_event_round_trips_with_camel_case_keys() {
+        let event = capabilities_event(Some("cap-1".to_string()));
+        let expected = concat!(
+            r#"{"type":"capabilities","requestId":"cap-1","providers":["#,
+            r#"{"id":"vercel","label":"Vercel AI Gateway","available":false,"models":["#,
+            r#"{"id":"openai/gpt-realtime-whisper","label":"GPT Realtime Whisper","mode":"streaming"},"#,
+            r#"{"id":"openai/gpt-4o-transcribe","label":"GPT-4o Transcribe","mode":"segmented"}"#,
+            r#"]}]}"#
+        );
+
+        assert_eq!(serde_json::to_string(&event).expect("serializes"), expected);
+        assert_eq!(
+            serde_json::from_str::<SttEvent>(expected).expect("deserializes"),
+            event
+        );
+    }
+
+    #[test]
+    fn capabilities_event_omits_an_absent_request_id() {
+        let event = SttEvent::Capabilities {
+            request_id: None,
+            providers: Vec::new(),
+        };
+
+        assert_eq!(
+            serde_json::to_string(&event).expect("serializes"),
+            r#"{"type":"capabilities","providers":[]}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<SttEvent>(r#"{"type":"capabilities","providers":[]}"#)
+                .expect("deserializes"),
+            event
+        );
+    }
+
+    #[test]
+    fn capabilities_event_is_session_agnostic() {
+        assert_eq!(
+            capabilities_event(Some("cap-1".to_string())).session_id(),
+            None
+        );
+    }
+
+    #[test]
+    fn capabilities_event_tolerates_unknown_fields() {
+        let event: SttEvent = serde_json::from_str(
+            r#"{"type":"capabilities","requestId":"cap-1","future":true,"providers":[{"id":"x","label":"X","available":true,"models":[{"id":"m","label":"M","mode":"streaming","extra":1}]}]}"#,
+        )
+        .expect("deserializes");
+
+        assert_eq!(
+            event,
+            SttEvent::Capabilities {
+                request_id: Some("cap-1".to_string()),
+                providers: vec![ProviderCapability {
+                    id: "x".to_string(),
+                    label: "X".to_string(),
+                    available: true,
+                    models: vec![ModelCapabilityInfo {
+                        id: "m".to_string(),
+                        label: "M".to_string(),
+                        mode: TranscriptionMode::Streaming,
+                    }],
+                }],
+            }
+        );
+    }
+
+    #[test]
+    fn transcription_modes_use_lowercase_wire_values() {
+        assert_eq!(
+            serde_json::to_string(&TranscriptionMode::Streaming).expect("serializes"),
+            r#""streaming""#
+        );
+        assert_eq!(
+            serde_json::to_string(&TranscriptionMode::Segmented).expect("serializes"),
+            r#""segmented""#
+        );
+        assert!(serde_json::from_str::<TranscriptionMode>(r#""batch""#).is_err());
     }
 }
