@@ -10,3 +10,11 @@ pub mod protocol;
 pub mod session;
 pub mod settings;
 pub mod transcript;
+
+// The UI composition root builds async channels for the backend and audio
+// pumps. Re-exporting the channel crate keeps that dependency on the core
+// side and avoids adding a second copy to `speechtt-ui`.
+pub use async_channel;
+// UI error tests construct the core error variants (which wrap
+// `serde_json::Error`) without adding a second direct dependency.
+pub use serde_json;

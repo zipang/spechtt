@@ -5,7 +5,7 @@ use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, Context, FontWeight, IntoElement, div, px, rems};
 
-use crate::components::{ActionButton, KeyCap};
+use crate::components::{ActionButton, AppFooter, KeyCap};
 use crate::tokens::{color, rem};
 use crate::views::dialogs::{DialogShell, DialogWindow};
 
@@ -43,48 +43,40 @@ pub(crate) fn render(cx: &mut Context<DialogWindow>) -> AnyElement {
         );
     }
 
-    let footer = h_flex()
-        .w_full()
-        .justify_between()
+    let status = h_flex()
+        .gap_2()
         .items_center()
-        .pt_2()
-        .border_t_1()
-        .border_color(cx.theme().border)
+        .child(
+            div()
+                .font_family(cx.theme().mono_font_family.clone())
+                .text_size(rems(rem::XS))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(cx.theme().muted_foreground)
+                .child(concat!("SPEECHTT V", env!("CARGO_PKG_VERSION"))),
+        )
         .child(
             h_flex()
-                .gap_2()
+                .gap_1p5()
                 .items_center()
                 .child(
                     div()
-                        .font_family(cx.theme().mono_font_family.clone())
-                        .text_size(rems(rem::XS))
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(cx.theme().muted_foreground)
-                        .child(concat!("SPEECHTT V", env!("CARGO_PKG_VERSION"))),
+                        .size(px(5.))
+                        .rounded(px(2.5))
+                        .bg(gpui_kit::rgb(color::SUCCESS)),
                 )
                 .child(
-                    h_flex()
-                        .gap_1p5()
-                        .items_center()
-                        .child(
-                            div()
-                                .size(px(5.))
-                                .rounded(px(2.5))
-                                .bg(gpui_kit::rgb(color::SUCCESS)),
-                        )
-                        .child(
-                            div()
-                                .text_size(rems(rem::XS))
-                                .font_weight(FontWeight::BOLD)
-                                .text_color(gpui_kit::rgb(color::SUCCESS))
-                                .child("GATEWAY CONNECTED"),
-                        ),
+                    div()
+                        .text_size(rems(rem::XS))
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(gpui_kit::rgb(color::SUCCESS))
+                        .child("GATEWAY CONNECTED"),
                 ),
-        )
-        .child(
-            ActionButton::primary("btn-help-got-it", "Got it")
-                .on_click(cx.listener(|this, _event, window, cx| this.close(window, cx))),
         );
+
+    let footer = AppFooter::new().leading(status).action(
+        ActionButton::primary("btn-help-got-it", "Got it")
+            .on_click(cx.listener(|this, _event, window, cx| this.close(window, cx))),
+    );
 
     DialogShell::new()
         .body(

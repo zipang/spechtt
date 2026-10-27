@@ -9,6 +9,7 @@
 //! they are given and forward requested actions through `on_click`.
 
 mod action_button;
+mod app_footer;
 mod app_header;
 mod caption_well;
 mod choice_pill;
@@ -21,6 +22,7 @@ mod transport_button;
 mod waveform;
 
 pub use action_button::{ActionButton, ActionTone};
+pub use app_footer::AppFooter;
 pub use app_header::AppHeader;
 pub use caption_well::CaptionWell;
 pub use choice_pill::ChoicePill;

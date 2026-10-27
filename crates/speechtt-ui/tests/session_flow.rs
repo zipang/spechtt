@@ -298,8 +298,8 @@ fn transport_commands_are_emitted_in_order_and_paused_audio_is_dropped() {
             api_key,
         } => {
             assert_eq!(session_id, "take-1");
-            assert_eq!(provider, "Vercel AI Gateway");
-            assert_eq!(model, "voxtral-mini-transcribe-3");
+            assert_eq!(provider, "vercel");
+            assert_eq!(model, "fish-audio/transcribe-1");
             assert_eq!(*sample_rate, SAMPLE_RATE);
             assert!(api_key.is_none());
         }

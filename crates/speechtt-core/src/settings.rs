@@ -552,6 +552,32 @@ mod tests {
         assert_eq!(store.load().expect("load settings"), settings);
     }
 
+    // T10.1 — key integrity ----------------------------------------------
+
+    #[test]
+    fn mixed_case_api_key_round_trips_byte_for_byte() {
+        let dir = TempDir::new("mixed-case-key");
+        let store = JsonFileStore::new(dir.join("settings.json"));
+        let key = "vck_AbCdEfGhIjKlMnOpQrStUvWxYzH0123456789";
+        let mut settings = Settings::default();
+
+        settings.set_api_key("vercel", key);
+        store.save(&settings).expect("save mixed-case key");
+        let loaded = store.load().expect("load mixed-case key");
+
+        assert!(
+            loaded.api_key("vercel") == Some(key),
+            "the stored key differs after the round trip"
+        );
+        assert!(
+            loaded
+                .api_key("vercel")
+                .is_some_and(|stored| stored.as_bytes() == key.as_bytes()),
+            "every byte, including case, must survive the round trip"
+        );
+        assert_eq!(loaded, settings);
+    }
+
     #[test]
     fn load_fills_missing_fields_with_defaults() {
         let dir = TempDir::new("partial");

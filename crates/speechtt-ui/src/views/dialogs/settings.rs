@@ -13,7 +13,7 @@ use gpui_kit::component::{ActiveTheme as _, Disableable as _, Icon, Sizable as _
 use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, Context, FontWeight, IntoElement, div, px, rems};
 
-use crate::components::{ActionButton, SettingRow, StatusBadge};
+use crate::components::{ActionButton, AppFooter, SettingRow, StatusBadge};
 use crate::tokens::{color, radius, rem};
 use crate::views::dialogs::{DialogShell, DialogWindow};
 
@@ -25,34 +25,47 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
         connected,
         valid,
         key_env,
+        unavailable,
         revealed,
         api_key_input,
+        reveal_enabled,
+        stored_key_label,
+        stored_key_hint,
     ) = {
         let app = dialog.app().read(cx);
+        let controller = app.controller();
         let has_provider = app.settings_draft().provider.is_some();
-        let provider_label = app
-            .controller()
+        let provider_label = controller
             .settings_provider_label()
             .unwrap_or("Choose provider");
-        let model_label = app
-            .controller()
+        let model_label = controller
             .settings_model_label()
             .unwrap_or(if has_provider {
                 "Choose model"
             } else {
                 "Choose provider first"
             });
+        let unavailable = app
+            .settings_draft()
+            .provider
+            .as_deref()
+            .and_then(|provider| controller.provider_available(provider))
+            == Some(false);
         (
             has_provider,
             provider_label,
             model_label,
-            app.controller().settings_connected(),
-            app.controller().settings_draft_valid(),
-            app.controller()
+            controller.settings_connected(),
+            controller.settings_draft_valid(),
+            controller
                 .settings_api_key_env()
                 .unwrap_or("Select a provider to see its key"),
+            unavailable,
             app.settings_key_revealed(),
             app.settings_api_key_input().clone(),
+            app.settings_key_reveal_enabled(),
+            app.settings_stored_key_label(),
+            app.settings_stored_key_hint(),
         )
     };
 
@@ -92,13 +105,20 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
         StatusBadge::new("NOT CONNECTED").into_any_element()
     };
 
-    let reveal = Button::new("btn-settings-reveal")
+    let mut reveal = Button::new("btn-settings-reveal")
         .ghost()
         .small()
-        .label(if revealed { "Hide" } else { "Reveal" })
+        .label(if revealed && reveal_enabled {
+            "Hide"
+        } else {
+            "Reveal"
+        })
         .on_click(cx.listener(|this, _event, window, cx| this.toggle_key_reveal(window, cx)));
+    if !reveal_enabled {
+        reveal = reveal.disabled(true);
+    }
 
-    let api_key = v_flex()
+    let mut api_key = v_flex()
         .w_full()
         .gap_2()
         .py_3()
@@ -138,6 +158,25 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
                 .suffix(reveal),
         );
 
+    if let Some(stored_key) = stored_key_label {
+        let mut stored = v_flex().gap_1().child(
+            div()
+                .font_family(cx.theme().mono_font_family.clone())
+                .text_size(rems(rem::SM))
+                .text_color(cx.theme().foreground)
+                .child(stored_key),
+        );
+        if let Some(hint) = stored_key_hint {
+            stored = stored.child(
+                div()
+                    .text_size(rems(rem::XS))
+                    .text_color(cx.theme().muted_foreground)
+                    .child(hint),
+            );
+        }
+        api_key = api_key.child(stored);
+    }
+
     let note = h_flex()
         .w_full()
         .items_start()
@@ -156,23 +195,19 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
                 .min_w_0()
                 .text_size(rems(rem::XS))
                 .text_color(cx.theme().muted_foreground)
-                .child(
-                    "No API key? SpeechTT falls back to a local model and keeps working fully offline.",
-                ),
+                .child(if unavailable {
+                    "This provider is not connected. Add an API key to enable it."
+                } else {
+                    "No API key? SpeechTT falls back to a local model and keeps working fully offline."
+                }),
         );
 
-    let footer = h_flex()
-        .w_full()
-        .justify_end()
-        .gap_2()
-        .pt_2()
-        .border_t_1()
-        .border_color(cx.theme().border)
-        .child(
+    let footer = AppFooter::new()
+        .action(
             ActionButton::secondary("btn-settings-cancel", "Cancel")
                 .on_click(cx.listener(|this, _event, window, cx| this.close(window, cx))),
         )
-        .child(
+        .action(
             ActionButton::primary("btn-settings-save", "Save changes")
                 .disabled(!valid)
                 .on_click(cx.listener(|this, _event, window, cx| this.save(window, cx))),

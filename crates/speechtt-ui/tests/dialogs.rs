@@ -4,7 +4,28 @@
 //! (and one headless render smoke test). No assertion depends on element
 //! placement, geometry or labels, so the dialog design stays free to change.
 
-use speechtt_ui::controller::{Dialog, SessionController, SettingsChange};
+use speechtt_core::settings::Settings;
+use speechtt_ui::controller::{Dialog, STORED_KEY_REVEAL_HINT, SessionController, SettingsChange};
+
+const MIXED_CASE_KEY: &str = "vck_AbCdEfGhIjKlMnOpQrStUvWxYzH0123456789";
+
+fn settings_with_mixed_case_key() -> Settings {
+    let mut settings = Settings {
+        provider: "vercel".to_string(),
+        model: "openai/gpt-realtime-whisper".to_string(),
+        auto_paste: false,
+        ..Settings::default()
+    };
+    settings.set_api_key("vercel", MIXED_CASE_KEY);
+    settings
+}
+
+fn open_settings_with_stored_key() -> SessionController {
+    let mut controller = SessionController::new();
+    controller.apply_settings(settings_with_mixed_case_key());
+    controller.open_settings_with(Some("vercel"), Some("openai/gpt-realtime-whisper"), true);
+    controller
+}
 
 fn open_valid_settings(controller: &mut SessionController) {
     controller.open_settings();
@@ -39,6 +60,55 @@ fn settings_saves_a_complete_draft_and_closes() {
         }
     );
     assert_eq!(controller.active_dialog(), None);
+}
+
+#[test]
+fn stored_key_mask_is_surfaced_without_revealing_the_key() {
+    let controller = open_settings_with_stored_key();
+
+    assert_eq!(
+        controller.settings_stored_key_mask().as_deref(),
+        Some("vck…89")
+    );
+    assert_eq!(
+        controller.settings_stored_key_label().as_deref(),
+        Some("Stored key: vck…89")
+    );
+    assert_eq!(
+        controller.settings_stored_key_hint(),
+        Some(STORED_KEY_REVEAL_HINT)
+    );
+
+    let debug = format!("{controller:?}");
+    assert!(
+        !debug.contains(MIXED_CASE_KEY),
+        "controller Debug exposed the key"
+    );
+    let settings_debug = format!("{:?}", controller.settings());
+    assert!(
+        !settings_debug.contains(MIXED_CASE_KEY),
+        "Settings Debug exposed the key"
+    );
+}
+
+#[test]
+fn reveal_is_disabled_for_a_stored_key_until_a_value_is_typed() {
+    let mut controller = open_settings_with_stored_key();
+
+    assert!(!controller.settings_key_reveal_enabled());
+    assert!(controller.settings_key_is_stored_unchanged());
+    assert!(controller.settings_stored_key_label().is_some());
+
+    controller.set_settings_api_key(MIXED_CASE_KEY);
+
+    assert!(controller.settings_key_reveal_enabled());
+    assert!(!controller.settings_key_is_stored_unchanged());
+    assert_eq!(controller.settings_stored_key_label(), None);
+    assert_eq!(controller.settings_stored_key_hint(), None);
+    assert!(
+        controller.settings_draft().api_key.as_bytes() == MIXED_CASE_KEY.as_bytes(),
+        "the draft value was altered"
+    );
 }
 
 #[test]

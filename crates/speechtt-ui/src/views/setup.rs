@@ -3,15 +3,19 @@
 use gpui_kit::assets::IconName;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::ActiveTheme as _;
+use gpui_kit::component::button::Button;
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::Input;
+use gpui_kit::component::scroll::ScrollableElement as _;
+use gpui_kit::component::{Disableable as _, Sizable as _};
 use gpui_kit::prelude::*;
-use gpui_kit::{AnyElement, Context, FontWeight, div, rems, rgb};
+use gpui_kit::{AnyElement, Context, FontWeight, div, rems};
 use speechtt_core::session::OutputTarget;
 
 use crate::app::SpeechTtApp;
-use crate::components::{ActionButton, ChoicePill, SettingRow, StatusBadge, TransportButton};
+use crate::components::{ChoicePill, SettingRow, StatusBadge, TransportButton};
 use crate::layout::ScreenShell;
-use crate::tokens::{color, rem};
+use crate::tokens::rem;
 
 /// Blank state: the large "new session" affordance.
 pub(crate) fn render_prompt(cx: &mut Context<SpeechTtApp>) -> AnyElement {
@@ -42,27 +46,42 @@ pub(crate) fn render_prompt(cx: &mut Context<SpeechTtApp>) -> AnyElement {
         .into_any_element()
 }
 
-/// Setup form: provider, model, title and output target.
-pub(crate) fn render_form(app: &mut SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyElement {
-    let (provider_label, model_label, can_create, has_provider, has_model, output) = {
+/// New-session form, visually aligned with the Settings dialog.
+///
+/// The four prominent rows scroll inside the body; Cancel / Create session
+/// live in the window-level [`crate::components::AppFooter`] sibling, so the
+/// actions never scroll away and are separated from the body by the same
+/// hairline as `AppHeader`.
+pub(crate) fn render_form(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyElement {
+    let (provider_label, model_label, has_provider, output) = {
         let controller = app.controller();
-        let session_name = app.session_name_input().read(cx).value();
+        let has_provider = controller.has_provider();
         (
-            controller.provider_label().unwrap_or("Choose…"),
-            controller.model_label().unwrap_or("Choose…"),
-            controller.is_draft_complete_with_name(&session_name),
-            controller.has_provider(),
-            controller.has_model(),
+            controller.provider_label().unwrap_or("Choose provider"),
+            controller.model_label().unwrap_or(if has_provider {
+                "Choose model"
+            } else {
+                "Choose provider first"
+            }),
+            has_provider,
             controller.selected_output().cloned(),
         )
     };
 
-    let provider_pill = ChoicePill::new("field-provider", provider_label)
-        .selected(has_provider)
+    let provider_select = Button::new("field-provider")
+        .secondary()
+        .small()
+        .label(provider_label)
+        .dropdown_caret(true)
         .on_click(cx.listener(|this, _event, _window, cx| this.cycle_provider(cx)));
-    let model_pill = ChoicePill::new("field-model", model_label)
-        .selected(has_model)
+    let model_select = Button::new("field-model")
+        .secondary()
+        .small()
+        .label(model_label)
+        .dropdown_caret(true)
+        .disabled(!has_provider)
         .on_click(cx.listener(|this, _event, _window, cx| this.cycle_model(cx)));
+
     let memory_pill = ChoicePill::new("field-output-memory", "In memory")
         .selected(output == Some(OutputTarget::Memory))
         .on_click(
@@ -74,39 +93,40 @@ pub(crate) fn render_form(app: &mut SpeechTtApp, cx: &mut Context<SpeechTtApp>) 
             this.select_output(OutputTarget::File(String::new()), cx)
         }));
 
-    let cancel = ActionButton::secondary("btn-cancel-session", "Cancel")
-        .on_click(cx.listener(|this, _event, window, cx| this.cancel_form(window, cx)));
-    let create = ActionButton::primary("btn-create-session", "Create session")
-        .disabled(!can_create)
-        .on_click(cx.listener(|this, _event, _window, cx| this.create_session(cx)));
-
-    // Compact: the 480×280 widget body must fit pill + 4 rows + actions
-    // without clipping.
-    ScreenShell::new(StatusBadge::accent(
-        "NEW SESSION",
-        rgb(color::BRAND_ACCENT).into(),
-    ))
-    .gap(rems(0.125))
-    .body_gap(rems(0.125))
-    .body(
-        SettingRow::new(
-            "TRANSCRIPTION SERVICE",
-            "Which engine transcribes your voice",
+    v_flex()
+        .size_full()
+        .flex_1()
+        .min_h_0()
+        .w_full()
+        .gap_2()
+        .p_5()
+        .overflow_y_scrollbar()
+        .child(
+            SettingRow::new(
+                "Transcription Service",
+                "Which engine transcribes your voice",
+            )
+            .prominent()
+            .control(provider_select),
         )
-        .control(provider_pill),
-    )
-    .body(SettingRow::new("MODEL", "Used for this session").control(model_pill))
-    .body(
-        SettingRow::new("SESSION TITLE", "Names this take and its default file").control(
-            Input::new(app.session_name_input())
-                .id("input-session-name")
-                .w_full(),
-        ),
-    )
-    .body(
-        SettingRow::new("OUTPUT", "Keep it in the app or write a file")
-            .control(h_flex().gap_1().child(memory_pill).child(file_pill)),
-    )
-    .body(h_flex().justify_end().gap_2().child(cancel).child(create))
-    .into_any_element()
+        .child(
+            SettingRow::new("Model", "Used for this session")
+                .prominent()
+                .control(model_select),
+        )
+        .child(
+            SettingRow::new("Session Title", "Names this take and its default file")
+                .prominent()
+                .control(
+                    Input::new(app.session_name_input())
+                        .id("input-session-name")
+                        .w_full(),
+                ),
+        )
+        .child(
+            SettingRow::new("Output", "Keep it in the app or write a file")
+                .prominent()
+                .control(h_flex().gap_1().child(memory_pill).child(file_pill)),
+        )
+        .into_any_element()
 }

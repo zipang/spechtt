@@ -12,24 +12,41 @@
 //! reusable controls in [`crate::components`].
 
 use gpui_kit::assets::IconName;
-use gpui_kit::base::v_flex;
+use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::ActiveTheme as _;
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::{InputEvent, InputState};
+use gpui_kit::component::{Sizable as _, button::Button};
 use std::cell::Cell;
+use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    AnyWindowHandle, App, Bounds, Context, Entity, Pixels, Point, Size, Subscription, Task, Window,
-    WindowBounds, WindowId, WindowKind, WindowOptions, px,
+    AnyElement, AnyWindowHandle, App, Bounds, Context, Entity, Pixels, Point, Size, Subscription,
+    Task, Window, WindowBounds, WindowId, WindowKind, WindowOptions, div, px, rems,
 };
-use speechtt_core::backend::SttSessionSink;
+use speechtt_core::audio::{AudioError, AudioSource, CpalAudioSource, PcmChunk};
+use speechtt_core::backend::{BackendError, BunSubprocess, SttEventReceiver, SttSessionSink};
+use speechtt_core::fft::SpectrumAnalyzer;
+use speechtt_core::hotkeys::{
+    GlobalHotkeyListener, HotkeyError, SessionAction, ShortcutListener, bindings_from_settings,
+};
+use speechtt_core::output::clipboard::{ClipboardSink, SystemClipboard};
+use speechtt_core::output::file::{FileOpener, SystemOpener};
+use speechtt_core::output::paste::{PasteSink, SystemPaste};
 use speechtt_core::session::{OutputTarget, SessionField, SessionState};
+use speechtt_core::settings::{JsonFileStore, Settings, SettingsStore};
 
-use crate::components::{AppHeader, IconButton};
+use crate::components::{ActionButton, AppFooter, AppHeader, IconButton};
 use crate::controller::{
-    Dialog, FinishedTake, SessionController, SettingsChange, SettingsDraft, ViewState,
+    AppError, Clock, Dialog, ErrorAction, FinishedTake, SAMPLE_RATE, SessionController,
+    SettingsChange, SettingsDraft, SystemClock, ViewState,
 };
+use crate::tokens::{color, rem};
 use crate::views;
 use crate::views::dialogs::{
     DIALOG_WIDTH, DialogWindow, HELP_DIALOG_HEIGHT, SETTINGS_DIALOG_HEIGHT,
@@ -37,6 +54,26 @@ use crate::views::dialogs::{
 
 /// Application title shown in the header strip.
 pub const APP_TITLE: &str = "SpeechTT";
+
+/// Every side effect the widget needs, injected as a single composition root.
+///
+/// Production is built by [`SpeechTtApp::new`]; headless tests build the same
+/// struct with fakes so no microphone, display server, clipboard, editor,
+/// filesystem or live provider is required.
+pub struct AppServices {
+    pub audio: Box<dyn AudioSource>,
+    pub analyzer: SpectrumAnalyzer,
+    pub sink: Box<dyn SttSessionSink>,
+    pub events: SttEventReceiver,
+    pub settings: Box<dyn SettingsStore>,
+    pub clipboard: Box<dyn ClipboardSink>,
+    pub paste: Box<dyn PasteSink>,
+    pub opener: Box<dyn FileOpener>,
+    pub listener: Box<dyn ShortcutListener>,
+    pub clock: Box<dyn Clock>,
+}
+
+type AudioFactory = Box<dyn FnMut() -> Result<Box<dyn AudioSource>, AudioError> + Send>;
 
 /// Root view of the widget window.
 pub struct SpeechTtApp {
@@ -54,10 +91,88 @@ pub struct SpeechTtApp {
     _subscriptions: Vec<Subscription>,
     /// Backend event pump; dropped (and cancelled) with the view.
     _event_task: Option<Task<()>>,
+    /// Clock-driven elapsed read-out.
+    _clock_task: Option<Task<()>>,
+    /// Capture pump; dropped (and cancelled) with the view.
+    _audio_task: Option<Task<()>>,
+    audio_thread: Option<std::thread::JoinHandle<()>>,
+    audio_stop: Option<Arc<AtomicBool>>,
+    audio: Option<Box<dyn AudioSource>>,
+    audio_factory: Option<AudioFactory>,
+    analyzer: SpectrumAnalyzer,
+    settings_store: Box<dyn SettingsStore>,
+    clipboard: Box<dyn ClipboardSink>,
+    paste: Box<dyn PasteSink>,
+    opener: Box<dyn FileOpener>,
+    listener: Box<dyn ShortcutListener>,
+    clock: Box<dyn Clock>,
+    stored_settings: Settings,
 }
 
 impl SpeechTtApp {
+    /// Production composition root: real capture, duplex Bun backend,
+    /// settings file, clipboard/paste/opener and global hotkeys.
+    ///
+    /// A missing Bun binary or hotkey backend never prevents the widget from
+    /// opening; the failure is surfaced as a typed error strip instead.
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let (sink, events, backend_failed) = match BunSubprocess::spawn_default() {
+            Ok(backend) => {
+                let events = backend.events();
+                (Box::new(backend) as Box<dyn SttSessionSink>, events, false)
+            }
+            Err(_) => {
+                let (_sender, receiver) = speechtt_core::async_channel::unbounded();
+                (
+                    Box::new(UnavailableSink) as Box<dyn SttSessionSink>,
+                    receiver,
+                    true,
+                )
+            }
+        };
+
+        let listener: Box<dyn ShortcutListener> = match GlobalHotkeyListener::new() {
+            Ok(listener) => Box::new(listener),
+            Err(_) => Box::new(NoopShortcutListener),
+        };
+
+        let factory: AudioFactory =
+            Box::new(|| Ok(Box::new(CpalAudioSource::open_default()?) as Box<dyn AudioSource>));
+        let services = AppServices {
+            audio: Box::new(LazyCpalAudioSource::default()),
+            analyzer: SpectrumAnalyzer::new(SAMPLE_RATE),
+            sink,
+            events,
+            settings: Box::new(JsonFileStore::new(JsonFileStore::default_path())),
+            clipboard: Box::new(SystemClipboard::new()),
+            paste: Box::new(SystemPaste::new()),
+            opener: Box::new(SystemOpener::new()),
+            listener,
+            clock: Box::new(SystemClock),
+        };
+
+        let mut app = Self::with_services_and_factory(services, Some(factory), window, cx);
+        if backend_failed {
+            app.controller.report_error(AppError::BackendUnavailable);
+        }
+        app
+    }
+
+    /// Build the widget with injected services (the test seam).
+    pub fn with_services(
+        services: AppServices,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        Self::with_services_and_factory(services, None, window, cx)
+    }
+
+    fn with_services_and_factory(
+        services: AppServices,
+        audio_factory: Option<AudioFactory>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let session_name =
             cx.new(|cx| InputState::new(window, cx).placeholder("e.g. meeting-notes"));
         let settings_api_key = cx.new(|cx| {
@@ -98,8 +213,18 @@ impl SpeechTtApp {
             }
         });
 
+        let (stored_settings, settings_error) = match services.settings.load() {
+            Ok(settings) => (settings, None),
+            Err(error) => (Settings::default(), Some(error)),
+        };
+        let mut controller = SessionController::new();
+        controller.set_sink(services.sink);
+        // Persisted settings always reach the controller: the New Session
+        // form and `Start` both read the provider/model/key from here.
+        controller.apply_settings(stored_settings.clone());
+
         let mut app = Self {
-            controller: SessionController::new(),
+            controller,
             session_name,
             settings_api_key,
             settings_key_revealed: false,
@@ -108,11 +233,68 @@ impl SpeechTtApp {
             pending_settings: None,
             _subscriptions: vec![subscription, settings_subscription, window_closed],
             _event_task: None,
+            _clock_task: None,
+            _audio_task: None,
+            audio_thread: None,
+            audio_stop: None,
+            audio: Some(services.audio),
+            audio_factory,
+            analyzer: services.analyzer,
+            settings_store: services.settings,
+            clipboard: services.clipboard,
+            paste: services.paste,
+            opener: services.opener,
+            listener: services.listener,
+            clock: services.clock,
+            stored_settings,
         };
-        // No backend is attached yet (the Bun worker lands in T0003), so this
-        // is dormant until `connect_backend` supplies a duplex sink.
-        app.start_event_loop(cx);
+
+        if let Some(error) = settings_error {
+            app.controller.report_error(AppError::from_settings(&error));
+        }
+        app.register_hotkeys();
+        app.start_event_loop(services.events, cx);
+        app.start_clock_loop(cx);
+        app.controller.request_capabilities();
         app
+    }
+
+    fn register_hotkeys(&mut self) {
+        let bindings = match bindings_from_settings(&self.stored_settings) {
+            Ok(bindings) => bindings,
+            Err(error) => {
+                self.controller
+                    .report_error(AppError::ProtocolError(format!(
+                        "invalid shortcut settings: {error}"
+                    )));
+                return;
+            }
+        };
+        let pairs: Vec<_> = bindings.into_iter().collect();
+        if let Err(error) = self.listener.register(&pairs) {
+            self.controller
+                .report_error(AppError::ProtocolError(format!("hotkeys: {error}")));
+        }
+    }
+
+    fn start_clock_loop(&mut self, cx: &mut Context<Self>) {
+        self._clock_task = Some(cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(200))
+                    .await;
+                let updated = this.update(cx, |this, cx| {
+                    if this.controller.session_state().is_active()
+                        && this.controller.refresh_elapsed(this.clock.now())
+                    {
+                        cx.notify();
+                    }
+                });
+                if updated.is_err() {
+                    break;
+                }
+            }
+        }));
     }
 
     // ----- Queries -----------------------------------------------------
@@ -139,12 +321,60 @@ impl SpeechTtApp {
         self.controller.finished_take()
     }
 
+    pub fn transcript_committed(&self) -> &str {
+        self.controller.transcript_committed()
+    }
+
+    pub fn transcript_live(&self) -> &str {
+        self.controller.transcript_live()
+    }
+
+    pub fn transcript_full_text(&self) -> String {
+        self.controller.transcript_full_text()
+    }
+
+    pub fn elapsed_seconds(&self) -> u32 {
+        self.controller.elapsed_seconds()
+    }
+
+    pub fn app_error(&self) -> Option<&AppError> {
+        self.controller.app_error()
+    }
+
+    pub fn written_path(&self) -> Option<&std::path::Path> {
+        self.controller.written_path()
+    }
+
     pub fn active_dialog(&self) -> Option<Dialog> {
         self.controller.active_dialog()
     }
 
     pub fn settings_draft(&self) -> &SettingsDraft {
         self.controller.settings_draft()
+    }
+
+    pub fn settings_connected(&self) -> bool {
+        self.controller.settings_connected()
+    }
+
+    /// The masked stored-key line for the Settings API-key row, if any.
+    pub fn settings_stored_key_label(&self) -> Option<String> {
+        self.controller.settings_stored_key_label()
+    }
+
+    /// Hint shown while Reveal is disabled for a stored key.
+    pub fn settings_stored_key_hint(&self) -> Option<&'static str> {
+        self.controller.settings_stored_key_hint()
+    }
+
+    /// Whether Reveal applies to a typed draft value.
+    pub fn settings_key_reveal_enabled(&self) -> bool {
+        self.controller.settings_key_reveal_enabled()
+    }
+
+    /// Current text of the Settings API-key field (query surface for tests).
+    pub fn settings_api_key_value(&self, cx: &App) -> String {
+        self.settings_api_key.read(cx).value().to_string()
     }
 
     /// The change staged by `Save changes`, consumed by the settings store in
@@ -162,7 +392,7 @@ impl SpeechTtApp {
         &self.settings_api_key
     }
 
-    pub(crate) fn settings_key_revealed(&self) -> bool {
+    pub fn settings_key_revealed(&self) -> bool {
         self.settings_key_revealed
     }
 
@@ -229,27 +459,130 @@ impl SpeechTtApp {
     }
 
     pub fn start_recording(&mut self, cx: &mut Context<Self>) {
-        self.controller.start_recording();
+        if self.controller.start_recording_at(self.clock.now()) {
+            self.start_audio_capture(cx);
+        }
         cx.notify();
     }
 
     pub fn pause_recording(&mut self, cx: &mut Context<Self>) {
-        self.controller.pause_recording();
+        self.controller.pause_recording_at(self.clock.now());
         cx.notify();
     }
 
     pub fn resume_recording(&mut self, cx: &mut Context<Self>) {
-        self.controller.resume_recording();
+        self.controller.resume_recording_at(self.clock.now());
         cx.notify();
     }
 
     pub fn finish_take(&mut self, cx: &mut Context<Self>) {
-        self.controller.finish_take();
+        if !self.controller.finish_take() {
+            return;
+        }
+        self.stop_audio_capture();
+
+        let now = self.clock.system_now();
+        let _ = self
+            .controller
+            .auto_paste_after_finish(&mut *self.clipboard, &mut *self.paste);
+        if matches!(
+            self.controller
+                .finished_take()
+                .map(|take| &take.session().output),
+            Some(OutputTarget::File(_))
+        ) {
+            let _ = self.controller.save_finished_file(now);
+        }
         cx.notify();
     }
 
     pub fn new_take(&mut self, cx: &mut Context<Self>) {
+        self.stop_audio_capture();
         self.controller.new_take();
+        cx.notify();
+    }
+
+    /// Apply a hotkey action exactly like its button, including opening the
+    /// dialog windows for the toggle actions.
+    pub fn apply_action(
+        &mut self,
+        action: SessionAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        match action {
+            SessionAction::ToggleHelp => {
+                self.open_help(window, cx);
+                true
+            }
+            SessionAction::ToggleSettings => {
+                self.open_settings(window, cx);
+                true
+            }
+            _ => {
+                let applied = self.controller.apply_action(action);
+                if applied {
+                    match action {
+                        SessionAction::StartRecording => self.start_audio_capture(cx),
+                        SessionAction::StopRecording | SessionAction::NewTake => {
+                            self.stop_audio_capture();
+                        }
+                        _ => {}
+                    }
+                }
+                cx.notify();
+                applied
+            }
+        }
+    }
+
+    /// Copy the finished take through the injected clipboard adapter.
+    pub fn copy_transcript(&mut self, cx: &mut Context<Self>) -> bool {
+        let copied = self
+            .controller
+            .copy_finished_transcript(&mut *self.clipboard)
+            .is_ok();
+        cx.notify();
+        copied
+    }
+
+    /// Save the finished take. File takes use their configured target;
+    /// memory takes are written as Markdown under `~/Documents`.
+    pub fn save_transcript(&mut self, cx: &mut Context<Self>) -> bool {
+        let now = self.clock.system_now();
+        let is_file = matches!(
+            self.controller
+                .finished_take()
+                .map(|take| &take.session().output),
+            Some(OutputTarget::File(_))
+        );
+        let saved = if is_file {
+            self.controller.save_finished_file(now)
+        } else {
+            self.controller
+                .save_finished_transcript(&documents_dir(), now)
+        }
+        .is_ok();
+        cx.notify();
+        saved
+    }
+
+    /// Open the saved transcript with the injected opener.
+    pub fn open_saved_file(&mut self, cx: &mut Context<Self>) -> bool {
+        let opened = self.controller.open_saved_file(&mut *self.opener).is_ok();
+        cx.notify();
+        opened
+    }
+
+    /// Dismiss the status strip.
+    pub fn dismiss_error(&mut self, cx: &mut Context<Self>) {
+        self.controller.dismiss_error();
+        cx.notify();
+    }
+
+    /// Retry the current take after a retryable backend/network failure.
+    pub fn retry_backend(&mut self, cx: &mut Context<Self>) {
+        self.controller.retry_start();
         cx.notify();
     }
 
@@ -266,7 +599,21 @@ impl SpeechTtApp {
     /// Opens Settings in its own floating window beside the widget.
     pub fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.close_dialog_window(cx);
-        self.controller.open_settings();
+        if !self.stored_settings.model.trim().is_empty() {
+            let provider = self.stored_settings.provider.clone();
+            let model = self.stored_settings.model.clone();
+            let has_key = self
+                .stored_settings
+                .api_key(&self.stored_settings.provider)
+                .is_some();
+            self.controller
+                .open_settings_with(Some(&provider), Some(&model), has_key);
+        } else {
+            self.controller.open_settings();
+        }
+        // Refresh the provider/model catalogue each time the dialog opens so
+        // a key exported after startup appears as connected.
+        self.controller.request_capabilities();
         self.settings_key_revealed = false;
         self.settings_api_key.update(cx, |state, cx| {
             state.set_value("", window, cx);
@@ -417,6 +764,11 @@ impl SpeechTtApp {
     }
 
     pub fn toggle_settings_key_reveal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // A stored key is never held in the field, so there is nothing to
+        // reveal until the user types or pastes a replacement.
+        if !self.controller.settings_key_reveal_enabled() {
+            return;
+        }
         self.settings_key_revealed = !self.settings_key_revealed;
         let masked = !self.settings_key_revealed;
         self.settings_api_key
@@ -435,10 +787,39 @@ impl SpeechTtApp {
         true
     }
 
-    /// Single hook between the dialog and the future settings store (T0006 /
-    /// T0009). For now it only stages the change for the caller.
+    /// Persist a committed Settings draft and make it current for the next
+    /// take. The draft key is written only to the store; it never appears in
+    /// `pending_settings` debug output because `SettingsChange` redacts it.
     pub fn apply_settings_change(&mut self, change: SettingsChange) {
+        let provider = change.provider.clone();
+        let next = Settings {
+            provider: change.provider.clone(),
+            model: change.model.clone(),
+            api_keys: self.stored_settings.api_keys.clone(),
+            shortcuts: self.stored_settings.shortcuts.clone(),
+            auto_paste: self.stored_settings.auto_paste,
+        };
+        let mut next = next;
+        if let Some(key) = &change.api_key {
+            next.set_api_key(&provider, key.clone());
+        }
+
         self.pending_settings = Some(change);
+
+        match self.settings_store.save(&next) {
+            Ok(()) => {
+                self.stored_settings = next.clone();
+                self.controller.apply_settings(next);
+                self.controller.dismiss_error();
+                // Re-run the handshake so the newly saved key flips the
+                // provider to CONNECTED without reopening the app.
+                self.controller.request_capabilities();
+            }
+            Err(error) => {
+                self.controller
+                    .report_error(AppError::from_settings(&error));
+            }
+        }
     }
 
     fn clear_settings_key(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -453,25 +834,106 @@ impl SpeechTtApp {
     /// Each received event updates live take state and re-renders once, so the
     /// caption well grows token by token while the take is running.
     pub fn connect_backend(&mut self, sink: Box<dyn SttSessionSink>, cx: &mut Context<Self>) {
+        let events = sink.events();
         self.controller.set_sink(sink);
-        self.start_event_loop(cx);
+        if let Some(events) = events {
+            self.start_event_loop(events, cx);
+        }
         cx.notify();
     }
 
-    /// Own the backend event receiver, if the controller has one. The task
-    /// lives as long as the view; dropping it cancels the pump.
-    fn start_event_loop(&mut self, cx: &mut Context<Self>) {
+    /// Own the backend event receiver. The task lives as long as the view;
+    /// dropping it cancels the pump.
+    fn start_event_loop(&mut self, events: SttEventReceiver, cx: &mut Context<Self>) {
         // Replacing the backend cancels any pump that was reading the old one.
         self._event_task = None;
-        let Some(events) = self.controller.take_event_stream() else {
-            return;
-        };
         self._event_task = Some(cx.spawn(async move |this, cx| {
             while let Ok(message) = events.recv().await {
                 let updated = this.update(cx, |this, cx| {
                     match message {
                         Ok(event) => this.controller.handle_stt_event(event),
-                        Err(error) => this.controller.report_backend_error(&error),
+                        Err(error) => this.controller.report_error(AppError::from_backend(&error)),
+                    }
+                    cx.notify();
+                });
+                if updated.is_err() {
+                    break;
+                }
+            }
+            // A closed stream means the worker exited (or never started).
+            // Surfacing it keeps a dead backend actionable instead of silent.
+            let _ = this.update(cx, |this, cx| {
+                this.controller.report_error(AppError::BackendUnavailable);
+                cx.notify();
+            });
+        }));
+    }
+
+    /// Start the capture thread and its UI pump. Pause keeps the stream alive
+    /// and relies on the controller dropping frames; finish/new take stop and
+    /// drop the source so the device is released.
+    fn start_audio_capture(&mut self, cx: &mut Context<Self>) {
+        if self.audio_stop.is_some() {
+            return;
+        }
+
+        let source = match self.audio.take() {
+            Some(source) => Some(source),
+            None => match self.audio_factory.as_mut() {
+                Some(factory) => match factory() {
+                    Ok(source) => Some(source),
+                    Err(error) => {
+                        self.controller.report_error(AppError::from_audio(&error));
+                        None
+                    }
+                },
+                None => None,
+            },
+        };
+        let Some(mut source) = source else {
+            return;
+        };
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let thread_stop = Arc::clone(&stop);
+        let (sender, receiver) =
+            speechtt_core::async_channel::unbounded::<Result<PcmChunk, AudioError>>();
+        self.audio_thread = std::thread::Builder::new()
+            .name("speechtt-audio".to_owned())
+            .spawn(move || {
+                while !thread_stop.load(Ordering::Relaxed) {
+                    match source.next_chunk() {
+                        Ok(Some(chunk)) => {
+                            if sender.send_blocking(Ok(chunk)).is_err() {
+                                break;
+                            }
+                        }
+                        Ok(None) => break,
+                        Err(error) => {
+                            let _ = sender.send_blocking(Err(error));
+                            break;
+                        }
+                    }
+                }
+            })
+            .ok();
+        self.audio_stop = Some(stop);
+
+        self._audio_task = Some(cx.spawn(async move |this, cx| {
+            while let Ok(message) = receiver.recv().await {
+                let updated = this.update(cx, |this, cx| {
+                    match message {
+                        Ok(chunk) => {
+                            let samples: Vec<f32> = chunk
+                                .samples
+                                .iter()
+                                .map(|sample| f32::from(*sample) / f32::from(i16::MAX))
+                                .collect();
+                            let bars = this.analyzer.bars(&samples);
+                            this.controller.push_audio_chunk(&chunk.samples, bars);
+                            this.controller.refresh_elapsed(this.clock.now());
+                        }
+                        Err(error) => this.controller.report_error(AppError::from_audio(&error)),
                     }
                     cx.notify();
                 });
@@ -480,6 +942,18 @@ impl SpeechTtApp {
                 }
             }
         }));
+    }
+
+    fn stop_audio_capture(&mut self) {
+        if let Some(stop) = self.audio_stop.take() {
+            stop.store(true, Ordering::Relaxed);
+        }
+        self._audio_task = None;
+        // The capture call returns after at most one chunk (~40 ms) on a live
+        // device, so joining here cannot stall the UI for long.
+        if let Some(handle) = self.audio_thread.take() {
+            let _ = handle.join();
+        }
     }
 
     fn clear_session_name(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -494,7 +968,7 @@ impl gpui_kit::Render for SpeechTtApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl gpui_kit::IntoElement {
-        v_flex()
+        let mut root = v_flex()
             .size_full()
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
@@ -514,25 +988,131 @@ impl gpui_kit::Render for SpeechTtApp {
                                 this.open_settings(window, cx)
                             })),
                     ),
+            );
+
+        // The error strip sits above the body and below the header, so it
+        // never replaces or moves the transport controls.
+        if let Some(strip) = self.render_error_strip(cx) {
+            root = root.child(strip);
+        }
+
+        let state = self.view_state();
+        let mut body = v_flex()
+            .flex_1()
+            .min_h_0()
+            .w_full()
+            .overflow_hidden()
+            .justify_between();
+        // The setup form owns the dialog-like `p_5` body padding; every other
+        // screen keeps the compact widget inset.
+        if state != ViewState::Form {
+            body = body.px_5().py_2p5();
+        }
+
+        root = root.child(body.child(match state {
+            ViewState::Prompt => views::setup::render_prompt(cx),
+            ViewState::Form => views::setup::render_form(self, cx),
+            ViewState::Ready => views::transport::render_ready(cx),
+            ViewState::Recording => views::transport::render_recording(self, cx),
+            ViewState::Paused => views::transport::render_paused(self, cx),
+            ViewState::Stopped => views::stopped::render_stopped(self, cx),
+        }));
+
+        // The setup form's actions are full-bleed, exactly like AppHeader, and
+        // stay pinned while the four setting rows scroll.
+        if state == ViewState::Form {
+            root = root.child(self.render_form_footer(cx));
+        }
+
+        root
+    }
+}
+
+impl SpeechTtApp {
+    fn render_form_footer(&self, cx: &mut Context<Self>) -> AnyElement {
+        let session_name = self.session_name.read(cx).value().to_string();
+        let can_create = self.controller().is_draft_complete_with_name(&session_name);
+
+        AppFooter::new()
+            .action(
+                ActionButton::secondary("btn-cancel-session", "Cancel")
+                    .on_click(cx.listener(|this, _event, window, cx| this.cancel_form(window, cx))),
+            )
+            .action(
+                ActionButton::primary("btn-create-session", "Create session")
+                    .disabled(!can_create)
+                    .on_click(cx.listener(|this, _event, _window, cx| this.create_session(cx))),
+            )
+            .into_any_element()
+    }
+
+    fn render_error_strip(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let error = self.controller.app_error()?.clone();
+        let action = error.action();
+
+        let mut row = h_flex()
+            .id("app-error-strip")
+            .w_full()
+            .flex_shrink_0()
+            .items_center()
+            .gap_2()
+            .px_5()
+            .py_1p5()
+            .bg(cx.theme().secondary)
+            .border_t_1()
+            .border_b_1()
+            .border_color(gpui_kit::rgb(color::DANGER))
+            .child(
+                div()
+                    .size(px(6.))
+                    .rounded(px(3.))
+                    .bg(gpui_kit::rgb(color::DANGER)),
             )
             .child(
-                v_flex()
+                div()
                     .flex_1()
-                    .min_h_0()
-                    .w_full()
-                    .overflow_hidden()
-                    .px_5()
-                    .py_2p5()
-                    .justify_between()
-                    .child(match self.view_state() {
-                        ViewState::Prompt => views::setup::render_prompt(cx),
-                        ViewState::Form => views::setup::render_form(self, cx),
-                        ViewState::Ready => views::transport::render_ready(cx),
-                        ViewState::Recording => views::transport::render_recording(self, cx),
-                        ViewState::Paused => views::transport::render_paused(self, cx),
-                        ViewState::Stopped => views::stopped::render_stopped(self, cx),
-                    }),
+                    .min_w_0()
+                    .text_size(rems(rem::SM))
+                    .text_color(cx.theme().foreground)
+                    .child(error.message()),
+            );
+
+        row = match action {
+            ErrorAction::OpenSettings => row.child(
+                Button::new("btn-error-settings")
+                    .ghost()
+                    .small()
+                    .label("Open Settings")
+                    .on_click(
+                        cx.listener(|this, _event, window, cx| this.open_settings(window, cx)),
+                    ),
+            ),
+            ErrorAction::Retry => row.child(
+                Button::new("btn-error-retry")
+                    .ghost()
+                    .small()
+                    .label("Retry")
+                    .on_click(cx.listener(|this, _event, _window, cx| this.retry_backend(cx))),
+            ),
+            ErrorAction::SettingsHint => row.child(
+                div()
+                    .text_size(rems(rem::XS))
+                    .text_color(cx.theme().muted_foreground)
+                    .child("Open settings"),
+            ),
+            ErrorAction::Dismiss => row,
+        };
+
+        Some(
+            row.child(
+                Button::new("btn-error-dismiss")
+                    .ghost()
+                    .small()
+                    .label("Dismiss")
+                    .on_click(cx.listener(|this, _event, _window, cx| this.dismiss_error(cx))),
             )
+            .into_any_element(),
+        )
     }
 }
 
@@ -565,4 +1145,63 @@ fn dialog_window_bounds(dialog: Dialog, window: &mut Window, cx: &App) -> Bounds
         origin,
         size: Size { width, height },
     }
+}
+
+impl Drop for SpeechTtApp {
+    fn drop(&mut self) {
+        if let Some(stop) = self.audio_stop.take() {
+            stop.store(true, Ordering::Relaxed);
+        }
+        self.listener.unregister_all();
+    }
+}
+
+/// `$HOME/Documents`, falling back to the temp directory in hermetic builds.
+fn documents_dir() -> PathBuf {
+    std::env::var_os("HOME")
+        .map(|home| PathBuf::from(home).join("Documents"))
+        .unwrap_or_else(std::env::temp_dir)
+}
+
+/// Opens the default device on the first chunk, so constructing the widget
+/// never touches audio hardware (the pump only runs during a take).
+#[derive(Default)]
+struct LazyCpalAudioSource {
+    inner: Option<CpalAudioSource>,
+}
+
+impl AudioSource for LazyCpalAudioSource {
+    fn next_chunk(&mut self) -> Result<Option<PcmChunk>, AudioError> {
+        if self.inner.is_none() {
+            self.inner = Some(CpalAudioSource::open_default()?);
+        }
+        let source = self
+            .inner
+            .as_mut()
+            .ok_or_else(|| AudioError::Backend("capture source missing".to_owned()))?;
+        source.next_chunk()
+    }
+}
+
+/// Stand-in backend when the Bun worker cannot be spawned.
+struct UnavailableSink;
+
+impl SttSessionSink for UnavailableSink {
+    fn send(&mut self, _cmd: speechtt_core::protocol::SttCommand) -> Result<(), BackendError> {
+        Err(BackendError::Disconnected)
+    }
+}
+
+/// Hotkey fallback when the OS manager is unavailable (headless sessions).
+struct NoopShortcutListener;
+
+impl ShortcutListener for NoopShortcutListener {
+    fn register(
+        &mut self,
+        _shortcuts: &[(SessionAction, speechtt_core::hotkeys::Shortcut)],
+    ) -> Result<(), HotkeyError> {
+        Ok(())
+    }
+
+    fn unregister_all(&mut self) {}
 }

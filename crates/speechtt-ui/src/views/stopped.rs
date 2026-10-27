@@ -1,4 +1,9 @@
 //! Stopped screen: the finished take, split by output mode.
+//!
+//! A memory take starts with Copy/Save. After Save (or immediately for a file
+//! take) the screen shows the written path and an Open File action backed by
+//! the injected opener. "Copied"/"Saved"/"Opened" feedback comes from the
+//! controller's transient output status.
 
 use gpui_kit::assets::IconName;
 use gpui_kit::base::h_flex;
@@ -13,40 +18,57 @@ use crate::components::{CaptionWell, IconAction, StatusBadge};
 use crate::layout::{ScreenShell, SurfaceBox};
 use crate::tokens::rem;
 
-/// Finished take. File takes expose the written path and an open action;
-/// memory takes expose the transcript with copy/save.
+/// Finished take. A written memory take and a file take both expose the path
+/// and an open action; an unsaved memory take exposes copy/save.
 pub(crate) fn render_stopped(app: &mut SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyElement {
-    let (is_file, path, committed, live) = {
-        let Some(result) = app.controller().finished_take() else {
-            return StatusBadge::new("STOPPED").into_any_element();
-        };
-        let is_file = matches!(result.session().output, OutputTarget::File(_));
-        let path = match &result.session().output {
-            OutputTarget::File(path) => path.clone(),
-            OutputTarget::Memory => String::new(),
-        };
-        (
-            is_file,
-            path,
-            result.committed().clone(),
-            result.live().clone(),
+    let Some(result) = app.controller().finished_take() else {
+        return StatusBadge::new("STOPPED").into_any_element();
+    };
+
+    let target_path = match &result.session().output {
+        OutputTarget::File(path) => path.clone(),
+        OutputTarget::Memory => String::new(),
+    };
+    let written_path = app
+        .controller()
+        .written_path()
+        .map(|path| path.to_string_lossy().into_owned());
+    let status = app.controller().output_status().map(ToOwned::to_owned);
+    let committed = result.committed().clone();
+    let live = result.live().clone();
+
+    // A save turns either output mode into a written-path view.
+    let path = written_path.clone().unwrap_or(target_path);
+    let written = !path.is_empty();
+
+    let controls = if written {
+        h_flex().gap_2().child(
+            IconAction::new("btn-open-file", IconName::FileText).on_click(cx.listener(
+                |this, _event, _window, cx| {
+                    this.open_saved_file(cx);
+                },
+            )),
         )
-    };
-
-    let controls = if is_file {
-        // TODO(Phase 5): open the written file.
-        h_flex()
-            .gap_2()
-            .child(icon_action("btn-open-file", IconName::FileText))
     } else {
-        // TODO(Phase 5): clipboard and save adapters.
         h_flex()
             .gap_2()
-            .child(icon_action("btn-copy", IconName::Copy))
-            .child(icon_action("btn-save", IconName::HardDriveDownload))
+            .child(
+                IconAction::new("btn-copy", IconName::Copy).on_click(cx.listener(
+                    |this, _event, _window, cx| {
+                        this.copy_transcript(cx);
+                    },
+                )),
+            )
+            .child(
+                IconAction::new("btn-save", IconName::HardDriveDownload).on_click(cx.listener(
+                    |this, _event, _window, cx| {
+                        this.save_transcript(cx);
+                    },
+                )),
+            )
     };
 
-    let body = if is_file {
+    let body = if written {
         SurfaceBox::new()
             .child(
                 div()
@@ -72,17 +94,26 @@ pub(crate) fn render_stopped(app: &mut SpeechTtApp, cx: &mut Context<SpeechTtApp
         .secondary()
         .small()
         .label("New take")
-        .on_click(cx.listener(|this, _event, _window, cx| this.new_take(cx)));
+        .on_click(cx.listener(|this, _event, _window, cx| {
+            this.new_take(cx);
+        }));
 
-    ScreenShell::new(StatusBadge::new("STOPPED"))
+    let mut shell = ScreenShell::new(StatusBadge::new("STOPPED"))
         .header_trailing(new_take)
         .gap(rems(0.5))
         .body_gap(rems(0.5))
-        .body(body)
+        .body(body);
+
+    if let Some(status) = status {
+        shell = shell.body(
+            div()
+                .text_size(rems(rem::XS))
+                .text_color(cx.theme().muted_foreground)
+                .child(status),
+        );
+    }
+
+    shell
         .footer(h_flex().items_end().justify_end().child(controls))
         .into_any_element()
-}
-
-fn icon_action(id: &'static str, icon: IconName) -> IconAction {
-    IconAction::new(id, icon).on_click(|_event, _window, _cx| {})
 }

@@ -63,22 +63,19 @@ impl DialogShell {
 
 impl RenderOnce for DialogShell {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
-        let mut panel = v_flex()
-            .size_full()
+        // Header (window root) → scrollable body → full-bleed footer. The
+        // footer is a sibling of the padded body, never inside it, so it pins
+        // to the window edge exactly like `AppHeader` does at the top.
+        let body = v_flex()
             .flex_1()
             .min_h_0()
             .w_full()
             .gap_2()
             .p_5()
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_h_0()
-                    .w_full()
-                    .gap_2()
-                    .overflow_y_scrollbar()
-                    .children(self.body),
-            );
+            .overflow_y_scrollbar()
+            .children(self.body);
+
+        let mut panel = v_flex().size_full().flex_1().min_h_0().w_full().child(body);
         if let Some(footer) = self.footer {
             panel = panel.child(footer);
         }

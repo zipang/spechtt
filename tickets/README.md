@@ -93,32 +93,9 @@ Decisions, deviations, verification output.
 | [T0006](done/T0006-core-settings-and-shortcuts.md) | Settings store and global hotkeys | Rust core |
 | [T0007](done/T0007-core-output-clipboard-paste-save.md) | Clipboard, paste and save-to-file adapters | Rust core |
 | [T0008](done/T0008-bun-capabilities-and-live-smoke.md) | Capability handshake and live cross-language smoke test | Bun + Rust protocol |
+| [T0009](done/T0009-e2e-wiring-and-error-ux.md) | End-to-end wiring and error UX | Cross-cutting |
+| [T0010](done/T0010-settings-key-integrity-and-reveal-ux.md) | Settings key integrity and stored-key reveal UX | Rust UI + core |
 
-### Planned — Wave 2 (integration)
+### Planned
 
-| Ticket | Title | Depends on |
-|---|---|---|
-| [T0009](planned/T0009-e2e-wiring-and-error-ux.md) | End-to-end wiring and error UX | T0004–T0008 |
-
-## Parallel execution plan
-
-```text
-Wave 1
-  Track A (Rust UI)   : T0004 ✓ ────────────┐
-  Track B (Rust core) : T0005 → T0006 → T0007 ─┤
-  Track C (Bun)       : T0008 ─────────────┤
-                                           ▼
-Wave 2                : T0009 (integration) → review → done
-```
-
-- **T0005, T0006 and T0007 are conflict-free in substance** (separate
-  modules) but all append one line to `crates/speechtt-core/src/lib.rs` and
-  one dependency block to `crates/speechtt-core/Cargo.toml`. Run them
-  sequentially on the core track, or merge those two files last if they run
-  in parallel. Never rewrite an existing line in either file from those
-  tickets.
-- **T0004** (UI) is done; **T0008** (Bun + `protocol.rs`) does not overlap
-  with the core track, so both can run concurrently.
-- **T0009** is the only ticket allowed to edit the UI composition root,
-  `views/stopped.rs` and `views/dialogs/settings.rs` after Wave 1; start it
-  only when T0004–T0008 are in `review/` or `done/`.
+_(none — all tickets through T0010 are done)_
