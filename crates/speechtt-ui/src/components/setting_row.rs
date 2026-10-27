@@ -1,5 +1,10 @@
-//! A labelled setting row: uppercase micro-label, helper line and a control
-//! slot on the trailing edge. Shared by the setup form and Settings dialogs.
+//! A labelled setting row: a title, a fainter description and a control slot
+//! on the trailing edge. Shared by the setup form and the Settings dialog.
+//!
+//! The default (compact) form uses an uppercase micro-label so four rows fit
+//! inside the 480×280 widget. [`SettingRow::prominent`] uses the roomier
+//! dialog style: a larger title, muted helper text and a hairline separator
+//! between rows, per `mockups/app-window/new-session.png`.
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::ActiveTheme as _;
@@ -15,6 +20,7 @@ pub struct SettingRow {
     label: SharedString,
     description: SharedString,
     control: Option<AnyElement>,
+    prominent: bool,
 }
 
 impl SettingRow {
@@ -23,7 +29,15 @@ impl SettingRow {
             label: label.into(),
             description: description.into(),
             control: None,
+            prominent: false,
         }
+    }
+
+    /// Uses the dialog style: large light title, muted description and a
+    /// bottom hairline separating rows.
+    pub fn prominent(mut self) -> Self {
+        self.prominent = true;
+        self
     }
 
     /// Supplies the control rendered at the trailing edge of the row.
@@ -44,24 +58,46 @@ impl RenderOnce for SettingRow {
             slot = slot.child(control);
         }
 
-        h_flex()
+        let title = if self.prominent {
+            div()
+                .text_size(rems(rem::MD))
+                .font_weight(FontWeight::MEDIUM)
+                .child(self.label)
+        } else {
+            div()
+                .text_size(rems(rem::XS))
+                .font_weight(FontWeight::BOLD)
+                .text_color(cx.theme().muted_foreground)
+                .child(self.label)
+        };
+        let description = if self.prominent {
+            div()
+                .text_size(rems(rem::MD))
+                .text_color(cx.theme().muted_foreground)
+                .child(self.description)
+        } else {
+            div().text_size(rems(rem::SM)).child(self.description)
+        };
+
+        let row = h_flex()
+            .w_full()
             .justify_between()
             .items_center()
-            .gap_3()
+            .gap_4()
             .child(
                 v_flex()
                     .flex_shrink_1()
                     .min_w_0()
                     .gap_0p5()
-                    .child(
-                        div()
-                            .text_size(rems(rem::XS))
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(cx.theme().muted_foreground)
-                            .child(self.label),
-                    )
-                    .child(div().text_size(rems(rem::SM)).child(self.description)),
+                    .child(title)
+                    .child(description),
             )
-            .child(slot)
+            .child(slot);
+
+        if self.prominent {
+            row.py_3().border_b_1().border_color(cx.theme().border)
+        } else {
+            row.gap_3()
+        }
     }
 }
