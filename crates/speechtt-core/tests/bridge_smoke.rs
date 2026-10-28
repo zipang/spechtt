@@ -148,10 +148,18 @@ fn smoke_target() -> Option<PathBuf> {
 
 /// Asserts the catalogue invariants the Settings dialog relies on.
 fn assert_provider_catalogue(providers: &[ProviderCapability]) {
+    assert_eq!(
+        providers.len(),
+        1,
+        "only the Vercel AI Gateway is offered until direct providers are evaluated"
+    );
+    assert_eq!(providers[0].id, "vercel-ai-gateway");
     assert!(
-        providers.len() >= 5,
-        "expected at least five providers, got {}",
-        providers.len()
+        providers[0]
+            .key_env_vars
+            .iter()
+            .any(|name| name == "AI_GATEWAY_API_KEY"),
+        "the gateway must advertise its key environment variable"
     );
 
     let mut previous_provider: Option<&str> = None;

@@ -31,12 +31,19 @@ export interface ModelDefinition {
 	/** Human-readable name shown in Settings. */
 	readonly label: string;
 	readonly mode: TranscriptionMode;
+	/** Static fallback metadata; live discovery usually supersedes it. */
+	readonly description?: string | null;
+	readonly pricing?: Readonly<Record<string, string>>;
 }
 
 export interface ModelCapabilityInfo {
 	readonly id: string;
 	readonly label: string;
 	readonly mode: TranscriptionMode;
+	/** Gateway description, when it publishes one. */
+	readonly description: string | null;
+	/** Raw gateway pricing map (values as strings), empty when unpublished. */
+	readonly pricing: Readonly<Record<string, string>>;
 }
 
 export interface ProviderCapabilityInfo {
@@ -145,66 +152,6 @@ export const PROVIDERS: Readonly<Record<string, ProviderDefinition>> = {
 		label: "Vercel AI Gateway",
 		envVars: ["AI_GATEWAY_API_KEY", "VERCEL_AI_GATEWAY_API_KEY"],
 		models: GATEWAY_MODELS,
-	},
-	mistral: {
-		id: "mistral",
-		label: "Mistral AI",
-		envVars: ["MISTRAL_API_KEY"],
-		models: [
-			{
-				id: "voxtral-mini-transcribe-3-0",
-				label: "Voxtral Mini Transcribe 3.0",
-				mode: "segmented",
-			},
-			{
-				id: "voxtral-small-transcribe-3-0",
-				label: "Voxtral Small Transcribe 3.0",
-				mode: "segmented",
-			},
-		],
-	},
-	openai: {
-		id: "openai",
-		label: "OpenAI",
-		envVars: ["OPENAI_API_KEY"],
-		models: [
-			{
-				id: "gpt-live-transcribe",
-				label: "GPT Live Transcribe",
-				mode: "streaming",
-			},
-			{
-				id: "gpt-realtime-whisper",
-				label: "GPT Realtime Whisper",
-				mode: "streaming",
-			},
-			{ id: "gpt-transcribe", label: "GPT Transcribe", mode: "streaming" },
-			{
-				id: "gpt-4o-transcribe",
-				label: "GPT-4o Transcribe",
-				mode: "segmented",
-			},
-			{ id: "whisper-1", label: "Whisper 1", mode: "segmented" },
-		],
-	},
-	xai: {
-		id: "xai",
-		label: "xAI",
-		envVars: ["XAI_API_KEY"],
-		models: [{ id: "grok-stt", label: "Grok STT", mode: "streaming" }],
-	},
-	elevenlabs: {
-		id: "elevenlabs",
-		label: "ElevenLabs",
-		envVars: ["ELEVENLABS_API_KEY"],
-		models: [
-			{ id: "scribe_v2", label: "Scribe v2", mode: "segmented" },
-			{
-				id: "scribe_v2_realtime",
-				label: "Scribe v2 Realtime",
-				mode: "streaming",
-			},
-		],
 	},
 };
 
@@ -367,6 +314,8 @@ export function listCapabilities(
 							mode: usingDiscovered
 								? model.mode
 								: (MODEL_CAPABILITIES[model.id] ?? "segmented"),
+							description: model.description ?? null,
+							pricing: model.pricing ?? {},
 						}),
 					)
 					.sort(compareByLabel),

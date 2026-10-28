@@ -201,8 +201,8 @@ describe("runWorkerLoop", () => {
 		const noKey = JSON.stringify({
 			type: "start",
 			sessionId: "no-key",
-			provider: "mistral",
-			model: "voxtral-mini-transcribe-3-0",
+			provider: "vercel-ai-gateway",
+			model: "openai/gpt-4o-transcribe",
 			sampleRate: 16000,
 		});
 
@@ -227,7 +227,7 @@ describe("runWorkerLoop", () => {
 	});
 
 	test("uses a provider environment variable when no explicit key is sent", async () => {
-		process.env.MISTRAL_API_KEY = "env-key";
+		process.env.AI_GATEWAY_API_KEY = "env-key";
 		const configs: SttSessionConfig[] = [];
 		const { factory } = fakeFactory();
 		const capturingFactory: SttAdapterFactory = (config) => {
@@ -240,8 +240,8 @@ describe("runWorkerLoop", () => {
 				JSON.stringify({
 					type: "start",
 					sessionId: "env-session",
-					provider: "mistral",
-					model: "voxtral-mini-transcribe-3-0",
+					provider: "vercel-ai-gateway",
+					model: "openai/gpt-4o-transcribe",
 					sampleRate: 16000,
 				}),
 				JSON.stringify({ type: "stop" }),
@@ -389,8 +389,8 @@ describe("runWorkerLoop", () => {
 		});
 		const segmented = await defaultAdapterFactory({
 			sessionId: "s",
-			provider: "mistral",
-			model: "voxtral-mini-transcribe-3-0",
+			provider: "vercel-ai-gateway",
+			model: "openai/gpt-4o-transcribe",
 			sampleRate: 16000,
 			apiKey: "sk-test",
 		});
@@ -418,8 +418,20 @@ describe("runWorkerLoop capabilities handshake", () => {
 	}
 
 	const discoveredModels: DiscoveredModel[] = [
-		{ id: "acme/live", label: "Acme Live", mode: "streaming" },
-		{ id: "acme/batch", label: "Acme Batch", mode: "segmented" },
+		{
+			id: "acme/live",
+			label: "Acme Live",
+			mode: "streaming",
+			description: "Acme live transcription.",
+			pricing: { transcription_duration_cost_per_second: "0.00004" },
+		},
+		{
+			id: "acme/batch",
+			label: "Acme Batch",
+			mode: "segmented",
+			description: null,
+			pricing: {},
+		},
 	];
 
 	const discoveryResult: DiscoveryResult = {
@@ -475,7 +487,7 @@ describe("runWorkerLoop capabilities handshake", () => {
 		const caps = capabilitiesEvent(events);
 		expect(caps.requestId).toBe("cap-1");
 		expect(caps.source).toBe("builtin");
-		expect(caps.providers.length).toBeGreaterThanOrEqual(5);
+		expect(caps.providers).toHaveLength(1);
 		for (const provider of caps.providers) {
 			expect(provider.available).toBe(false);
 			expect(provider.models.length).toBeGreaterThan(0);
@@ -635,12 +647,8 @@ describe("runWorkerLoop capabilities handshake", () => {
 				.find((provider) => provider.id === "vercel-ai-gateway")
 				?.models.map((model) => model.id),
 		).toEqual(["acme/batch", "acme/live"]);
-		// Direct providers keep their curated catalogues.
-		expect(
-			refreshed
-				.find((provider) => provider.id === "mistral")
-				?.models.map((model) => model.id),
-		).toEqual(["voxtral-mini-transcribe-3-0", "voxtral-small-transcribe-3-0"]);
+		// Only the gateway provider is offered for now.
+		expect(refreshed).toHaveLength(1);
 	});
 
 	test("answers once as discovered when the cache is fresh", async () => {

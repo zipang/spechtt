@@ -80,23 +80,74 @@ describe("discoverGatewayModels", () => {
 		const result = await discoverGatewayModels({ fetch, now: () => 1_000 });
 
 		expect(result?.fetchedAt).toBe(1_000);
+		const empty = { description: null, pricing: {} };
 		expect(result?.models).toEqual([
 			{
 				id: "openai/gpt-realtime-whisper",
 				label: "GPT Realtime Whisper",
 				mode: "streaming",
+				...empty,
 			},
 			{
 				id: "openai/gpt-transcribe",
 				label: "GPT Transcribe",
 				mode: "streaming",
+				...empty,
 			},
 			{
 				id: "openai/gpt-4o-transcribe",
 				label: "GPT-4o Transcribe",
 				mode: "segmented",
+				...empty,
 			},
-			{ id: "openai/whisper-1", label: "Whisper", mode: "segmented" },
+			{ id: "openai/whisper-1", label: "Whisper", mode: "segmented", ...empty },
+		]);
+	});
+
+
+	test("keeps the description and the raw pricing map", async () => {
+		const { fetch } = fakeFetch(() =>
+			jsonResponse({
+				data: [
+					{
+						id: "acme/stt",
+						name: "Acme STT",
+						type: "transcription",
+						description: "  Fast, accurate, billed per second.  ",
+						pricing: {
+							transcription_duration_cost_per_second: "0.000030556",
+							input: 42,
+							nested: { nope: true },
+						},
+					},
+					{
+						id: "acme/no-meta",
+						name: "No Meta",
+						type: "transcription",
+						description: "",
+						pricing: null,
+					},
+				],
+			}),
+		);
+
+		const result = await discoverGatewayModels({ fetch });
+
+		expect(result?.models).toEqual([
+			{
+				id: "acme/stt",
+				label: "Acme STT",
+				mode: "segmented",
+				description: "Fast, accurate, billed per second.",
+				pricing: { transcription_duration_cost_per_second: "0.000030556" },
+			},
+			{
+				id: "acme/no-meta",
+				label: "No Meta",
+				mode: "segmented",
+				description: null,
+				pricing: {},
+			},
 		]);
 	});
 
@@ -113,10 +164,16 @@ describe("discoverGatewayModels", () => {
 
 		const result = await discoverGatewayModels({ fetch });
 
+		const empty = { description: null, pricing: {} };
 		expect(result?.models).toEqual([
-			{ id: "acme/empty-tags", label: "Empty Tags", mode: "segmented" },
-			{ id: "acme/empty", label: "acme/empty", mode: "segmented" },
-			{ id: "acme/missing-name", label: "acme/missing-name", mode: "segmented" },
+			{ id: "acme/empty-tags", label: "Empty Tags", mode: "segmented", ...empty },
+			{ id: "acme/empty", label: "acme/empty", mode: "segmented", ...empty },
+			{
+				id: "acme/missing-name",
+				label: "acme/missing-name",
+				mode: "segmented",
+				...empty,
+			},
 		]);
 	});
 

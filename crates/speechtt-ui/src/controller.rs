@@ -24,8 +24,11 @@ use speechtt_core::output::OutputError;
 use speechtt_core::output::clipboard::{ClipboardSink, CopySummary, copy_transcript};
 use speechtt_core::output::file::{FileOpener, SavedFile, TranscriptFormat, save_transcript_at};
 use speechtt_core::output::paste::PasteSink;
+use std::collections::BTreeMap;
+
 use speechtt_core::protocol::{
-    CapabilitySource, ProviderCapability, SecretString, SttCommand, SttEvent, TranscriptionMode,
+    CapabilitySource, ModelCapabilityInfo, ProviderCapability, SecretString, SttCommand, SttEvent,
+    TranscriptionMode,
 };
 use speechtt_core::session::{
     FinishedSession, OutputTarget, SessionError, SessionField, SessionMachine, SessionState,
@@ -300,6 +303,118 @@ pub enum Dialog {
     Settings,
 }
 
+/// Human-readable price lines for one model, in a stable order.
+///
+/// The gateway publishes per-token prices for some models and a per-second
+/// audio price for others, each as a string; the UI owns the formatting.
+#[must_use]
+pub fn pricing_lines(pricing: &BTreeMap<String, String>) -> Vec<String> {
+    if pricing.is_empty() {
+        return vec!["Price not published".to_owned()];
+    }
+
+    let mut lines = Vec::new();
+    let mut saw_known = false;
+    let mut any_nonzero = false;
+
+    if let Some(raw) = pricing.get("transcription_duration_cost_per_second") {
+        saw_known = true;
+        match raw.trim().parse::<f64>() {
+            Ok(0.0) => {}
+            Ok(value) => {
+                any_nonzero = true;
+                lines.push(format!("${} / second of audio", format_seconds(value)));
+            }
+            Err(_) => {
+                any_nonzero = true;
+                lines.push(format!("${raw} / second of audio"));
+            }
+        }
+    }
+
+    for (key, unit) in [("input", "input"), ("output", "output")] {
+        let Some(raw) = pricing.get(key) else {
+            continue;
+        };
+        saw_known = true;
+        match raw.trim().parse::<f64>() {
+            Ok(0.0) => {}
+            Ok(value) => {
+                any_nonzero = true;
+                lines.push(format!("${:.2} / M {unit} tokens", value * 1_000_000.0));
+            }
+            Err(_) => {
+                any_nonzero = true;
+                lines.push(format!("${raw} / M {unit} tokens"));
+            }
+        }
+    }
+
+    for (key, raw) in pricing {
+        if matches!(
+            key.as_str(),
+            "transcription_duration_cost_per_second" | "input" | "output"
+        ) {
+            continue;
+        }
+        lines.push(format!("{}: {raw}", humanize_price_key(key)));
+    }
+
+    if saw_known && !any_nonzero && lines.is_empty() {
+        return vec!["Free".to_owned()];
+    }
+    lines
+}
+
+/// Six decimals is the gateway's precision for per-second audio prices;
+/// trailing zeros are trimmed so `0.000030556` renders as `$0.000031`.
+fn format_seconds(value: f64) -> String {
+    let mut text = format!("{value:.6}");
+    while text.ends_with('0') && !text.ends_with(".00") {
+        text.pop();
+    }
+    text
+}
+
+/// `transcription_duration_cost_per_second` -> `Transcription duration cost per second`.
+fn humanize_price_key(key: &str) -> String {
+    let mut chars = key.replace('_', " ").chars().collect::<Vec<_>>();
+    if let Some(first) = chars.first_mut() {
+        *first = first.to_uppercase().next().unwrap_or(*first);
+    }
+    chars.into_iter().collect()
+}
+
+/// Which page the Help dialog shows.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum HelpTab {
+    /// Keyboard shortcuts (the historical content).
+    #[default]
+    Shortcuts,
+    /// The discovered model catalogue with description and pricing.
+    Models,
+}
+
+impl HelpTab {
+    /// Stable tab index used by the UI's `TabBar`.
+    #[must_use]
+    pub fn index(self) -> usize {
+        match self {
+            Self::Shortcuts => 0,
+            Self::Models => 1,
+        }
+    }
+
+    /// Inverse of [`Self::index`]; unknown indices fall back to Shortcuts.
+    #[must_use]
+    pub fn from_index(index: usize) -> Self {
+        match index {
+            1 => Self::Models,
+            _ => Self::Shortcuts,
+        }
+    }
+}
+
 /// Hint shown under the API key row when a stored key cannot be revealed.
 pub const STORED_KEY_REVEAL_HINT: &str =
     "Stored keys are never displayed; paste a new key to replace it.";
@@ -427,6 +542,8 @@ pub struct SessionController {
     /// Path produced by the last successful save/open action.
     written_path: Option<PathBuf>,
     active_dialog: Option<Dialog>,
+    /// Page shown by the Help dialog.
+    help_tab: HelpTab,
     settings_draft: SettingsDraft,
     /// Persisted settings once the composition root has loaded them.
     settings: Option<Settings>,
@@ -457,6 +574,7 @@ impl fmt::Debug for SessionController {
             .field("output_status", &self.output_status)
             .field("written_path", &self.written_path)
             .field("active_dialog", &self.active_dialog)
+            .field("help_tab", &self.help_tab)
             .field("settings_draft", &self.settings_draft)
             .field("settings", &self.settings)
             .field(
@@ -500,6 +618,7 @@ impl SessionController {
             output_status: None,
             written_path: None,
             active_dialog: None,
+            help_tab: HelpTab::default(),
             settings_draft: SettingsDraft::default(),
             settings: None,
             capabilities: None,
@@ -1074,6 +1193,49 @@ impl SessionController {
 
     pub fn open_help(&mut self) {
         self.active_dialog = Some(Dialog::Help);
+        self.help_tab = HelpTab::default();
+    }
+
+    /// The page currently shown by the Help dialog.
+    #[must_use]
+    pub fn help_tab(&self) -> HelpTab {
+        self.help_tab
+    }
+
+    /// Switches the Help dialog page.
+    pub fn set_help_tab(&mut self, tab: HelpTab) {
+        self.help_tab = tab;
+    }
+
+    /// The provider whose models the Help dialog lists.
+    ///
+    /// The Settings provider wins; before a catalogue has arrived (or when
+    /// that provider is unknown) the first listed provider is used, which is
+    /// the only one while direct providers stay dormant.
+    #[must_use]
+    pub fn help_provider(&self) -> Option<&ProviderCapability> {
+        let providers = self.capabilities.as_deref()?;
+        self.settings
+            .as_ref()
+            .and_then(|settings| {
+                providers
+                    .iter()
+                    .find(|provider| provider.id == settings.provider)
+            })
+            .or_else(|| providers.first())
+    }
+
+    /// Label of the provider listed by the Help dialog.
+    #[must_use]
+    pub fn help_provider_label(&self) -> Option<&str> {
+        self.help_provider().map(|provider| provider.label.as_str())
+    }
+
+    /// Models listed by the Help dialog, in catalogue order.
+    #[must_use]
+    pub fn help_models(&self) -> &[ModelCapabilityInfo] {
+        self.help_provider()
+            .map_or(&[], |provider| &provider.models)
     }
 
     /// Opens Settings with an empty draft.
@@ -1751,106 +1913,42 @@ mod tests {
     /// Minimal catalogue mirroring the worker handshake, sorted by label like
     /// `listCapabilities`.
     fn test_capabilities() -> Vec<ProviderCapability> {
-        let provider =
-            |id: &str, label: &str, key: &str, models: Vec<(&str, &str, TranscriptionMode)>| {
-                ProviderCapability {
-                    id: id.to_string(),
-                    label: label.to_string(),
-                    available: false,
-                    key_env_vars: vec![key.to_string()],
-                    models: models
-                        .into_iter()
-                        .map(|(id, label, mode)| ModelCapabilityInfo {
-                            id: id.to_string(),
-                            label: label.to_string(),
-                            mode,
-                        })
-                        .collect(),
-                }
-            };
-
-        vec![
-            provider(
-                "elevenlabs",
-                "ElevenLabs",
-                "ELEVENLABS_API_KEY",
-                vec![
-                    ("scribe_v2", "Scribe v2", TranscriptionMode::Segmented),
-                    (
-                        "scribe_v2_realtime",
-                        "Scribe v2 Realtime",
-                        TranscriptionMode::Streaming,
-                    ),
-                ],
-            ),
-            provider(
-                "mistral",
-                "Mistral AI",
-                "MISTRAL_API_KEY",
-                vec![
-                    (
-                        "voxtral-mini-transcribe-3-0",
-                        "Voxtral Mini Transcribe 3.0",
-                        TranscriptionMode::Segmented,
-                    ),
-                    (
-                        "voxtral-small-transcribe-3-0",
-                        "Voxtral Small Transcribe 3.0",
-                        TranscriptionMode::Segmented,
-                    ),
-                ],
-            ),
-            provider(
-                "openai",
-                "OpenAI",
-                "OPENAI_API_KEY",
-                vec![
-                    (
-                        "gpt-realtime-whisper",
-                        "GPT Realtime Whisper",
-                        TranscriptionMode::Streaming,
-                    ),
-                    (
-                        "gpt-4o-transcribe",
-                        "GPT-4o Transcribe",
-                        TranscriptionMode::Segmented,
-                    ),
-                    ("whisper-1", "Whisper 1", TranscriptionMode::Segmented),
-                ],
-            ),
-            ProviderCapability {
-                id: "vercel-ai-gateway".to_string(),
-                label: "Vercel AI Gateway".to_string(),
-                available: false,
-                key_env_vars: vec![
-                    "AI_GATEWAY_API_KEY".to_string(),
-                    "VERCEL_AI_GATEWAY_API_KEY".to_string(),
-                ],
-                models: vec![
-                    ModelCapabilityInfo {
-                        id: "fish-audio/transcribe-1".to_string(),
-                        label: "Transcribe-1".to_string(),
-                        mode: TranscriptionMode::Segmented,
-                    },
-                    ModelCapabilityInfo {
-                        id: "openai/gpt-4o-transcribe".to_string(),
-                        label: "GPT-4o Transcribe".to_string(),
-                        mode: TranscriptionMode::Segmented,
-                    },
-                    ModelCapabilityInfo {
-                        id: "openai/gpt-realtime-whisper".to_string(),
-                        label: "GPT Realtime Whisper".to_string(),
-                        mode: TranscriptionMode::Streaming,
-                    },
-                ],
-            },
-            provider(
-                "xai",
-                "xAI",
-                "XAI_API_KEY",
-                vec![("grok-stt", "Grok STT", TranscriptionMode::Streaming)],
-            ),
-        ]
+        vec![ProviderCapability {
+            id: "vercel-ai-gateway".to_string(),
+            label: "Vercel AI Gateway".to_string(),
+            available: false,
+            key_env_vars: vec![
+                "AI_GATEWAY_API_KEY".to_string(),
+                "VERCEL_AI_GATEWAY_API_KEY".to_string(),
+            ],
+            // Label order, like `listCapabilities`.
+            models: vec![
+                ModelCapabilityInfo {
+                    id: "openai/gpt-4o-transcribe".to_string(),
+                    label: "GPT-4o Transcribe".to_string(),
+                    mode: TranscriptionMode::Segmented,
+                    description: None,
+                    pricing: BTreeMap::new(),
+                },
+                ModelCapabilityInfo {
+                    id: "openai/gpt-realtime-whisper".to_string(),
+                    label: "GPT Realtime Whisper".to_string(),
+                    mode: TranscriptionMode::Streaming,
+                    description: Some("Live gateway transcription.".to_string()),
+                    pricing: BTreeMap::from([(
+                        "transcription_duration_cost_per_second".to_string(),
+                        "0.000031".to_string(),
+                    )]),
+                },
+                ModelCapabilityInfo {
+                    id: "fish-audio/transcribe-1".to_string(),
+                    label: "Transcribe-1".to_string(),
+                    mode: TranscriptionMode::Segmented,
+                    description: None,
+                    pricing: BTreeMap::new(),
+                },
+            ],
+        }]
     }
 
     /// Installs the catalogue the worker would send.
@@ -1922,7 +2020,11 @@ mod tests {
     fn an_untouched_stored_key_makes_the_draft_valid() {
         let mut controller = SessionController::new();
         install_catalogue(&mut controller);
-        controller.open_settings_with(Some("mistral"), Some("voxtral-mini-transcribe-3-0"), true);
+        controller.open_settings_with(
+            Some("vercel-ai-gateway"),
+            Some("openai/gpt-4o-transcribe"),
+            true,
+        );
         assert!(controller.settings_draft_valid());
         assert_eq!(controller.settings_draft().api_key, "");
     }
@@ -1935,13 +2037,19 @@ mod tests {
         assert!(controller.set_settings_provider("vercel-ai-gateway"));
         assert!(controller.set_settings_model("openai/gpt-realtime-whisper"));
 
-        assert!(controller.set_settings_provider("mistral"));
+        // Only the gateway is offered: an unknown provider is rejected and the
+        // current choice survives, while cycling a single provider keeps it.
+        assert!(!controller.set_settings_provider("mistral"));
+        controller.cycle_settings_provider();
         assert_eq!(
             controller.settings_draft().provider.as_deref(),
-            Some("mistral")
+            Some("vercel-ai-gateway")
         );
-        assert_eq!(controller.settings_draft().model, None);
-        assert!(!controller.set_settings_model("openai/gpt-realtime-whisper"));
+        assert_eq!(
+            controller.settings_draft().model.as_deref(),
+            Some("openai/gpt-realtime-whisper")
+        );
+        assert!(!controller.set_settings_model("not-a-model"));
     }
 
     #[test]
@@ -2093,6 +2201,107 @@ mod tests {
     }
 
     #[test]
+    fn help_opens_on_shortcuts_and_switches_tabs() {
+        let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
+
+        controller.open_help();
+        assert_eq!(controller.help_tab(), HelpTab::Shortcuts);
+        assert_eq!(controller.help_tab().index(), 0);
+
+        controller.set_help_tab(HelpTab::Models);
+        assert_eq!(controller.help_tab(), HelpTab::Models);
+        assert_eq!(controller.help_tab().index(), 1);
+        assert_eq!(HelpTab::from_index(1), HelpTab::Models);
+        assert_eq!(HelpTab::from_index(9), HelpTab::Shortcuts);
+
+        controller.close_dialog();
+        controller.open_help();
+        assert_eq!(
+            controller.help_tab(),
+            HelpTab::Shortcuts,
+            "reopening the dialog resets the page"
+        );
+    }
+
+    #[test]
+    fn help_lists_the_providers_models_with_metadata() {
+        let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
+        controller.open_help();
+
+        assert_eq!(controller.help_provider_label(), Some("Vercel AI Gateway"));
+        let models = controller.help_models();
+        assert_eq!(models.len(), 3);
+
+        let streaming = models
+            .iter()
+            .find(|model| model.id == "openai/gpt-realtime-whisper")
+            .expect("streaming model listed");
+        assert_eq!(streaming.mode, TranscriptionMode::Streaming);
+        assert_eq!(
+            streaming.description.as_deref(),
+            Some("Live gateway transcription.")
+        );
+        assert_eq!(
+            pricing_lines(&streaming.pricing),
+            vec!["$0.000031 / second of audio"]
+        );
+
+        let batch = models
+            .iter()
+            .find(|model| model.id == "openai/gpt-4o-transcribe")
+            .expect("batch model listed");
+        assert_eq!(batch.description, None);
+        assert_eq!(pricing_lines(&batch.pricing), vec!["Price not published"]);
+    }
+
+    #[test]
+    fn help_models_are_empty_before_the_catalogue_arrives() {
+        let mut controller = SessionController::new();
+        controller.open_help();
+
+        assert!(controller.help_models().is_empty());
+        assert_eq!(controller.help_provider_label(), None);
+    }
+
+    #[test]
+    fn pricing_lines_cover_the_gateway_shapes() {
+        assert_eq!(pricing_lines(&BTreeMap::new()), vec!["Price not published"]);
+
+        let tokens = BTreeMap::from([
+            ("input".to_string(), "0.000002".to_string()),
+            ("output".to_string(), "0.000012".to_string()),
+        ]);
+        assert_eq!(
+            pricing_lines(&tokens),
+            vec!["$2.00 / M input tokens", "$12.00 / M output tokens"]
+        );
+
+        let seconds = BTreeMap::from([(
+            "transcription_duration_cost_per_second".to_string(),
+            "0.000030556".to_string(),
+        )]);
+        assert_eq!(pricing_lines(&seconds), vec!["$0.000031 / second of audio"]);
+
+        let free = BTreeMap::from([
+            ("input".to_string(), "0".to_string()),
+            ("output".to_string(), "0".to_string()),
+        ]);
+        assert_eq!(pricing_lines(&free), vec!["Free"]);
+
+        let mixed = BTreeMap::from([
+            ("zzz_key".to_string(), "2".to_string()),
+            ("input".to_string(), "0.000003".to_string()),
+            ("aaa_key".to_string(), "1".to_string()),
+        ]);
+        assert_eq!(
+            pricing_lines(&mixed),
+            vec!["$3.00 / M input tokens", "Aaa key: 1", "Zzz key: 2"]
+        );
+    }
+
+    #[test]
     fn the_catalogue_comes_from_the_handshake_only() {
         let mut controller = SessionController::new();
         assert!(!controller.catalogue_loaded());
@@ -2110,16 +2319,7 @@ mod tests {
             .iter()
             .map(|option| option.id.as_str())
             .collect();
-        assert_eq!(
-            ids,
-            [
-                "elevenlabs",
-                "mistral",
-                "openai",
-                "vercel-ai-gateway",
-                "xai"
-            ]
-        );
+        assert_eq!(ids, ["vercel-ai-gateway"]);
     }
 
     #[test]
@@ -2135,8 +2335,11 @@ mod tests {
             Some("AI_GATEWAY_API_KEY")
         );
 
-        assert!(controller.set_settings_provider("mistral"));
-        assert_eq!(controller.settings_api_key_env(), Some("MISTRAL_API_KEY"));
+        assert!(!controller.set_settings_provider("mistral"));
+        assert_eq!(
+            controller.settings_api_key_env(),
+            Some("AI_GATEWAY_API_KEY")
+        );
     }
 
     #[test]
@@ -2148,14 +2351,14 @@ mod tests {
         assert!(controller.cycle_settings_provider());
         assert_eq!(
             controller.settings_draft().provider.as_deref(),
-            Some("elevenlabs")
+            Some("vercel-ai-gateway")
         );
         assert_eq!(controller.settings_draft().model, None);
 
         assert!(controller.cycle_settings_model());
         assert_eq!(
             controller.settings_draft().model.as_deref(),
-            Some("scribe_v2")
+            Some("openai/gpt-4o-transcribe")
         );
     }
 }

@@ -51,20 +51,21 @@ function gatewayCatalogue() {
 }
 
 describe("provider registry", () => {
-	test("exposes the supported STT providers under canonical ids", () => {
-		for (const provider of [
-			GATEWAY,
-			"mistral",
-			"openai",
-			"xai",
-			"elevenlabs",
-		]) {
-			expect(getProvider(provider)?.id).toBe(provider);
-		}
-
+	test("offers the Vercel AI Gateway and nothing else", () => {
+		expect(getProvider(GATEWAY)?.id).toBe(GATEWAY);
+		expect(Object.keys(PROVIDERS)).toEqual([GATEWAY]);
 		expect(getProvider("unknown-provider")).toBeUndefined();
 		expect(getProvider("")).toBeUndefined();
-		expect(Object.keys(PROVIDERS).length).toBe(5);
+	});
+
+	test("keeps the direct providers out until their API is evaluated", () => {
+		for (const removed of ["mistral", "openai", "xai", "elevenlabs"]) {
+			expect(getProvider(removed)).toBeUndefined();
+			expect(providerEnvVars(removed)).toEqual([]);
+			expect(
+				isProviderAvailable(removed, "sk-explicit", { MISTRAL_API_KEY: "k" }),
+			).toBe(false);
+		}
 	});
 
 	test("resolves legacy gateway aliases to the canonical provider", () => {
@@ -74,12 +75,11 @@ describe("provider registry", () => {
 		});
 		expect(getProvider("vercel")?.id).toBe(GATEWAY);
 		expect(getProvider("gateway")?.id).toBe(GATEWAY);
-		expect(
-			Object.keys(PROVIDERS).filter((id) => id === "vercel" || id === "gateway"),
-		).toEqual([]);
+		expect(Object.keys(PROVIDERS)).not.toContain("vercel");
+		expect(Object.keys(PROVIDERS)).not.toContain("gateway");
 	});
 
-	test("maps providers to their environment variables", () => {
+	test("maps the provider to its environment variables", () => {
 		expect(providerEnvVars(GATEWAY)).toEqual([
 			"AI_GATEWAY_API_KEY",
 			"VERCEL_AI_GATEWAY_API_KEY",
@@ -88,12 +88,6 @@ describe("provider registry", () => {
 			"AI_GATEWAY_API_KEY",
 			"VERCEL_AI_GATEWAY_API_KEY",
 		]);
-		expect(providerEnvVars("gateway")).toEqual([
-			"AI_GATEWAY_API_KEY",
-			"VERCEL_AI_GATEWAY_API_KEY",
-		]);
-		expect(providerEnvVars("mistral")).toEqual(["MISTRAL_API_KEY"]);
-		expect(providerEnvVars("openai")).toEqual(["OPENAI_API_KEY"]);
 		expect(providerEnvVars("unknown-provider")).toEqual([]);
 	});
 
@@ -106,21 +100,9 @@ describe("provider registry", () => {
 
 describe("provider availability", () => {
 	test("is available when an explicit API key is supplied", () => {
-		expect(isProviderAvailable("mistral", "sk-explicit", {})).toBe(true);
-		expect(isProviderAvailable("mistral", "sk-explicit")).toBe(true);
-	});
-
-	test("is available when the primary environment variable is set", () => {
-		expect(
-			isProviderAvailable("mistral", undefined, {
-				MISTRAL_API_KEY: "env-key",
-			}),
-		).toBe(true);
-		expect(
-			isProviderAvailable("openai", undefined, {
-				OPENAI_API_KEY: "env-key",
-			}),
-		).toBe(true);
+		expect(isProviderAvailable(GATEWAY, "sk-explicit", {})).toBe(true);
+		expect(isProviderAvailable("vercel", "sk-explicit", {})).toBe(true);
+		expect(isProviderAvailable("mistral", "sk-explicit", {})).toBe(false);
 	});
 
 	test("accepts both gateway environment variables through any alias", () => {
@@ -139,8 +121,8 @@ describe("provider availability", () => {
 	});
 
 	test("is unavailable without an explicit or environment key", () => {
-		expect(isProviderAvailable("mistral", undefined, {})).toBe(false);
-		expect(isProviderAvailable("openai", "", {})).toBe(false);
+		expect(isProviderAvailable(GATEWAY, undefined, {})).toBe(false);
+		expect(isProviderAvailable(GATEWAY, "", {})).toBe(false);
 		expect(
 			isProviderAvailable(GATEWAY, undefined, {
 				AI_GATEWAY_API_KEY: "   ",
@@ -152,19 +134,18 @@ describe("provider availability", () => {
 		);
 	});
 
-	test("does not leak one provider's key to another", () => {
-		const env = { MISTRAL_API_KEY: "mistral-key" };
-
-		expect(isProviderAvailable("mistral", undefined, env)).toBe(true);
-		expect(isProviderAvailable("openai", undefined, env)).toBe(false);
+	test("ignores unrelated provider keys", () => {
+		expect(
+			isProviderAvailable(GATEWAY, undefined, { MISTRAL_API_KEY: "mistral" }),
+		).toBe(false);
 	});
 });
 
 describe("resolveProviderApiKey", () => {
 	test("prefers the explicit key over the environment", () => {
 		expect(
-			resolveProviderApiKey("mistral", "sk-explicit", {
-				MISTRAL_API_KEY: "env-key",
+			resolveProviderApiKey(GATEWAY, "sk-explicit", {
+				AI_GATEWAY_API_KEY: "env-key",
 			}),
 		).toBe("sk-explicit");
 	});
@@ -186,7 +167,7 @@ describe("resolveProviderApiKey", () => {
 	});
 
 	test("returns undefined when nothing is configured", () => {
-		expect(resolveProviderApiKey("openai", undefined, {})).toBeUndefined();
+		expect(resolveProviderApiKey(GATEWAY, undefined, {})).toBeUndefined();
 		expect(resolveProviderApiKey("unknown", "key", {})).toBeUndefined();
 	});
 });
@@ -196,20 +177,6 @@ describe("model capability lookup", () => {
 		for (const model of STREAMING_MODELS) {
 			expect(resolveModelCapability(GATEWAY, model)).toMatchObject({
 				provider: GATEWAY,
-				model,
-				mode: "streaming",
-			});
-		}
-
-		for (const [provider, model] of [
-			["openai", "gpt-realtime-whisper"],
-			["openai", "gpt-live-transcribe"],
-			["openai", "gpt-transcribe"],
-			["xai", "grok-stt"],
-			["elevenlabs", "scribe_v2_realtime"],
-		] as const) {
-			expect(resolveModelCapability(provider, model)).toMatchObject({
-				provider,
 				model,
 				mode: "streaming",
 			});
@@ -226,73 +193,40 @@ describe("model capability lookup", () => {
 				mode: "segmented",
 			});
 		}
-
-		for (const [provider, model] of [
-			["mistral", "voxtral-mini-transcribe-3-0"],
-			["openai", "whisper-1"],
-			["openai", "gpt-4o-transcribe"],
-			["elevenlabs", "scribe_v2"],
-		] as const) {
-			expect(resolveModelCapability(provider, model)).toMatchObject({
-				provider,
-				model,
-				mode: "segmented",
-			});
-		}
 	});
 
-	test("treats unknown models as segmented for every provider", () => {
-		for (const provider of [GATEWAY, "mistral", "openai", "xai", "elevenlabs"]) {
-			expect(
-				resolveModelCapability(provider, "acme/brand-new-live"),
-			).toMatchObject({ mode: "segmented" });
-		}
+	test("treats unknown models as segmented", () => {
+		expect(
+			resolveModelCapability(GATEWAY, "acme/brand-new-live"),
+		).toMatchObject({ mode: "segmented" });
 	});
 
 	test("returns undefined for unknown providers", () => {
+		expect(resolveModelCapability("mistral", "voxtral-mini-transcribe-3")).toBeUndefined();
 		expect(resolveModelCapability("unknown", "some-model")).toBeUndefined();
 	});
 });
 
 describe("capability listing", () => {
-	test("lists every provider once, deterministically sorted by label", () => {
+	test("lists the single provider deterministically", () => {
 		const first = listCapabilities({ env: {} });
 		const second = listCapabilities({ env: {} });
 
 		expect(first).toEqual(second);
-		expect(first.map((provider) => provider.id)).toEqual([
-			"elevenlabs",
-			"mistral",
-			"openai",
-			GATEWAY,
-			"xai",
-		]);
+		expect(first.map((provider) => provider.id)).toEqual([GATEWAY]);
+		expect(first[0]?.label).toBe("Vercel AI Gateway");
+		expect(first[0]?.models.length).toBe(16);
 
-		const labels = first.map((provider) => provider.label);
-		expect(labels).toEqual([...labels].sort());
-
-		for (const provider of first) {
-			expect(provider.id.length).toBeGreaterThan(0);
-			expect(provider.label.length).toBeGreaterThan(0);
-			expect(provider.models.length).toBeGreaterThan(0);
-
-			const modelLabels = provider.models.map((model) => model.label);
-			expect(modelLabels).toEqual([...modelLabels].sort());
-			expect(new Set(provider.models.map((model) => model.id)).size).toBe(
-				provider.models.length,
-			);
-		}
+		const modelLabels = first[0]?.models.map((model) => model.label) ?? [];
+		expect(modelLabels).toEqual([...modelLabels].sort());
+		expect(new Set(first[0]?.models.map((model) => model.id)).size).toBe(16);
 	});
 
 	test("emits the provider key environment variables on the wire", () => {
-		const providers = listCapabilities({ env: {} });
-
 		expect(
-			providers.find((provider) => provider.id === GATEWAY)?.keyEnvVars,
+			listCapabilities({ env: {} }).find((provider) => provider.id === GATEWAY)
+				?.keyEnvVars,
 		).toEqual(["AI_GATEWAY_API_KEY", "VERCEL_AI_GATEWAY_API_KEY"]);
-		expect(
-			providers.find((provider) => provider.id === "mistral")?.keyEnvVars,
-		).toEqual(["MISTRAL_API_KEY"]);
 	});
 
 	test("every listed model has an explicit, valid transcription mode", () => {
@@ -328,7 +262,6 @@ describe("capability listing", () => {
 			"openai/whisper-1",
 			"openai/gpt-realtime-whisper",
 		]);
-		expect(ids).toHaveLength(16);
 		expect([...ids].sort()).toEqual([...LIVE_TRANSCRIPTION_MODELS].sort());
 		expect(
 			gateway.models
@@ -355,38 +288,11 @@ describe("capability listing", () => {
 		);
 	});
 
-	test("keeps a single gateway entry under the canonical id", () => {
-		const providers = listCapabilities({ env: {} });
-		const gatewayEntries = providers.filter(
-			(provider) => provider.id === GATEWAY,
-		);
-
-		expect(gatewayEntries).toHaveLength(1);
-		expect(providers.map((provider) => provider.id)).not.toContain("vercel");
-		expect(providers.map((provider) => provider.id)).not.toContain("gateway");
-	});
-
-	test("lists direct-provider catalogues without gateway-qualified ids", () => {
-		const providers = listCapabilities({ env: {} });
-		const ids = (id: string) =>
-			providers
-				.find((provider) => provider.id === id)!
-				.models.map((model) => model.id);
-
-		expect(ids("openai")).toEqual([
-			"gpt-live-transcribe",
-			"gpt-realtime-whisper",
-			"gpt-transcribe",
-			"gpt-4o-transcribe",
-			"whisper-1",
-		]);
-		expect(ids("openai")).not.toContain("openai/gpt-realtime-whisper");
-		expect(ids("elevenlabs")).toEqual(["scribe_v2", "scribe_v2_realtime"]);
-		expect(ids("mistral")).toEqual([
-			"voxtral-mini-transcribe-3-0",
-			"voxtral-small-transcribe-3-0",
-		]);
-		expect(ids("xai")).toEqual(["grok-stt"]);
+	test("curated models carry no description or pricing", () => {
+		for (const model of gatewayCatalogue().models) {
+			expect(model.description).toBeNull();
+			expect(model.pricing).toEqual({});
+		}
 	});
 
 	test("drops the non-existent eleven-scribe-2-realtime id everywhere", () => {
@@ -401,7 +307,7 @@ describe("capability listing", () => {
 		);
 	});
 
-	test("replaces only the gateway catalogue when discovered models are given", () => {
+	test("passes discovered metadata through and keeps the curated catalogue otherwise", () => {
 		const providers = listCapabilities({
 			env: {},
 			gatewayModels: [
@@ -409,6 +315,8 @@ describe("capability listing", () => {
 					id: "acme/new-live-model",
 					label: "New Live Model",
 					mode: "streaming",
+					description: "Acme live transcription.",
+					pricing: { transcription_duration_cost_per_second: "0.00004" },
 				},
 				{
 					id: "acme/new-batch-model",
@@ -424,63 +332,55 @@ describe("capability listing", () => {
 				id: "acme/new-batch-model",
 				label: "New Batch Model",
 				mode: "segmented",
+				description: null,
+				pricing: {},
 			},
 			{
 				id: "acme/new-live-model",
 				label: "New Live Model",
 				mode: "streaming",
+				description: "Acme live transcription.",
+				pricing: { transcription_duration_cost_per_second: "0.00004" },
 			},
 		]);
-		expect(
-			providers.find((provider) => provider.id === "mistral")?.models.length,
-		).toBe(2);
-		expect(
-			providers.find((provider) => provider.id === "openai")?.models.map(
-				(model) => model.id,
-			),
-		).toContain("gpt-transcribe");
+		expect(providers).toHaveLength(1);
 	});
 
 	test("ignores an empty discovered catalogue", () => {
 		expect(
-			listCapabilities({ env: {}, gatewayModels: [] }).find(
-				(provider) => provider.id === GATEWAY,
-			)?.models,
+			listCapabilities({ env: {}, gatewayModels: [] })[0]?.models,
 		).toHaveLength(16);
 	});
 
-	test("availability reflects the environment per provider", () => {
+	test("availability reflects the gateway environment", () => {
 		const availableIds = (env: Record<string, string | undefined>) =>
 			listCapabilities({ env })
 				.filter((provider) => provider.available)
 				.map((provider) => provider.id);
 
 		expect(availableIds({})).toEqual([]);
-		expect(availableIds({ MISTRAL_API_KEY: "env-key" })).toEqual(["mistral"]);
-		expect(
-			availableIds({
-				AI_GATEWAY_API_KEY: "gateway-key",
-				XAI_API_KEY: "xai-key",
-			}),
-		).toEqual([GATEWAY, "xai"]);
+		expect(availableIds({ AI_GATEWAY_API_KEY: "gateway-key" })).toEqual([
+			GATEWAY,
+		]);
+		expect(availableIds({ MISTRAL_API_KEY: "env-key" })).toEqual([]);
 	});
 
-	test("a supplied key marks only the matching provider available", () => {
-		const providers = listCapabilities({
-			env: {},
-			apiKeyFor: (providerId) =>
-				providerId === "openai" ? "sk-explicit" : undefined,
-		});
-
+	test("a supplied key marks the provider available", () => {
 		expect(
-			providers.filter((provider) => provider.available).map((p) => p.id),
-		).toEqual(["openai"]);
+			listCapabilities({
+				env: {},
+				apiKeyFor: () => "sk-explicit",
+			})[0]?.available,
+		).toBe(true);
+		expect(
+			listCapabilities({ env: {}, apiKeyFor: () => undefined })[0]?.available,
+		).toBe(false);
 	});
 
 	test("never exposes key values in the capability payload", () => {
 		const payload = JSON.stringify(
 			listCapabilities({
-				env: { MISTRAL_API_KEY: "sk-env-secret" },
+				env: { AI_GATEWAY_API_KEY: "sk-env-secret" },
 				apiKeyFor: () => "sk-explicit-secret",
 			}),
 		);

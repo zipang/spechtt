@@ -23,6 +23,10 @@ export interface DiscoveredModel {
 	/** Display name from the endpoint, or the id when the name is empty. */
 	readonly label: string;
 	readonly mode: TranscriptionMode;
+	/** Gateway description, when it publishes one. */
+	readonly description: string | null;
+	/** Raw pricing map, values kept as strings so the UI controls formatting. */
+	readonly pricing: Readonly<Record<string, string>>;
 }
 
 export interface DiscoveryResult {
@@ -85,6 +89,19 @@ function compareByLabel(
 	return left.id < right.id ? -1 : 1;
 }
 
+function parsePricing(value: unknown): Readonly<Record<string, string>> {
+	if (!isRecord(value)) {
+		return {};
+	}
+	const pricing: Record<string, string> = {};
+	for (const [key, raw] of Object.entries(value)) {
+		if (typeof raw === "string") {
+			pricing[key] = raw;
+		}
+	}
+	return pricing;
+}
+
 function parseModels(payload: unknown): readonly DiscoveredModel[] | undefined {
 	if (!isRecord(payload) || !Array.isArray(payload.data)) {
 		return undefined;
@@ -100,12 +117,18 @@ function parseModels(payload: unknown): readonly DiscoveredModel[] | undefined {
 			continue;
 		}
 		const name = typeof entry.name === "string" ? entry.name.trim() : "";
+		const description =
+			typeof entry.description === "string" && entry.description.trim().length > 0
+				? entry.description.trim()
+				: null;
 		const tags = Array.isArray(entry.tags) ? entry.tags : [];
 		const streaming = tags.includes("websocket-transcription");
 		models.push({
 			id,
 			label: name.length > 0 ? name : id,
 			mode: streaming ? "streaming" : "segmented",
+			description,
+			pricing: parsePricing(entry.pricing),
 		});
 	}
 

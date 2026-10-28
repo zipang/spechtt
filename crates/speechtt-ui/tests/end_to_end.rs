@@ -259,11 +259,15 @@ fn catalogue() -> Vec<ProviderCapability> {
                 id: "openai/gpt-4o-transcribe".to_string(),
                 label: "GPT-4o Transcribe".to_string(),
                 mode: TranscriptionMode::Segmented,
+                description: None,
+                pricing: std::collections::BTreeMap::new(),
             },
             ModelCapabilityInfo {
                 id: "openai/gpt-realtime-whisper".to_string(),
                 label: "gpt-realtime-whisper".to_string(),
                 mode: TranscriptionMode::Streaming,
+                description: None,
+                pricing: std::collections::BTreeMap::new(),
             },
         ],
     }]
@@ -659,30 +663,19 @@ fn clipboard_failure_is_typed_and_does_not_paste() {
 #[test]
 fn capabilities_populate_options_and_connection_state() {
     let mut controller = SessionController::new();
-    controller.set_capabilities(vec![
-        ProviderCapability {
-            id: "vercel-ai-gateway".into(),
-            label: "Vercel AI Gateway".into(),
-            available: false,
-            key_env_vars: Vec::new(),
-            models: vec![speechtt_core::protocol::ModelCapabilityInfo {
-                id: "openai/gpt-realtime-whisper".into(),
-                label: "GPT Realtime Whisper".into(),
-                mode: speechtt_core::protocol::TranscriptionMode::Streaming,
-            }],
-        },
-        ProviderCapability {
-            id: "mistral".into(),
-            label: "Mistral AI".into(),
-            available: true,
-            key_env_vars: Vec::new(),
-            models: vec![speechtt_core::protocol::ModelCapabilityInfo {
-                id: "voxtral-mini-transcribe-3-0".into(),
-                label: "Voxtral Mini".into(),
-                mode: speechtt_core::protocol::TranscriptionMode::Segmented,
-            }],
-        },
-    ]);
+    controller.set_capabilities(vec![ProviderCapability {
+        id: "vercel-ai-gateway".into(),
+        label: "Vercel AI Gateway".into(),
+        available: false,
+        key_env_vars: Vec::new(),
+        models: vec![speechtt_core::protocol::ModelCapabilityInfo {
+            id: "openai/gpt-realtime-whisper".into(),
+            label: "GPT Realtime Whisper".into(),
+            mode: speechtt_core::protocol::TranscriptionMode::Streaming,
+            description: None,
+            pricing: std::collections::BTreeMap::new(),
+        }],
+    }]);
 
     controller.open_settings();
     assert!(controller.set_settings_provider("vercel-ai-gateway"));
@@ -710,8 +703,21 @@ fn capabilities_populate_options_and_connection_state() {
         "the key can still be saved so the next handshake can connect it"
     );
 
-    assert!(controller.set_settings_provider("mistral"));
-    assert!(controller.set_settings_model("voxtral-mini-transcribe-3-0"));
+    // A second handshake reporting the provider as available flips the row to
+    // CONNECTED without re-typing the key.
+    controller.set_capabilities(vec![ProviderCapability {
+        id: "vercel-ai-gateway".into(),
+        label: "Vercel AI Gateway".into(),
+        available: true,
+        key_env_vars: vec!["AI_GATEWAY_API_KEY".into()],
+        models: vec![speechtt_core::protocol::ModelCapabilityInfo {
+            id: "openai/gpt-realtime-whisper".into(),
+            label: "GPT Realtime Whisper".into(),
+            mode: speechtt_core::protocol::TranscriptionMode::Streaming,
+            description: None,
+            pricing: std::collections::BTreeMap::new(),
+        }],
+    }]);
     assert!(controller.settings_connected());
     assert!(controller.settings_draft_valid());
 }
@@ -793,11 +799,15 @@ fn new_session_form_cycles_the_capability_catalogue() {
                     id: "custom-large".into(),
                     label: "Custom Large".into(),
                     mode: speechtt_core::protocol::TranscriptionMode::Streaming,
+                    description: None,
+                    pricing: std::collections::BTreeMap::new(),
                 },
                 speechtt_core::protocol::ModelCapabilityInfo {
                     id: "custom-small".into(),
                     label: "Custom Small".into(),
                     mode: speechtt_core::protocol::TranscriptionMode::Segmented,
+                    description: None,
+                    pricing: std::collections::BTreeMap::new(),
                 },
             ],
         },
@@ -810,6 +820,8 @@ fn new_session_form_cycles_the_capability_catalogue() {
                 id: "other-one".into(),
                 label: "Other One".into(),
                 mode: speechtt_core::protocol::TranscriptionMode::Streaming,
+                description: None,
+                pricing: std::collections::BTreeMap::new(),
             }],
         },
     ]);

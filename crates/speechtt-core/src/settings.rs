@@ -34,6 +34,11 @@ pub const PROVIDER_ALIASES: [(&str, &str); 2] = [
     ("gateway", "vercel-ai-gateway"),
 ];
 
+/// Providers the UI offers. Keep in sync with `PROVIDERS` in
+/// `src/stt/registry.ts`: a provider is listed only after its API has been
+/// evaluated (see T0014).
+pub const SUPPORTED_PROVIDERS: [&str; 1] = ["vercel-ai-gateway"];
+
 /// Resolves a legacy provider id to its canonical form.
 #[must_use]
 fn canonical_provider_id(provider: &str) -> &str {
@@ -153,7 +158,12 @@ impl Settings {
     }
 
     pub fn normalize_provider_ids(&mut self) {
-        self.provider = canonical_provider_id(&self.provider).to_owned();
+        let canonical = canonical_provider_id(&self.provider);
+        self.provider = if SUPPORTED_PROVIDERS.contains(&canonical) {
+            canonical.to_owned()
+        } else {
+            DEFAULT_PROVIDER.to_owned()
+        };
         for (alias, canonical) in PROVIDER_ALIASES {
             if let Some(secret) = self.api_keys.remove(alias) {
                 self.api_keys.entry(canonical.to_owned()).or_insert(secret);
@@ -678,12 +688,12 @@ mod tests {
     fn load_fills_missing_fields_with_defaults() {
         let dir = TempDir::new("partial");
         let path = dir.join("settings.json");
-        fs::write(&path, r#"{"provider":"mistral"}"#).expect("write partial settings");
+        fs::write(&path, r#"{"provider":"vercel-ai-gateway"}"#).expect("write partial settings");
         let store = JsonFileStore::new(&path);
 
         let settings = store.load().expect("partial settings load");
 
-        assert_eq!(settings.provider, "mistral");
+        assert_eq!(settings.provider, DEFAULT_PROVIDER);
         assert_eq!(settings.model, "");
         assert!(settings.auto_paste);
     }
@@ -906,6 +916,27 @@ mod tests {
         .expect("write settings");
 
         assert_eq!(store.load().expect("loads").window, None);
+    }
+
+    #[test]
+    fn a_provider_that_is_no_longer_offered_falls_back_to_the_gateway() {
+        let mut settings = Settings {
+            provider: "mistral".to_owned(),
+            model: "voxtral-mini-transcribe-3-0".to_owned(),
+            ..Settings::default()
+        };
+        settings
+            .api_keys
+            .insert("mistral".to_owned(), SecretString::new("msk-kept"));
+
+        settings.normalize();
+
+        assert_eq!(settings.provider, DEFAULT_PROVIDER);
+        assert_eq!(
+            settings.api_key("mistral"),
+            Some("msk-kept"),
+            "a dormant provider keeps its key for a future evaluation ticket"
+        );
     }
 
     // T11.6 — provider id migration --------------------------------------

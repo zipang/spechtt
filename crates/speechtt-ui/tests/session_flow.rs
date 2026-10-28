@@ -57,11 +57,15 @@ fn catalogue() -> Vec<ProviderCapability> {
                 id: "openai/gpt-4o-transcribe".to_string(),
                 label: "GPT-4o Transcribe".to_string(),
                 mode: TranscriptionMode::Segmented,
+                description: None,
+                pricing: std::collections::BTreeMap::new(),
             },
             ModelCapabilityInfo {
                 id: "openai/gpt-realtime-whisper".to_string(),
                 label: "gpt-realtime-whisper".to_string(),
                 mode: TranscriptionMode::Streaming,
+                description: None,
+                pricing: std::collections::BTreeMap::new(),
             },
         ],
     }]

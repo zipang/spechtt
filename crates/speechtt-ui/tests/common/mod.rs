@@ -187,11 +187,18 @@ pub fn test_catalogue() -> Vec<ProviderCapability> {
                 id: "openai/gpt-4o-transcribe".to_string(),
                 label: "GPT-4o Transcribe".to_string(),
                 mode: TranscriptionMode::Segmented,
+                description: None,
+                pricing: std::collections::BTreeMap::new(),
             },
             ModelCapabilityInfo {
                 id: "openai/gpt-realtime-whisper".to_string(),
                 label: "gpt-realtime-whisper".to_string(),
                 mode: TranscriptionMode::Streaming,
+                description: Some("Live gateway transcription.".to_string()),
+                pricing: std::collections::BTreeMap::from([(
+                    "transcription_duration_cost_per_second".to_string(),
+                    "0.000031".to_string(),
+                )]),
             },
         ],
     }]

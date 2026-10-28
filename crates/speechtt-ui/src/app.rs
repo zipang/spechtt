@@ -43,7 +43,7 @@ use speechtt_core::settings::{JsonFileStore, Settings, SettingsStore, WindowLayo
 
 use crate::components::{ActionButton, AppFooter, AppHeader, IconButton};
 use crate::controller::{
-    AppError, Clock, Dialog, ErrorAction, FinishedTake, SAMPLE_RATE, SessionController,
+    AppError, Clock, Dialog, ErrorAction, FinishedTake, HelpTab, SAMPLE_RATE, SessionController,
     SettingsChange, SettingsDraft, SystemClock, ViewState,
 };
 use crate::tokens::{color, rem};
@@ -393,6 +393,22 @@ impl SpeechTtApp {
     /// The worker's event loop normally reaches this through
     /// `SessionController::handle_stt_event`; the headless window fixture calls
     /// it directly so Settings can be exercised without a live Bun worker.
+    /// Help page currently shown (query surface for tests and the view).
+    pub fn help_tab(&self) -> HelpTab {
+        self.controller.help_tab()
+    }
+
+    /// Models listed by the Help dialog.
+    pub fn help_models(&self) -> &[speechtt_core::protocol::ModelCapabilityInfo] {
+        self.controller.help_models()
+    }
+
+    /// Switches the Help dialog page.
+    pub fn set_help_tab(&mut self, tab: HelpTab, cx: &mut Context<Self>) {
+        self.controller.set_help_tab(tab);
+        cx.notify();
+    }
+
     pub fn apply_capabilities(
         &mut self,
         providers: Vec<speechtt_core::protocol::ProviderCapability>,

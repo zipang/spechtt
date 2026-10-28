@@ -12,7 +12,7 @@ use gpui_kit::{Context, Entity, FocusHandle, IntoElement, KeyDownEvent, Render, 
 
 use crate::app::SpeechTtApp;
 use crate::components::{AppHeader, IconButton};
-use crate::controller::Dialog;
+use crate::controller::{Dialog, HelpTab};
 use crate::views::dialogs::{help, settings, window_title};
 
 pub(crate) struct DialogWindow {
@@ -43,6 +43,11 @@ impl DialogWindow {
         window.remove_window();
     }
 
+    /// Switches the Help dialog page (Shortcuts / Models).
+    pub(crate) fn select_help_tab(&mut self, tab: HelpTab, cx: &mut Context<Self>) {
+        self.app.update(cx, |app, cx| app.set_help_tab(tab, cx));
+    }
+
     pub(crate) fn cycle_provider(&mut self, cx: &mut Context<Self>) {
         self.app
             .update(cx, |app, cx| app.cycle_settings_provider(cx));
@@ -69,7 +74,7 @@ impl DialogWindow {
 impl Render for DialogWindow {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let body = match self.dialog {
-            Dialog::Help => help::render(cx),
+            Dialog::Help => help::render(self, cx),
             Dialog::Settings => settings::render(self, cx),
         };
 

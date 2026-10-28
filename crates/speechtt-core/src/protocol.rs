@@ -87,6 +87,12 @@ pub struct ModelCapabilityInfo {
     pub id: String,
     pub label: String,
     pub mode: TranscriptionMode,
+    /// Gateway description, when it publishes one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Raw gateway pricing map, values kept as strings for the UI to format.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub pricing: std::collections::BTreeMap<String, String>,
 }
 
 /// Provider-level capability, including whether its key is configured.
@@ -457,11 +463,15 @@ mod tests {
                         id: "openai/gpt-realtime-whisper".to_string(),
                         label: "gpt-realtime-whisper".to_string(),
                         mode: TranscriptionMode::Streaming,
+                        description: None,
+                        pricing: std::collections::BTreeMap::new(),
                     },
                     ModelCapabilityInfo {
                         id: "openai/gpt-4o-transcribe".to_string(),
                         label: "GPT-4o Transcribe".to_string(),
                         mode: TranscriptionMode::Segmented,
+                        description: None,
+                        pricing: std::collections::BTreeMap::new(),
                     },
                 ],
             }],
@@ -585,6 +595,42 @@ mod tests {
     }
 
     #[test]
+    fn model_metadata_round_trips_and_stays_optional() {
+        let mut pricing = std::collections::BTreeMap::new();
+        pricing.insert(
+            "transcription_duration_cost_per_second".to_string(),
+            "0.000030556".to_string(),
+        );
+        let model = ModelCapabilityInfo {
+            id: "elevenlabs/scribe-v2".to_string(),
+            label: "Scribe v2".to_string(),
+            mode: TranscriptionMode::Segmented,
+            description: Some("Multilingual speech-to-text.".to_string()),
+            pricing,
+        };
+
+        let json = serde_json::to_string(&model).expect("serializes");
+        assert!(json.contains(r#""description":"Multilingual speech-to-text.""#));
+        assert!(
+            json.contains(r#""pricing":{"transcription_duration_cost_per_second":"0.000030556"}"#)
+        );
+        assert_eq!(
+            serde_json::from_str::<ModelCapabilityInfo>(&json).expect("deserializes"),
+            model
+        );
+
+        let curated: ModelCapabilityInfo =
+            serde_json::from_str(r#"{"id":"m","label":"M","mode":"streaming"}"#)
+                .expect("deserializes without metadata");
+        assert_eq!(curated.description, None);
+        assert!(curated.pricing.is_empty());
+        assert_eq!(
+            serde_json::to_string(&curated).expect("serializes"),
+            r#"{"id":"m","label":"M","mode":"streaming"}"#
+        );
+    }
+
+    #[test]
     fn capabilities_event_is_session_agnostic() {
         assert_eq!(
             capabilities_event(Some("cap-1".to_string())).session_id(),
@@ -613,6 +659,8 @@ mod tests {
                         id: "m".to_string(),
                         label: "M".to_string(),
                         mode: TranscriptionMode::Streaming,
+                        description: None,
+                        pricing: std::collections::BTreeMap::new(),
                     }],
                 }],
             }

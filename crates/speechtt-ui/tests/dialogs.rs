@@ -6,43 +6,36 @@
 
 use speechtt_core::protocol::{ModelCapabilityInfo, ProviderCapability, TranscriptionMode};
 use speechtt_core::settings::Settings;
-use speechtt_ui::controller::{Dialog, STORED_KEY_REVEAL_HINT, SessionController, SettingsChange};
+use speechtt_ui::controller::{
+    Dialog, HelpTab, STORED_KEY_REVEAL_HINT, SessionController, SettingsChange,
+};
 
 const MIXED_CASE_KEY: &str = "vck_AbCdEfGhIjKlMnOpQrStUvWxYzH0123456789";
 
 /// Catalogue the worker would send after a handshake.
 fn catalogue() -> Vec<ProviderCapability> {
-    vec![
-        ProviderCapability {
-            id: "vercel-ai-gateway".to_string(),
-            label: "Vercel AI Gateway".to_string(),
-            available: true,
-            key_env_vars: vec!["AI_GATEWAY_API_KEY".to_string()],
-            models: vec![
-                ModelCapabilityInfo {
-                    id: "openai/gpt-realtime-whisper".to_string(),
-                    label: "gpt-realtime-whisper".to_string(),
-                    mode: TranscriptionMode::Streaming,
-                },
-                ModelCapabilityInfo {
-                    id: "openai/gpt-4o-transcribe".to_string(),
-                    label: "GPT-4o Transcribe".to_string(),
-                    mode: TranscriptionMode::Segmented,
-                },
-            ],
-        },
-        ProviderCapability {
-            id: "mistral".to_string(),
-            label: "Mistral AI".to_string(),
-            available: false,
-            key_env_vars: vec!["MISTRAL_API_KEY".to_string()],
-            models: vec![ModelCapabilityInfo {
-                id: "voxtral-mini-transcribe-3-0".to_string(),
-                label: "Voxtral Mini Transcribe 3.0".to_string(),
+    vec![ProviderCapability {
+        id: "vercel-ai-gateway".to_string(),
+        label: "Vercel AI Gateway".to_string(),
+        available: true,
+        key_env_vars: vec!["AI_GATEWAY_API_KEY".to_string()],
+        models: vec![
+            ModelCapabilityInfo {
+                id: "openai/gpt-realtime-whisper".to_string(),
+                label: "gpt-realtime-whisper".to_string(),
+                mode: TranscriptionMode::Streaming,
+                description: None,
+                pricing: std::collections::BTreeMap::new(),
+            },
+            ModelCapabilityInfo {
+                id: "openai/gpt-4o-transcribe".to_string(),
+                label: "GPT-4o Transcribe".to_string(),
                 mode: TranscriptionMode::Segmented,
-            }],
-        },
-    ]
+                description: None,
+                pricing: std::collections::BTreeMap::new(),
+            },
+        ],
+    }]
 }
 
 fn install_catalogue(controller: &mut SessionController) {
@@ -311,4 +304,30 @@ fn escape_key_closes_the_dialog_window(cx: &mut gpui_kit::TestAppContext) {
     assert_eq!(cx.windows().len(), 1, "Escape closed the dialog window");
     assert_eq!(cx.update(|cx| view.read(cx).active_dialog()), None);
     assert!(!cx.update(|cx| view.read(cx).has_dialog_window()));
+}
+
+#[gpui_kit::test]
+fn help_switches_to_the_model_catalogue_tab(cx: &mut gpui_kit::TestAppContext) {
+    let (window, view) = common::open_speechtt_window(cx);
+
+    cx.update_window(window.into(), |_, window, cx| {
+        view.update(cx, |app, cx| app.open_help(window, cx));
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).active_dialog(), Some(Dialog::Help));
+        assert_eq!(view.read(cx).help_tab(), HelpTab::Shortcuts);
+
+        view.update(cx, |app, cx| app.set_help_tab(HelpTab::Models, cx));
+        window.render_frame(cx);
+
+        assert_eq!(view.read(cx).help_tab(), HelpTab::Models);
+        assert_eq!(
+            view.read(cx)
+                .help_models()
+                .iter()
+                .map(|model| model.id.as_str())
+                .collect::<Vec<_>>(),
+            ["openai/gpt-4o-transcribe", "openai/gpt-realtime-whisper"]
+        );
+    })
+    .unwrap();
 }
