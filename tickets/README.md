@@ -95,18 +95,13 @@ Decisions, deviations, verification output.
 | [T0008](done/T0008-bun-capabilities-and-live-smoke.md) | Capability handshake and live cross-language smoke test | Bun + Rust protocol |
 | [T0009](done/T0009-e2e-wiring-and-error-ux.md) | End-to-end wiring and error UX | Cross-cutting |
 | [T0010](done/T0010-settings-key-integrity-and-reveal-ux.md) | Settings key integrity and stored-key reveal UX | Rust UI + core |
-
-### Review
-
-| Ticket | Title | Track | Primary files |
-|---|---|---|---|
-| [T0012](review/T0012-silence-aligned-batch-segmentation.md) | Silence-aligned audio segmentation for batch transcription | Bun worker | `src/stt/segmentation.ts`, `transcript-merge.ts`, `adapters/mistral.ts` |
+| [T0011](done/T0011-dynamic-model-discovery-and-mode-badge.md) | Dynamic model discovery and streaming mode badge | Bun worker + Rust core/UI |
+| [T0012](done/T0012-silence-aligned-batch-segmentation.md) | Silence-aligned audio segmentation for batch transcription | Bun worker |
+| [T0013](done/T0013-window-geometry-memory.md) | Remember the window size and position | Rust core + UI |
 
 ### In Progress
 
-| Ticket | Title | Track | Owner |
-|---|---|---|---|
-| [T0011](in_progress/T0011-dynamic-model-discovery-and-mode-badge.md) | Dynamic model discovery and streaming mode badge | Bun worker + Rust core/UI | coder |
+_(none)_
 
 ### Planned
 
