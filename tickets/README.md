@@ -103,11 +103,15 @@ Decisions, deviations, verification output.
 
 _(none)_
 
-### Review
+### Done
 
 | Ticket | Title | Track | Primary files |
 |---|---|---|---|
-| [T0014](review/T0014-help-model-catalogue-tab.md) | Help dialog model-catalogue tab and a single gateway provider | Bun worker + Rust core/UI | `discovery.ts`, `registry.ts`, `protocol.rs`, `help.rs`, `controller.rs` |
+| [T0014](done/T0014-help-model-catalogue-tab.md) | Help dialog model-catalogue tab and a single gateway provider | Bun worker + Rust core/UI | `discovery.ts`, `registry.ts`, `protocol.rs`, `help.rs`, `controller.rs` |
+
+### Review
+
+_(none)_
 
 ### Planned
 
