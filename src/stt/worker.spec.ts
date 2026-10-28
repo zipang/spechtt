@@ -9,7 +9,9 @@ import type {
 } from "./adapters/types";
 import { MistralAdapter } from "./adapters/mistral";
 import { VercelAiSdkAdapter } from "./adapters/vercel-ai-sdk";
+import type { DiscoveredModel, DiscoveryResult } from "./discovery";
 import {
+	type DiscoverySource,
 	defaultAdapterFactory,
 	runWorkerLoop,
 } from "./worker";
@@ -402,6 +404,29 @@ describe("runWorkerLoop capabilities handshake", () => {
 	const capabilitiesLine = (overrides: Record<string, unknown> = {}) =>
 		JSON.stringify({ type: "capabilities", ...overrides });
 
+	const failingDiscovery: DiscoverySource = {
+		cached: () => undefined,
+		discover: async () => undefined,
+	};
+
+	function deferred<T>() {
+		let resolve!: (value: T) => void;
+		const promise = new Promise<T>((settle) => {
+			resolve = settle;
+		});
+		return { promise, resolve };
+	}
+
+	const discoveredModels: DiscoveredModel[] = [
+		{ id: "acme/live", label: "Acme Live", mode: "streaming" },
+		{ id: "acme/batch", label: "Acme Batch", mode: "segmented" },
+	];
+
+	const discoveryResult: DiscoveryResult = {
+		models: discoveredModels,
+		fetchedAt: 1_000,
+	};
+
 	const savedEnv: Record<string, string | undefined> = {};
 
 	beforeEach(() => {
@@ -443,11 +468,13 @@ describe("runWorkerLoop capabilities handshake", () => {
 			linesOf([capabilitiesLine({ requestId: "cap-1" })]),
 			(event) => events.push(event),
 			factory,
+			failingDiscovery,
 		);
 
 		expect(events[0]).toEqual({ type: "ready" });
 		const caps = capabilitiesEvent(events);
 		expect(caps.requestId).toBe("cap-1");
+		expect(caps.source).toBe("builtin");
 		expect(caps.providers.length).toBeGreaterThanOrEqual(5);
 		for (const provider of caps.providers) {
 			expect(provider.available).toBe(false);
@@ -463,6 +490,7 @@ describe("runWorkerLoop capabilities handshake", () => {
 			linesOf([capabilitiesLine()]),
 			(event) => events.push(event),
 			factory,
+			failingDiscovery,
 		);
 
 		const caps = capabilitiesEvent(events);
@@ -481,6 +509,7 @@ describe("runWorkerLoop capabilities handshake", () => {
 			]),
 			(event) => events.push(event),
 			factory,
+			failingDiscovery,
 		);
 
 		expect(events.map((event) => event.type)).toEqual([
@@ -508,6 +537,7 @@ describe("runWorkerLoop capabilities handshake", () => {
 			]),
 			(event) => events.push(event),
 			factory,
+			failingDiscovery,
 		);
 
 		expect(events[0]).toEqual({ type: "ready" });
@@ -527,10 +557,218 @@ describe("runWorkerLoop capabilities handshake", () => {
 			linesOf([capabilitiesLine({ requestId: "cap-3", apiKey: secret })]),
 			(event) => events.push(event),
 			factory,
+			failingDiscovery,
 		);
 
 		const serialized = events.map(serializeOutboundEvent).join("");
 		expect(serialized).not.toContain(secret);
+		expect(JSON.stringify(events)).not.toContain(secret);
+	});
+
+	function capabilitiesEvents(
+		events: OutboundEvent[],
+	): Array<Extract<OutboundEvent, { type: "capabilities" }>> {
+		return events.filter(
+			(event): event is Extract<OutboundEvent, { type: "capabilities" }> =>
+				event.type === "capabilities",
+		);
+	}
+
+	const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+	test("answers immediately as builtin, then refreshes to discovered models", async () => {
+		const { factory, events } = fakeFactory();
+		const gate = deferred<DiscoveryResult | undefined>();
+		const source: DiscoverySource = {
+			cached: () => undefined,
+			discover: () => gate.promise,
+		};
+
+		// The refresh is only delivered while the worker still consumes input
+		// (a result that lands after EOF is dropped, see the dedicated test),
+		// so hold `stdin` open until the discovery has been emitted.
+		let releaseInput!: () => void;
+		const inputOpen = new Promise<void>((resolve) => {
+			releaseInput = resolve;
+		});
+		async function* openLines(): AsyncGenerator<string> {
+			yield capabilitiesLine({ requestId: "cap-1" });
+			await inputOpen;
+		}
+
+		const run = runWorkerLoop(
+			openLines(),
+			(event) => events.push(event),
+			factory,
+			source,
+		);
+		await tick();
+
+		// The first event landed even though discovery has not resolved yet.
+		expect(events.map((event) => event.type)).toEqual([
+			"ready",
+			"capabilities",
+		]);
+		const builtin = capabilitiesEvents(events)[0]!;
+		expect(builtin.source).toBe("builtin");
+		expect(builtin.requestId).toBe("cap-1");
+		expect(
+			builtin.providers
+				.find((provider) => provider.id === "vercel-ai-gateway")
+				?.models.map((model) => model.id),
+		).toContain("openai/gpt-realtime-whisper");
+
+		gate.resolve(discoveryResult);
+		await tick();
+		releaseInput();
+		await run;
+
+		const [first, second] = capabilitiesEvents(events);
+		expect(second).toBeDefined();
+		expect(first?.source).toBe("builtin");
+		expect(second?.source).toBe("discovered");
+		expect(second?.requestId).toBe("cap-1");
+
+		const refreshed = second!.providers;
+		expect(
+			refreshed
+				.find((provider) => provider.id === "vercel-ai-gateway")
+				?.models.map((model) => model.id),
+		).toEqual(["acme/batch", "acme/live"]);
+		// Direct providers keep their curated catalogues.
+		expect(
+			refreshed
+				.find((provider) => provider.id === "mistral")
+				?.models.map((model) => model.id),
+		).toEqual(["voxtral-mini-transcribe-3-0", "voxtral-small-transcribe-3-0"]);
+	});
+
+	test("answers once as discovered when the cache is fresh", async () => {
+		const { factory, events } = fakeFactory();
+		let discoverCalls = 0;
+		const source: DiscoverySource = {
+			cached: () => discoveredModels,
+			discover: async () => {
+				discoverCalls += 1;
+				return discoveryResult;
+			},
+		};
+
+		await runWorkerLoop(
+			linesOf([capabilitiesLine({ requestId: "cap-cache" })]),
+			(event) => events.push(event),
+			factory,
+			source,
+		);
+
+		const caps = capabilitiesEvents(events);
+		expect(caps).toHaveLength(1);
+		expect(caps[0]?.source).toBe("discovered");
+		expect(caps[0]?.requestId).toBe("cap-cache");
+		expect(discoverCalls).toBe(0);
+	});
+
+	test("keeps only the builtin event when discovery fails", async () => {
+		const { factory, events } = fakeFactory();
+
+		await runWorkerLoop(
+			linesOf([capabilitiesLine({ requestId: "cap-fail" })]),
+			(event) => events.push(event),
+			factory,
+			failingDiscovery,
+		);
+
+		const caps = capabilitiesEvents(events);
+		expect(caps).toHaveLength(1);
+		expect(caps[0]?.source).toBe("builtin");
+		expect(events.some((event) => event.type === "error")).toBe(false);
+	});
+
+	test("keeps only the builtin event when discovery rejects", async () => {
+		const { factory, events } = fakeFactory();
+		const source: DiscoverySource = {
+			cached: () => undefined,
+			discover: async () => {
+				throw new Error("gateway down");
+			},
+		};
+
+		await runWorkerLoop(
+			linesOf([capabilitiesLine()]),
+			(event) => events.push(event),
+			factory,
+			source,
+		);
+
+		expect(capabilitiesEvents(events)).toHaveLength(1);
+		expect(events.some((event) => event.type === "error")).toBe(false);
+	});
+
+	test("drops a discovery result that resolves after stdin EOF", async () => {
+		const { factory, events } = fakeFactory();
+		const gate = deferred<DiscoveryResult | undefined>();
+		const source: DiscoverySource = {
+			cached: () => undefined,
+			discover: () => gate.promise,
+		};
+
+		const run = runWorkerLoop(
+			linesOf([capabilitiesLine()]),
+			(event) => events.push(event),
+			factory,
+			source,
+		);
+		await tick();
+
+		gate.resolve(discoveryResult);
+		await expect(run).resolves.toBeUndefined();
+
+		expect(capabilitiesEvents(events)).toHaveLength(1);
+		expect(capabilitiesEvents(events)[0]?.source).toBe("builtin");
+	});
+
+	test("a discovered refresh never disturbs an active session", async () => {
+		const { factory, adapter, events } = fakeFactory();
+
+		await runWorkerLoop(
+			linesOf([
+				START,
+				capabilitiesLine({ requestId: "cap-live" }),
+				audio("a1"),
+				JSON.stringify({ type: "stop" }),
+			]),
+			(event) => events.push(event),
+			factory,
+			{ cached: () => undefined, discover: async () => discoveryResult },
+		);
+
+		expect(capabilitiesEvents(events)).toHaveLength(2);
+		expect(events.map((event) => event.type)).toContain("stopped");
+		expect(adapter.sessions).toHaveLength(1);
+		expect(adapter.sessions[0]?.stopped).toBe(true);
+		expect(adapter.sessions[0]?.aborted).toBe(false);
+	});
+
+	test("never passes the API key to discovery", async () => {
+		const { factory, events } = fakeFactory();
+		const secret = "sk-discovery-secret";
+		const argumentCounts: number[] = [];
+		const source: DiscoverySource = {
+			cached: () => undefined,
+			discover: (async (...args: unknown[]) => {
+				argumentCounts.push(args.length);
+				return discoveryResult;
+			}) as DiscoverySource["discover"],
+		};
+
+		await runWorkerLoop(
+			linesOf([capabilitiesLine({ apiKey: secret })]),
+			(event) => events.push(event),
+			factory,
+			source,
+		);
+
+		expect(argumentCounts).toEqual([0]);
 		expect(JSON.stringify(events)).not.toContain(secret);
 	});
 });

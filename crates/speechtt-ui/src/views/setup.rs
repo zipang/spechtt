@@ -13,7 +13,9 @@ use gpui_kit::{AnyElement, Context, FontWeight, div, rems};
 use speechtt_core::session::OutputTarget;
 
 use crate::app::SpeechTtApp;
-use crate::components::{ChoicePill, SettingRow, StatusBadge, TransportButton};
+use crate::components::{
+    ChoicePill, SettingRow, StatusBadge, TranscriptionModeBadge, TransportButton,
+};
 use crate::layout::ScreenShell;
 use crate::tokens::rem;
 
@@ -53,7 +55,7 @@ pub(crate) fn render_prompt(cx: &mut Context<SpeechTtApp>) -> AnyElement {
 /// actions never scroll away and are separated from the body by the same
 /// hairline as `AppHeader`.
 pub(crate) fn render_form(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyElement {
-    let (provider_label, model_label, has_provider, output) = {
+    let (provider_label, model_label, model_mode, has_provider, output) = {
         let controller = app.controller();
         let has_provider = controller.has_provider();
         (
@@ -63,6 +65,7 @@ pub(crate) fn render_form(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> A
             } else {
                 "Choose provider first"
             }),
+            controller.draft_model_mode(),
             has_provider,
             controller.selected_output().cloned(),
         )
@@ -81,6 +84,14 @@ pub(crate) fn render_form(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> A
         .dropdown_caret(true)
         .disabled(!has_provider)
         .on_click(cx.listener(|this, _event, _window, cx| this.cycle_model(cx)));
+
+    let model_control = {
+        let mut row = h_flex().gap_2().items_center().child(model_select);
+        if let Some(mode) = model_mode {
+            row = row.child(TranscriptionModeBadge::new(mode));
+        }
+        row
+    };
 
     let memory_pill = ChoicePill::new("field-output-memory", "In memory")
         .selected(output == Some(OutputTarget::Memory))
@@ -112,7 +123,7 @@ pub(crate) fn render_form(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> A
         .child(
             SettingRow::new("Model", "Used for this session")
                 .prominent()
-                .control(model_select),
+                .control(model_control),
         )
         .child(
             SettingRow::new("Session Title", "Names this take and its default file")

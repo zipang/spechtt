@@ -229,6 +229,7 @@ fn live_worker_answers_a_capabilities_round_trip() {
     let SttEvent::Capabilities {
         request_id,
         providers,
+        ..
     } = expect_event(&events)
     else {
         panic!("expected a capabilities event");
@@ -290,6 +291,7 @@ fn live_worker_recovers_from_a_malformed_line() {
     let SttEvent::Capabilities {
         request_id,
         providers,
+        ..
     } = expect_event(&events)
     else {
         panic!("expected a capabilities event after recovering");

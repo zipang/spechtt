@@ -11,8 +11,8 @@ use gpui_kit::{AnyElement, Context, div, rems};
 
 use crate::app::SpeechTtApp;
 use crate::components::{
-    BadgeTone, CaptionWell, ElapsedTimer, IconAction, StatusBadge, TransportButton, TransportTone,
-    Waveform,
+    BadgeTone, CaptionWell, ElapsedTimer, IconAction, StatusBadge, TranscriptionModeBadge,
+    TransportButton, TransportTone, Waveform,
 };
 use crate::layout::ScreenShell;
 use crate::tokens::rem;
@@ -36,6 +36,18 @@ pub(crate) fn render_ready(cx: &mut Context<SpeechTtApp>) -> AnyElement {
         .into_any_element()
 }
 
+/// Elapsed timer plus, when the catalogue knows the model, its audio mode.
+fn header_trailing(app: &SpeechTtApp, elapsed: u32) -> AnyElement {
+    let mut row = h_flex()
+        .gap_2()
+        .items_center()
+        .child(ElapsedTimer::new(elapsed));
+    if let Some(mode) = app.controller().session_model_mode() {
+        row = row.child(TranscriptionModeBadge::new(mode));
+    }
+    row.into_any_element()
+}
+
 pub(crate) fn render_recording(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyElement {
     let controller = app.controller();
     let elapsed = controller.elapsed_seconds();
@@ -44,7 +56,7 @@ pub(crate) fn render_recording(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>)
     let live = controller.transcript_live();
 
     ScreenShell::new(StatusBadge::tone("RECORDING", BadgeTone::Recording))
-        .header_trailing(ElapsedTimer::new(elapsed))
+        .header_trailing(header_trailing(app, elapsed))
         .gap(rems(0.25))
         .body_gap(rems(0.25))
         .body(Waveform::new(bars, true))
@@ -74,7 +86,7 @@ pub(crate) fn render_paused(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) ->
     let live = controller.transcript_live();
 
     ScreenShell::new(StatusBadge::tone("PAUSED", BadgeTone::Paused))
-        .header_trailing(ElapsedTimer::new(elapsed))
+        .header_trailing(header_trailing(app, elapsed))
         .gap(rems(0.25))
         .body_gap(rems(0.25))
         .body(Waveform::new(bars, false))

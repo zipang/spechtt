@@ -104,8 +104,12 @@ export interface ErrorEvent {
 export interface CapabilitiesEvent {
 	type: "capabilities";
 	requestId?: string;
+	/** `builtin` is the curated fallback; `discovered` came from the gateway. */
+	source: CapabilitySource;
 	providers: readonly ProviderCapabilityInfo[];
 }
+
+export type CapabilitySource = "builtin" | "discovered";
 
 export type OutboundEvent =
 	| ReadyEvent

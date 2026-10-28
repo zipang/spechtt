@@ -4,32 +4,78 @@
 //! (and one headless render smoke test). No assertion depends on element
 //! placement, geometry or labels, so the dialog design stays free to change.
 
+use speechtt_core::protocol::{ModelCapabilityInfo, ProviderCapability, TranscriptionMode};
 use speechtt_core::settings::Settings;
 use speechtt_ui::controller::{Dialog, STORED_KEY_REVEAL_HINT, SessionController, SettingsChange};
 
 const MIXED_CASE_KEY: &str = "vck_AbCdEfGhIjKlMnOpQrStUvWxYzH0123456789";
 
+/// Catalogue the worker would send after a handshake.
+fn catalogue() -> Vec<ProviderCapability> {
+    vec![
+        ProviderCapability {
+            id: "vercel-ai-gateway".to_string(),
+            label: "Vercel AI Gateway".to_string(),
+            available: true,
+            key_env_vars: vec!["AI_GATEWAY_API_KEY".to_string()],
+            models: vec![
+                ModelCapabilityInfo {
+                    id: "openai/gpt-realtime-whisper".to_string(),
+                    label: "gpt-realtime-whisper".to_string(),
+                    mode: TranscriptionMode::Streaming,
+                },
+                ModelCapabilityInfo {
+                    id: "openai/gpt-4o-transcribe".to_string(),
+                    label: "GPT-4o Transcribe".to_string(),
+                    mode: TranscriptionMode::Segmented,
+                },
+            ],
+        },
+        ProviderCapability {
+            id: "mistral".to_string(),
+            label: "Mistral AI".to_string(),
+            available: false,
+            key_env_vars: vec!["MISTRAL_API_KEY".to_string()],
+            models: vec![ModelCapabilityInfo {
+                id: "voxtral-mini-transcribe-3-0".to_string(),
+                label: "Voxtral Mini Transcribe 3.0".to_string(),
+                mode: TranscriptionMode::Segmented,
+            }],
+        },
+    ]
+}
+
+fn install_catalogue(controller: &mut SessionController) {
+    controller.set_capabilities(catalogue());
+}
+
 fn settings_with_mixed_case_key() -> Settings {
     let mut settings = Settings {
-        provider: "vercel".to_string(),
+        provider: "vercel-ai-gateway".to_string(),
         model: "openai/gpt-realtime-whisper".to_string(),
         auto_paste: false,
         ..Settings::default()
     };
-    settings.set_api_key("vercel", MIXED_CASE_KEY);
+    settings.set_api_key("vercel-ai-gateway", MIXED_CASE_KEY);
     settings
 }
 
 fn open_settings_with_stored_key() -> SessionController {
     let mut controller = SessionController::new();
+    install_catalogue(&mut controller);
     controller.apply_settings(settings_with_mixed_case_key());
-    controller.open_settings_with(Some("vercel"), Some("openai/gpt-realtime-whisper"), true);
+    controller.open_settings_with(
+        Some("vercel-ai-gateway"),
+        Some("openai/gpt-realtime-whisper"),
+        true,
+    );
     controller
 }
 
 fn open_valid_settings(controller: &mut SessionController) {
+    install_catalogue(controller);
     controller.open_settings();
-    assert!(controller.set_settings_provider("vercel"));
+    assert!(controller.set_settings_provider("vercel-ai-gateway"));
     assert!(controller.set_settings_model("openai/gpt-realtime-whisper"));
     controller.set_settings_api_key("sk-dialog-test");
 }
@@ -54,7 +100,7 @@ fn settings_saves_a_complete_draft_and_closes() {
     assert_eq!(
         change,
         SettingsChange {
-            provider: "vercel".to_string(),
+            provider: "vercel-ai-gateway".to_string(),
             model: "openai/gpt-realtime-whisper".to_string(),
             api_key: Some("sk-dialog-test".to_string()),
         }
@@ -142,6 +188,7 @@ fn cancel_discards_the_draft() {
 #[test]
 fn opening_a_dialog_does_not_disturb_the_recording_session() {
     let mut controller = SessionController::new();
+    install_catalogue(&mut controller);
     controller.open_form();
     controller.cycle_provider();
     controller.cycle_model();
@@ -173,7 +220,10 @@ fn dialogs_render_and_save_through_the_app(cx: &mut gpui_kit::TestAppContext) {
     let (window, view) = common::open_speechtt_window(cx);
 
     cx.update_window(window.into(), |_, window, cx| {
-        view.update(cx, |app, cx| app.open_help(window, cx));
+        view.update(cx, |app, cx| {
+            app.apply_capabilities(catalogue(), cx);
+            app.open_help(window, cx);
+        });
         window.render_frame(cx);
         assert_eq!(view.read(cx).active_dialog(), Some(Dialog::Help));
 
@@ -199,7 +249,7 @@ fn dialogs_render_and_save_through_the_app(cx: &mut gpui_kit::TestAppContext) {
             .read(cx)
             .pending_settings_change()
             .expect("saved change is staged");
-        assert_eq!(pending.provider, "vercel");
+        assert_eq!(pending.provider, "vercel-ai-gateway");
         assert_eq!(pending.api_key.as_deref(), Some("sk-app-test"));
     })
     .unwrap();

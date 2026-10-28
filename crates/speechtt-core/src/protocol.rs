@@ -69,6 +69,17 @@ pub enum TranscriptionMode {
     Segmented,
 }
 
+/// Where a capability catalogue came from.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CapabilitySource {
+    /// Curated catalogue bundled with the worker (offline fallback).
+    #[default]
+    Builtin,
+    /// Live catalogue discovered from the gateway during this handshake.
+    Discovered,
+}
+
 /// One model offered by a provider in the capability handshake.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -85,6 +96,10 @@ pub struct ProviderCapability {
     pub id: String,
     pub label: String,
     pub available: bool,
+    /// Environment variables the UI names in the API-key row. Absent from
+    /// older workers, hence the default.
+    #[serde(default)]
+    pub key_env_vars: Vec<String>,
     pub models: Vec<ModelCapabilityInfo>,
 }
 
@@ -179,6 +194,9 @@ pub enum SttEvent {
     Capabilities {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         request_id: Option<String>,
+        /// `builtin` (curated fallback) or `discovered` (live gateway).
+        #[serde(default)]
+        source: CapabilitySource,
         providers: Vec<ProviderCapability>,
     },
 }
@@ -425,14 +443,19 @@ mod tests {
     fn capabilities_event(request_id: Option<String>) -> SttEvent {
         SttEvent::Capabilities {
             request_id,
+            source: CapabilitySource::Builtin,
             providers: vec![ProviderCapability {
-                id: "vercel".to_string(),
+                id: "vercel-ai-gateway".to_string(),
                 label: "Vercel AI Gateway".to_string(),
                 available: false,
+                key_env_vars: vec![
+                    "AI_GATEWAY_API_KEY".to_string(),
+                    "VERCEL_AI_GATEWAY_API_KEY".to_string(),
+                ],
                 models: vec![
                     ModelCapabilityInfo {
                         id: "openai/gpt-realtime-whisper".to_string(),
-                        label: "GPT Realtime Whisper".to_string(),
+                        label: "gpt-realtime-whisper".to_string(),
                         mode: TranscriptionMode::Streaming,
                     },
                     ModelCapabilityInfo {
@@ -487,9 +510,10 @@ mod tests {
     fn capabilities_event_round_trips_with_camel_case_keys() {
         let event = capabilities_event(Some("cap-1".to_string()));
         let expected = concat!(
-            r#"{"type":"capabilities","requestId":"cap-1","providers":["#,
-            r#"{"id":"vercel","label":"Vercel AI Gateway","available":false,"models":["#,
-            r#"{"id":"openai/gpt-realtime-whisper","label":"GPT Realtime Whisper","mode":"streaming"},"#,
+            r#"{"type":"capabilities","requestId":"cap-1","source":"builtin","providers":["#,
+            r#"{"id":"vercel-ai-gateway","label":"Vercel AI Gateway","available":false,"#,
+            r#""keyEnvVars":["AI_GATEWAY_API_KEY","VERCEL_AI_GATEWAY_API_KEY"],"models":["#,
+            r#"{"id":"openai/gpt-realtime-whisper","label":"gpt-realtime-whisper","mode":"streaming"},"#,
             r#"{"id":"openai/gpt-4o-transcribe","label":"GPT-4o Transcribe","mode":"segmented"}"#,
             r#"]}]}"#
         );
@@ -505,18 +529,59 @@ mod tests {
     fn capabilities_event_omits_an_absent_request_id() {
         let event = SttEvent::Capabilities {
             request_id: None,
+            source: CapabilitySource::Builtin,
             providers: Vec::new(),
         };
 
         assert_eq!(
             serde_json::to_string(&event).expect("serializes"),
-            r#"{"type":"capabilities","providers":[]}"#
+            r#"{"type":"capabilities","source":"builtin","providers":[]}"#
         );
         assert_eq!(
-            serde_json::from_str::<SttEvent>(r#"{"type":"capabilities","providers":[]}"#)
-                .expect("deserializes"),
+            serde_json::from_str::<SttEvent>(
+                r#"{"type":"capabilities","source":"builtin","providers":[]}"#
+            )
+            .expect("deserializes"),
             event
         );
+    }
+
+    #[test]
+    fn capabilities_event_defaults_missing_source_and_key_env_vars() {
+        // An older worker omits both fields; the UI must still deserialize.
+        let event: SttEvent = serde_json::from_str(
+            r#"{"type":"capabilities","providers":[{"id":"vercel-ai-gateway","label":"Vercel AI Gateway","available":true,"models":[{"id":"m","label":"M","mode":"streaming"}]}]}"#,
+        )
+        .expect("deserializes");
+
+        let SttEvent::Capabilities {
+            source, providers, ..
+        } = event
+        else {
+            panic!("expected capabilities");
+        };
+        assert_eq!(source, CapabilitySource::Builtin);
+        assert_eq!(providers[0].key_env_vars, Vec::<String>::new());
+    }
+
+    #[test]
+    fn capability_source_uses_lowercase_wire_values() {
+        for (source, expected) in [
+            (CapabilitySource::Builtin, r#""builtin""#),
+            (CapabilitySource::Discovered, r#""discovered""#),
+        ] {
+            assert_eq!(
+                serde_json::to_string(&source).expect("serializes"),
+                expected
+            );
+            assert_eq!(
+                serde_json::from_str::<CapabilitySource>(expected).expect("deserializes"),
+                source
+            );
+        }
+
+        assert_eq!(CapabilitySource::default(), CapabilitySource::Builtin);
+        assert!(serde_json::from_str::<CapabilitySource>(r#""remote""#).is_err());
     }
 
     #[test]
@@ -530,7 +595,7 @@ mod tests {
     #[test]
     fn capabilities_event_tolerates_unknown_fields() {
         let event: SttEvent = serde_json::from_str(
-            r#"{"type":"capabilities","requestId":"cap-1","future":true,"providers":[{"id":"x","label":"X","available":true,"models":[{"id":"m","label":"M","mode":"streaming","extra":1}]}]}"#,
+            r#"{"type":"capabilities","requestId":"cap-1","source":"discovered","future":true,"providers":[{"id":"x","label":"X","available":true,"keyEnvVars":["X_KEY"],"models":[{"id":"m","label":"M","mode":"streaming","extra":1}]}]}"#,
         )
         .expect("deserializes");
 
@@ -538,10 +603,12 @@ mod tests {
             event,
             SttEvent::Capabilities {
                 request_id: Some("cap-1".to_string()),
+                source: CapabilitySource::Discovered,
                 providers: vec![ProviderCapability {
                     id: "x".to_string(),
                     label: "X".to_string(),
                     available: true,
+                    key_env_vars: vec!["X_KEY".to_string()],
                     models: vec![ModelCapabilityInfo {
                         id: "m".to_string(),
                         label: "M".to_string(),

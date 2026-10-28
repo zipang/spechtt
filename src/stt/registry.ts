@@ -4,6 +4,9 @@
  * Streaming models use the AI SDK `experimental_streamTranscribe` API (live
  * WebSocket transport). Segmented models use the batch `transcribe` API and
  * need a WAV-framed buffer per request.
+ *
+ * The curated catalogue below is the offline fallback: the worker prefers the
+ * live gateway catalogue discovered at runtime (see `discovery.ts`).
  */
 
 export type TranscriptionMode = "streaming" | "segmented";
@@ -17,18 +20,17 @@ export interface ProviderDefinition {
 	readonly label: string;
 	/** Environment variables checked in order for an API key. */
 	readonly envVars: readonly string[];
-	/** Mode used when the model id is not in `MODEL_CAPABILITIES`. */
-	readonly defaultMode: TranscriptionMode;
 	/** Models offered by this provider, in catalogue order. */
 	readonly models: readonly ModelDefinition[];
 }
 
-/** One selectable model; its mode always comes from `MODEL_CAPABILITIES`. */
+/** One selectable model and how it consumes audio. */
 export interface ModelDefinition {
 	/** Model id accepted by the AI SDK for this provider. */
 	readonly id: string;
 	/** Human-readable name shown in Settings. */
 	readonly label: string;
+	readonly mode: TranscriptionMode;
 }
 
 export interface ModelCapabilityInfo {
@@ -41,6 +43,8 @@ export interface ProviderCapabilityInfo {
 	readonly id: string;
 	readonly label: string;
 	readonly available: boolean;
+	/** Environment variables the UI names in the API-key row. */
+	readonly keyEnvVars: readonly string[];
 	readonly models: readonly ModelCapabilityInfo[];
 }
 
@@ -52,67 +56,110 @@ export interface ListCapabilitiesOptions {
 	readonly apiKeyFor?: (providerId: string) => string | undefined;
 	/** Environment to consult; defaults to `process.env`. */
 	readonly env?: Env;
+	/**
+	 * Live gateway catalogue from discovery. When non-empty it replaces the
+	 * curated gateway models; direct providers keep their curated catalogues.
+	 */
+	readonly gatewayModels?: readonly ModelDefinition[];
 }
+
+/** Canonical id of the Vercel AI Gateway provider. */
+export const GATEWAY_PROVIDER_ID = "vercel-ai-gateway";
+
+/**
+ * Legacy ids accepted from stored settings and older `start` commands.
+ * They always resolve to the canonical provider and are never listed.
+ */
+export const PROVIDER_ALIASES: Readonly<Record<string, string>> = {
+	vercel: GATEWAY_PROVIDER_ID,
+	gateway: GATEWAY_PROVIDER_ID,
+};
 
 /** Models reachable through the Vercel AI Gateway (`provider/model` ids). */
 const GATEWAY_MODELS: readonly ModelDefinition[] = [
-	{ id: "fish-audio/transcribe-1", label: "Transcribe 1" },
-	{ id: "google/gemini-3.5-transcribe", label: "Gemini 3.5 Transcribe" },
+	{ id: "elevenlabs/scribe-v2", label: "Scribe v2", mode: "segmented" },
+	{
+		id: "elevenlabs/scribe-v2-realtime",
+		label: "Scribe v2 Realtime",
+		mode: "streaming",
+	},
+	{ id: "fish-audio/transcribe-1", label: "Transcribe-1", mode: "segmented" },
+	{
+		id: "google/gemini-3.5-transcribe",
+		label: "Gemini 3.5 Transcribe",
+		mode: "segmented",
+	},
 	{
 		id: "google/gemini-3.5-transcribe-live",
 		label: "Gemini 3.5 Transcribe Live",
+		mode: "streaming",
 	},
-	{ id: "microsoft/mai-transcribe-2", label: "MAI-Transcribe 2" },
+	{
+		id: "microsoft/mai-transcribe-2",
+		label: "MAI-Transcribe 2",
+		mode: "segmented",
+	},
 	{
 		id: "microsoft/mai-transcribe-2-streaming",
-		label: "MAI-Transcribe 2 Streaming",
+		label: "MAI-Transcribe-2-Streaming",
+		mode: "streaming",
 	},
 	{
 		id: "mistral/voxtral-mini-transcribe-3",
 		label: "Voxtral Mini Transcribe 3",
+		mode: "segmented",
 	},
 	{
 		id: "mistral/voxtral-small-transcribe-3",
 		label: "Voxtral Small Transcribe 3",
+		mode: "segmented",
 	},
 	{
 		id: "openai/gpt-4o-mini-transcribe",
-		label: "GPT-4o Mini Transcribe",
+		label: "GPT-4o mini Transcribe",
+		mode: "segmented",
 	},
-	{ id: "openai/gpt-4o-transcribe", label: "GPT-4o Transcribe" },
-	{ id: "openai/gpt-realtime-whisper", label: "GPT Realtime Whisper" },
-	{ id: "openai/whisper-1", label: "Whisper 1" },
-	{ id: "spacexai/grok-stt", label: "Grok STT" },
+	{
+		id: "openai/gpt-4o-transcribe",
+		label: "GPT-4o Transcribe",
+		mode: "segmented",
+	},
+	{
+		id: "openai/gpt-live-transcribe",
+		label: "GPT Live Transcribe",
+		mode: "streaming",
+	},
+	{
+		id: "openai/gpt-realtime-whisper",
+		label: "gpt-realtime-whisper",
+		mode: "streaming",
+	},
+	{ id: "openai/gpt-transcribe", label: "GPT Transcribe", mode: "streaming" },
+	{ id: "openai/whisper-1", label: "Whisper", mode: "segmented" },
+	{ id: "spacexai/grok-stt", label: "Grok STT", mode: "streaming" },
 ];
 
 export const PROVIDERS: Readonly<Record<string, ProviderDefinition>> = {
-	vercel: {
-		id: "vercel",
+	[GATEWAY_PROVIDER_ID]: {
+		id: GATEWAY_PROVIDER_ID,
 		label: "Vercel AI Gateway",
 		envVars: ["AI_GATEWAY_API_KEY", "VERCEL_AI_GATEWAY_API_KEY"],
-		defaultMode: "streaming",
-		models: GATEWAY_MODELS,
-	},
-	gateway: {
-		id: "gateway",
-		label: "Vercel AI Gateway (alias)",
-		envVars: ["AI_GATEWAY_API_KEY", "VERCEL_AI_GATEWAY_API_KEY"],
-		defaultMode: "streaming",
 		models: GATEWAY_MODELS,
 	},
 	mistral: {
 		id: "mistral",
 		label: "Mistral AI",
 		envVars: ["MISTRAL_API_KEY"],
-		defaultMode: "segmented",
 		models: [
 			{
 				id: "voxtral-mini-transcribe-3-0",
 				label: "Voxtral Mini Transcribe 3.0",
+				mode: "segmented",
 			},
 			{
 				id: "voxtral-small-transcribe-3-0",
 				label: "Voxtral Small Transcribe 3.0",
+				mode: "segmented",
 			},
 		],
 	},
@@ -120,34 +167,58 @@ export const PROVIDERS: Readonly<Record<string, ProviderDefinition>> = {
 		id: "openai",
 		label: "OpenAI",
 		envVars: ["OPENAI_API_KEY"],
-		defaultMode: "segmented",
 		models: [
-			{ id: "gpt-realtime-whisper", label: "GPT Realtime Whisper" },
-			{ id: "gpt-4o-transcribe", label: "GPT-4o Transcribe" },
-			{ id: "whisper-1", label: "Whisper 1" },
+			{
+				id: "gpt-live-transcribe",
+				label: "GPT Live Transcribe",
+				mode: "streaming",
+			},
+			{
+				id: "gpt-realtime-whisper",
+				label: "GPT Realtime Whisper",
+				mode: "streaming",
+			},
+			{ id: "gpt-transcribe", label: "GPT Transcribe", mode: "streaming" },
+			{
+				id: "gpt-4o-transcribe",
+				label: "GPT-4o Transcribe",
+				mode: "segmented",
+			},
+			{ id: "whisper-1", label: "Whisper 1", mode: "segmented" },
 		],
 	},
 	xai: {
 		id: "xai",
 		label: "xAI",
 		envVars: ["XAI_API_KEY"],
-		defaultMode: "streaming",
-		models: [{ id: "grok-stt", label: "Grok STT" }],
+		models: [{ id: "grok-stt", label: "Grok STT", mode: "streaming" }],
 	},
 	elevenlabs: {
 		id: "elevenlabs",
 		label: "ElevenLabs",
 		envVars: ["ELEVENLABS_API_KEY"],
-		defaultMode: "streaming",
 		models: [
+			{ id: "scribe_v2", label: "Scribe v2", mode: "segmented" },
 			{
-				id: "eleven-scribe-2-realtime",
-				label: "Eleven Scribe 2 Realtime",
+				id: "scribe_v2_realtime",
+				label: "Scribe v2 Realtime",
+				mode: "streaming",
 			},
-			{ id: "scribe_v2_realtime", label: "Scribe v2 Realtime" },
 		],
 	},
 };
+
+/**
+ * Explicit mode per model id, derived from the curated catalogues so the two
+ * can never drift. Unknown ids are treated as batch by
+ * [`resolveModelCapability`].
+ */
+export const MODEL_CAPABILITIES: Readonly<Record<string, TranscriptionMode>> =
+	Object.fromEntries(
+		Object.values(PROVIDERS).flatMap((provider) =>
+			provider.models.map((model) => [model.id, model.mode] as const),
+		),
+	);
 
 export interface ModelCapability {
 	readonly provider: string;
@@ -155,65 +226,17 @@ export interface ModelCapability {
 	readonly mode: TranscriptionMode;
 }
 
-/**
- * Explicit model capabilities. Keys are the model ids accepted by the AI SDK:
- * either a gateway id (`provider/model`) or the provider-local id.
- */
-export const MODEL_CAPABILITIES: Readonly<
-	Record<string, TranscriptionMode>
-> = {
-	// OpenAI
-	"openai/gpt-realtime-whisper": "streaming",
-	"gpt-realtime-whisper": "streaming",
-	"openai/gpt-4o-transcribe": "segmented",
-	"gpt-4o-transcribe": "segmented",
-	"openai/gpt-4o-mini-transcribe": "segmented",
-	"gpt-4o-mini-transcribe": "segmented",
-	"openai/whisper-1": "segmented",
-	"whisper-1": "segmented",
-
-	// xAI
-	"spacexai/grok-stt": "streaming",
-	"xai/grok-stt": "streaming",
-	"grok-stt": "streaming",
-
-	// Google
-	"google/gemini-3.5-transcribe": "segmented",
-	"google/gemini-3.5-transcribe-live": "streaming",
-
-	// Microsoft
-	"microsoft/mai-transcribe-2": "segmented",
-	"microsoft/mai-transcribe-2-streaming": "streaming",
-
-	// Mistral Voxtral (gateway ids)
-	"mistral/voxtral-mini-transcribe-3": "segmented",
-	"mistral/voxtral-small-transcribe-3": "segmented",
-
-	// Fish Audio
-	"fish-audio/transcribe-1": "segmented",
-
-	// ElevenLabs
-	"elevenlabs/eleven-scribe-2-realtime": "streaming",
-	"eleven-scribe-2-realtime": "streaming",
-	"elevenlabs/scribe_v2_realtime": "streaming",
-	"scribe_v2_realtime": "streaming",
-
-	// Mistral Voxtral
-	"mistral/voxtral-mini-transcribe-3-0": "segmented",
-	"voxtral-mini-transcribe-3-0": "segmented",
-	"mistral/voxtral-small-transcribe-3-0": "segmented",
-	"voxtral-small-transcribe-3-0": "segmented",
-};
-
 function currentEnv(): Env {
 	return typeof process === "undefined" ? {} : process.env;
 }
 
+/** Resolves a canonical or legacy provider id to its definition. */
 export function getProvider(
 	providerId: string,
 ): ProviderDefinition | undefined {
-	return Object.hasOwn(PROVIDERS, providerId)
-		? PROVIDERS[providerId]
+	const canonical = PROVIDER_ALIASES[providerId] ?? providerId;
+	return Object.hasOwn(PROVIDERS, canonical)
+		? PROVIDERS[canonical]
 		: undefined;
 }
 
@@ -265,8 +288,11 @@ export function isProviderAvailable(
 }
 
 /**
- * Resolves the transcription mode for a model. Unknown models fall back to the
- * provider default; unknown providers return `undefined`.
+ * Resolves how a model consumes audio.
+ *
+ * Every curated id has an explicit mode; unknown ids fall back to `segmented`
+ * because batch transcription is the broader endpoint, and a wrong batch call
+ * fails cleanly instead of opening a doomed WebSocket.
  */
 export function resolveModelCapability(
 	providerId: string,
@@ -277,14 +303,10 @@ export function resolveModelCapability(
 		return undefined;
 	}
 
-	const explicitMode = Object.hasOwn(MODEL_CAPABILITIES, model)
-		? MODEL_CAPABILITIES[model]
-		: undefined;
-
 	return {
-		provider: providerId,
+		provider: provider.id,
 		model,
-		mode: explicitMode ?? provider.defaultMode,
+		mode: MODEL_CAPABILITIES[model] ?? "segmented",
 	};
 }
 
@@ -316,9 +338,18 @@ function compareByLabel(
 export function listCapabilities(
 	options: ListCapabilitiesOptions = {},
 ): readonly ProviderCapabilityInfo[] {
+	const discovered =
+		options.gatewayModels !== undefined && options.gatewayModels.length > 0
+			? options.gatewayModels
+			: undefined;
+
 	return Object.values(PROVIDERS)
 		.map((provider): ProviderCapabilityInfo => {
 			const explicitKey = options.apiKeyFor?.(provider.id);
+			const usingDiscovered =
+				provider.id === GATEWAY_PROVIDER_ID && discovered !== undefined;
+			const models = usingDiscovered ? discovered : provider.models;
+
 			return {
 				id: provider.id,
 				label: provider.label,
@@ -327,14 +358,15 @@ export function listCapabilities(
 					explicitKey,
 					options.env,
 				),
-				models: provider.models
+				keyEnvVars: provider.envVars,
+				models: models
 					.map(
 						(model): ModelCapabilityInfo => ({
 							id: model.id,
 							label: model.label,
-							mode:
-								resolveModelCapability(provider.id, model.id)
-									?.mode ?? provider.defaultMode,
+							mode: usingDiscovered
+								? model.mode
+								: (MODEL_CAPABILITIES[model.id] ?? "segmented"),
 						}),
 					)
 					.sort(compareByLabel),

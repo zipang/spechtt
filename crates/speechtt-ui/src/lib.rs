@@ -35,7 +35,9 @@ gpui_kit::assets::icon_assets!(
         Play,
         Copy,
         HardDriveDownload,
-        FileText
+        FileText,
+        Zap,
+        Scissors
     ]
 );
 

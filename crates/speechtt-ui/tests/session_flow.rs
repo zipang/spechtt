@@ -12,7 +12,9 @@ use speechtt_ui::controller::{SessionController, ViewState};
 use std::sync::{Arc, Mutex};
 
 use speechtt_core::backend::{BackendError, SttSessionSink};
-use speechtt_core::protocol::{SttCommand, SttEvent};
+use speechtt_core::protocol::{
+    ModelCapabilityInfo, ProviderCapability, SttCommand, SttEvent, TranscriptionMode,
+};
 use speechtt_ui::controller::SAMPLE_RATE;
 
 /// Records every command the controller emits, shared with the test.
@@ -43,9 +45,36 @@ fn duplex_controller() -> (SessionController, RecordingSink) {
     (controller, sink)
 }
 
+/// Catalogue the worker would send after a handshake.
+fn catalogue() -> Vec<ProviderCapability> {
+    vec![ProviderCapability {
+        id: "vercel-ai-gateway".to_string(),
+        label: "Vercel AI Gateway".to_string(),
+        available: true,
+        key_env_vars: vec!["AI_GATEWAY_API_KEY".to_string()],
+        models: vec![
+            ModelCapabilityInfo {
+                id: "openai/gpt-4o-transcribe".to_string(),
+                label: "GPT-4o Transcribe".to_string(),
+                mode: TranscriptionMode::Segmented,
+            },
+            ModelCapabilityInfo {
+                id: "openai/gpt-realtime-whisper".to_string(),
+                label: "gpt-realtime-whisper".to_string(),
+                mode: TranscriptionMode::Streaming,
+            },
+        ],
+    }]
+}
+
+fn install_catalogue(controller: &mut SessionController) {
+    controller.set_capabilities(catalogue());
+}
+
 /// A controller whose draft is complete except for `create_session`.
 fn complete_draft(output: OutputTarget) -> SessionController {
     let mut controller = SessionController::new();
+    install_catalogue(&mut controller);
     controller.open_form();
     controller.cycle_provider();
     controller.cycle_model();
@@ -74,6 +103,7 @@ fn blank_state_shows_the_new_session_prompt() {
 #[test]
 fn opening_the_form_switches_the_view_and_starts_an_empty_draft() {
     let mut controller = SessionController::new();
+    install_catalogue(&mut controller);
     controller.open_form();
 
     assert_eq!(controller.view_state(), ViewState::Form);
@@ -84,6 +114,7 @@ fn opening_the_form_switches_the_view_and_starts_an_empty_draft() {
 #[test]
 fn cancelling_the_form_returns_to_the_prompt_and_discards_the_draft() {
     let mut controller = SessionController::new();
+    install_catalogue(&mut controller);
     controller.open_form();
     controller.cycle_provider();
     controller.set_draft_name("discarded");
@@ -99,6 +130,7 @@ fn cancelling_the_form_returns_to_the_prompt_and_discards_the_draft() {
 #[test]
 fn create_is_inert_until_every_required_field_is_set() {
     let mut controller = SessionController::new();
+    install_catalogue(&mut controller);
     controller.open_form();
 
     // Nothing chosen yet.
@@ -138,6 +170,7 @@ fn completing_the_form_moves_the_machine_to_ready() {
 #[test]
 fn changing_the_provider_resets_the_dependent_model_choice() {
     let mut controller = SessionController::new();
+    install_catalogue(&mut controller);
     controller.open_form();
     controller.cycle_provider();
     controller.cycle_model();
@@ -215,6 +248,7 @@ fn a_file_take_records_the_default_path_for_its_name() {
 #[test]
 fn completeness_can_be_checked_against_the_live_input_name() {
     let mut controller = SessionController::new();
+    install_catalogue(&mut controller);
     controller.open_form();
     controller.cycle_provider();
     controller.cycle_model();
@@ -298,8 +332,8 @@ fn transport_commands_are_emitted_in_order_and_paused_audio_is_dropped() {
             api_key,
         } => {
             assert_eq!(session_id, "take-1");
-            assert_eq!(provider, "vercel");
-            assert_eq!(model, "fish-audio/transcribe-1");
+            assert_eq!(provider, "vercel-ai-gateway");
+            assert_eq!(model, "openai/gpt-4o-transcribe");
             assert_eq!(*sample_rate, SAMPLE_RATE);
             assert!(api_key.is_none());
         }

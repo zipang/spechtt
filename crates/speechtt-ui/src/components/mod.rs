@@ -18,6 +18,7 @@ mod icon_button;
 mod key_cap;
 mod setting_row;
 mod status_badge;
+mod transcription_mode_badge;
 mod transport_button;
 mod waveform;
 
@@ -31,5 +32,6 @@ pub use icon_button::IconButton;
 pub use key_cap::KeyCap;
 pub use setting_row::SettingRow;
 pub use status_badge::{BadgeTone, StatusBadge};
+pub use transcription_mode_badge::{TranscriptionModeBadge, mode_label};
 pub use transport_button::{IconAction, TransportButton, TransportTone};
 pub use waveform::Waveform;

@@ -24,7 +24,24 @@ use serde::{Deserialize, Serialize};
 use crate::protocol::SecretString;
 
 /// Provider used until the user picks one.
-pub const DEFAULT_PROVIDER: &str = "vercel";
+pub const DEFAULT_PROVIDER: &str = "vercel-ai-gateway";
+
+/// Legacy provider ids accepted from older settings files, mapped to the
+/// canonical id. Keep in sync with `PROVIDER_ALIASES` in
+/// `src/stt/registry.ts`.
+pub const PROVIDER_ALIASES: [(&str, &str); 2] = [
+    ("vercel", "vercel-ai-gateway"),
+    ("gateway", "vercel-ai-gateway"),
+];
+
+/// Resolves a legacy provider id to its canonical form.
+#[must_use]
+fn canonical_provider_id(provider: &str) -> &str {
+    PROVIDER_ALIASES
+        .iter()
+        .find(|(alias, _)| *alias == provider)
+        .map_or(provider, |(_, canonical)| *canonical)
+}
 
 /// Directory name under the config root.
 const APP_DIR: &str = "speechtt";
@@ -78,11 +95,27 @@ impl fmt::Debug for Settings {
 }
 
 impl Settings {
+    /// Rewrites legacy provider ids to their canonical form.
+    ///
+    /// Idempotent. A key stored under an alias is moved to the canonical id
+    /// without re-encoding the secret; when both exist the canonical entry wins
+    /// so a migrated file never loses the key the app was using.
+    pub fn normalize_provider_ids(&mut self) {
+        self.provider = canonical_provider_id(&self.provider).to_owned();
+        for (alias, canonical) in PROVIDER_ALIASES {
+            if let Some(secret) = self.api_keys.remove(alias) {
+                self.api_keys.entry(canonical.to_owned()).or_insert(secret);
+            }
+        }
+    }
+
     /// The stored key for `provider`, or `None` when absent or empty.
+    ///
+    /// Legacy provider ids resolve to the canonical id.
     #[must_use]
     pub fn api_key(&self, provider: &str) -> Option<&str> {
         self.api_keys
-            .get(provider)
+            .get(canonical_provider_id(provider))
             .map(SecretString::expose_secret)
             .filter(|key| !key.is_empty())
     }
@@ -95,13 +128,14 @@ impl Settings {
         if key.expose_secret().is_empty() {
             self.remove_api_key(provider);
         } else {
-            self.api_keys.insert(provider.to_owned(), key);
+            self.api_keys
+                .insert(canonical_provider_id(provider).to_owned(), key);
         }
     }
 
     /// Removes any stored key for `provider`.
     pub fn remove_api_key(&mut self, provider: &str) {
-        self.api_keys.remove(provider);
+        self.api_keys.remove(canonical_provider_id(provider));
     }
 
     /// A display mask for the stored key: `"sk-…78"` for keys of at least
@@ -215,10 +249,15 @@ impl JsonFileStore {
 impl SettingsStore for JsonFileStore {
     fn load(&self) -> Result<Settings, SettingsError> {
         match fs::read(&self.path) {
-            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|source| SettingsError::Corrupt {
-                path: self.path.clone(),
-                source,
-            }),
+            Ok(bytes) => {
+                let mut settings: Settings =
+                    serde_json::from_slice(&bytes).map_err(|source| SettingsError::Corrupt {
+                        path: self.path.clone(),
+                        source,
+                    })?;
+                settings.normalize_provider_ids();
+                Ok(settings)
+            }
             Err(source) if source.kind() == io::ErrorKind::NotFound => Ok(Settings::default()),
             Err(source) => Err(SettingsError::Io {
                 path: self.path.clone(),
@@ -228,7 +267,10 @@ impl SettingsStore for JsonFileStore {
     }
 
     fn save(&self, settings: &Settings) -> Result<(), SettingsError> {
-        let mut contents = serde_json::to_vec_pretty(settings).map_err(SettingsError::Encode)?;
+        // Persist canonical ids only, so a migrated file never regress.
+        let mut settings = settings.clone();
+        settings.normalize_provider_ids();
+        let mut contents = serde_json::to_vec_pretty(&settings).map_err(SettingsError::Encode)?;
         contents.push(b'\n');
 
         write_atomic(&self.path, &contents)
@@ -375,10 +417,10 @@ mod tests {
 
     fn sample_settings() -> Settings {
         Settings {
-            provider: "vercel".to_owned(),
+            provider: DEFAULT_PROVIDER.to_owned(),
             model: "mistral/voxtral-mini-transcribe-3".to_owned(),
             api_keys: BTreeMap::from([(
-                "vercel".to_owned(),
+                DEFAULT_PROVIDER.to_owned(),
                 SecretString::new("sk-live-secret-123456"),
             )]),
             shortcuts: BTreeMap::from([("startRecording".to_owned(), "Ctrl+Shift+R".to_owned())]),
@@ -392,7 +434,8 @@ mod tests {
     fn default_settings_are_usable_but_need_a_model() {
         let settings = Settings::default();
 
-        assert_eq!(settings.provider, "vercel");
+        assert_eq!(settings.provider, DEFAULT_PROVIDER);
+        assert_eq!(settings.provider, "vercel-ai-gateway");
         assert!(settings.model.is_empty());
         assert!(settings.api_keys.is_empty());
         assert!(settings.shortcuts.is_empty());
@@ -700,7 +743,7 @@ mod tests {
         let json = fs::read_to_string(store.path()).expect("read saved settings");
 
         assert!(json.ends_with("}\n"));
-        assert!(json.contains("\n  \"provider\": \"vercel\""));
+        assert!(json.contains("\n  \"provider\": \"vercel-ai-gateway\""));
         let provider = json.find("\"provider\"").expect("provider field");
         let model = json.find("\"model\"").expect("model field");
         let api_keys = json.find("\"api_keys\"").expect("api_keys field");
@@ -745,5 +788,120 @@ mod tests {
         let path = resolve_default_path(None, None, PathBuf::from("/tmp"));
 
         assert_eq!(path, PathBuf::from("/tmp/speechtt/settings.json"));
+    }
+
+    // T11.6 — provider id migration --------------------------------------
+
+    #[test]
+    fn legacy_provider_ids_are_migrated_on_load() {
+        let dir = TempDir::new("legacy-provider");
+        let store = JsonFileStore::new(dir.join("settings.json"));
+        let key = "vck_AbCdEfGhIjKlMnOpQrStUvWxYzH0123456789";
+        fs::write(
+            store.path(),
+            format!(
+                r#"{{"provider":"vercel","model":"openai/gpt-4o-transcribe","api_keys":{{"vercel":"{key}"}}}}"#,
+            ),
+        )
+        .expect("write legacy settings");
+
+        let loaded = store.load().expect("load legacy settings");
+
+        assert_eq!(loaded.provider, "vercel-ai-gateway");
+        assert_eq!(loaded.api_key("vercel-ai-gateway"), Some(key));
+        assert_eq!(loaded.api_key("vercel"), Some(key));
+        assert!(
+            loaded
+                .api_key("vercel-ai-gateway")
+                .is_some_and(|stored| stored.as_bytes() == key.as_bytes()),
+            "the migrated key must be byte-identical"
+        );
+        assert_eq!(loaded.api_keys.len(), 1);
+        assert!(!loaded.api_keys.contains_key("vercel"));
+    }
+
+    #[test]
+    fn the_gateway_alias_is_migrated_too() {
+        let mut settings = Settings {
+            provider: "gateway".to_owned(),
+            model: "openai/gpt-4o-transcribe".to_owned(),
+            ..Settings::default()
+        };
+        settings
+            .api_keys
+            .insert("gateway".to_owned(), SecretString::new("sk-gateway-secret"));
+
+        settings.normalize_provider_ids();
+
+        assert_eq!(settings.provider, "vercel-ai-gateway");
+        assert_eq!(
+            settings.api_key("vercel-ai-gateway"),
+            Some("sk-gateway-secret")
+        );
+        assert_eq!(settings.api_keys.len(), 1);
+    }
+
+    #[test]
+    fn the_canonical_key_wins_when_both_entries_exist() {
+        let mut settings = Settings {
+            provider: "vercel".to_owned(),
+            ..Settings::default()
+        };
+        settings
+            .api_keys
+            .insert("vercel".to_owned(), SecretString::new("sk-legacy"));
+        settings
+            .api_keys
+            .insert(DEFAULT_PROVIDER.to_owned(), SecretString::new("sk-current"));
+
+        settings.normalize_provider_ids();
+
+        assert_eq!(settings.api_key("vercel-ai-gateway"), Some("sk-current"));
+        assert_eq!(settings.api_keys.len(), 1);
+    }
+
+    #[test]
+    fn normalization_is_idempotent_and_leaves_other_keys_alone() {
+        let mut settings = Settings {
+            provider: "vercel".to_owned(),
+            ..Settings::default()
+        };
+        settings
+            .api_keys
+            .insert("vercel".to_owned(), SecretString::new("sk-legacy"));
+        settings
+            .api_keys
+            .insert("mistral".to_owned(), SecretString::new("msk-other"));
+
+        settings.normalize_provider_ids();
+        let once = settings.clone();
+        settings.normalize_provider_ids();
+
+        assert_eq!(settings, once);
+        assert_eq!(settings.api_key("mistral"), Some("msk-other"));
+        assert_eq!(settings.model, once.model);
+    }
+
+    #[test]
+    fn saving_a_legacy_settings_value_writes_the_canonical_id() {
+        let dir = TempDir::new("migrate-on-save");
+        let store = JsonFileStore::new(dir.join("settings.json"));
+        let key = "vck_MiXeDcAsE0123456789";
+        let mut settings = Settings {
+            provider: "vercel".to_owned(),
+            model: "openai/gpt-4o-transcribe".to_owned(),
+            ..Settings::default()
+        };
+        settings
+            .api_keys
+            .insert("vercel".to_owned(), SecretString::new(key));
+
+        store.save(&settings).expect("save legacy settings");
+
+        let json = fs::read_to_string(store.path()).expect("read saved settings");
+        assert!(json.contains("\"provider\": \"vercel-ai-gateway\""));
+        assert!(json.contains(&format!("\"vercel-ai-gateway\": \"{key}\"")));
+        assert!(!json.contains("\"vercel\":"));
+        assert_eq!(store.load().expect("reload").api_key("vercel"), Some(key));
     }
 }

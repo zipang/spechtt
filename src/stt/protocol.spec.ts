@@ -204,15 +204,17 @@ describe("serializeOutboundEvent", () => {
 			{
 				type: "capabilities",
 				requestId: "cap-1",
+				source: "builtin",
 				providers: [
 					{
-						id: "vercel",
+						id: "vercel-ai-gateway",
 						label: "Vercel AI Gateway",
 						available: false,
+						keyEnvVars: ["AI_GATEWAY_API_KEY", "VERCEL_AI_GATEWAY_API_KEY"],
 						models: [
 							{
 								id: "openai/gpt-realtime-whisper",
-								label: "GPT Realtime Whisper",
+								label: "gpt-realtime-whisper",
 								mode: "streaming",
 							},
 						],
@@ -221,6 +223,7 @@ describe("serializeOutboundEvent", () => {
 			},
 			{
 				type: "capabilities",
+				source: "discovered",
 				providers: [],
 			},
 		];
@@ -352,15 +355,17 @@ describe("capabilities serialization", () => {
 		const event: OutboundEvent = {
 			type: "capabilities",
 			requestId: "cap-1",
+			source: "builtin",
 			providers: [
 				{
-					id: "vercel",
+					id: "vercel-ai-gateway",
 					label: "Vercel AI Gateway",
 					available: true,
+					keyEnvVars: ["AI_GATEWAY_API_KEY", "VERCEL_AI_GATEWAY_API_KEY"],
 					models: [
 						{
 							id: "openai/gpt-realtime-whisper",
-							label: "GPT Realtime Whisper",
+							label: "gpt-realtime-whisper",
 							mode: "streaming",
 						},
 						{
@@ -379,15 +384,17 @@ describe("capabilities serialization", () => {
 			`${JSON.stringify({
 				type: "capabilities",
 				requestId: "cap-1",
+				source: "builtin",
 				providers: [
 					{
-						id: "vercel",
+						id: "vercel-ai-gateway",
 						label: "Vercel AI Gateway",
 						available: true,
+						keyEnvVars: ["AI_GATEWAY_API_KEY", "VERCEL_AI_GATEWAY_API_KEY"],
 						models: [
 							{
 								id: "openai/gpt-realtime-whisper",
-								label: "GPT Realtime Whisper",
+								label: "gpt-realtime-whisper",
 								mode: "streaming",
 							},
 							{
@@ -402,12 +409,37 @@ describe("capabilities serialization", () => {
 		);
 		expect(line.endsWith("\n")).toBe(true);
 		expect(line.split("\n").filter(Boolean)).toHaveLength(1);
+		expect(line).toContain('"keyEnvVars"');
+		expect(line).toContain('"source":"builtin"');
+	});
+
+	test("serializes lowercase capability sources", () => {
+		for (const source of ["builtin", "discovered"] as const) {
+			const line = serializeOutboundEvent({
+				type: "capabilities",
+				source,
+				providers: [],
+			});
+
+			expect(JSON.parse(line)).toEqual({
+				type: "capabilities",
+				source,
+				providers: [],
+			});
+			expect(line).toContain(`"source":"${source}"`);
+		}
 	});
 
 	test("omits requestId when the request had none", () => {
-		const line = serializeOutboundEvent({ type: "capabilities", providers: [] });
+		const line = serializeOutboundEvent({
+			type: "capabilities",
+			source: "builtin",
+			providers: [],
+		});
 
-		expect(line).toBe('{"type":"capabilities","providers":[]}\n');
+		expect(line).toBe(
+			'{"type":"capabilities","source":"builtin","providers":[]}\n',
+		);
 	});
 });
 

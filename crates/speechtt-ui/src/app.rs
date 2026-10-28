@@ -383,6 +383,23 @@ impl SpeechTtApp {
         self.pending_settings.as_ref()
     }
 
+    /// Install a provider catalogue from a capability handshake.
+    ///
+    /// The worker's event loop normally reaches this through
+    /// `SessionController::handle_stt_event`; the headless window fixture calls
+    /// it directly so Settings can be exercised without a live Bun worker.
+    pub fn apply_capabilities(
+        &mut self,
+        providers: Vec<speechtt_core::protocol::ProviderCapability>,
+        cx: &mut Context<Self>,
+    ) {
+        self.controller.apply_capabilities(
+            providers,
+            speechtt_core::protocol::CapabilitySource::Builtin,
+        );
+        cx.notify();
+    }
+
     /// Whether a dialog currently has its own window open.
     pub fn has_dialog_window(&self) -> bool {
         self.dialog_window.is_some()

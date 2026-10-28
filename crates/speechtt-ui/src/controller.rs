@@ -24,7 +24,9 @@ use speechtt_core::output::OutputError;
 use speechtt_core::output::clipboard::{ClipboardSink, CopySummary, copy_transcript};
 use speechtt_core::output::file::{FileOpener, SavedFile, TranscriptFormat, save_transcript_at};
 use speechtt_core::output::paste::PasteSink;
-use speechtt_core::protocol::{ProviderCapability, SecretString, SttCommand, SttEvent};
+use speechtt_core::protocol::{
+    CapabilitySource, ProviderCapability, SecretString, SttCommand, SttEvent, TranscriptionMode,
+};
 use speechtt_core::session::{
     FinishedSession, OutputTarget, SessionError, SessionField, SessionMachine, SessionState,
 };
@@ -298,152 +300,6 @@ pub enum Dialog {
     Settings,
 }
 
-/// One selectable model in the UI-owned provider catalogue.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ModelOption {
-    pub id: &'static str,
-    pub label: &'static str,
-}
-
-/// One selectable provider in the UI-owned catalogue.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ProviderOption {
-    pub id: &'static str,
-    pub label: &'static str,
-    /// Environment variable the Bun worker reads, shown in the API key row.
-    pub api_key_env: &'static str,
-    pub models: &'static [ModelOption],
-}
-
-/// Temporary catalogue until the Bun capabilities handshake (T0008/T0009)
-/// supplies the real provider/model list.
-pub fn provider_options() -> &'static [ProviderOption] {
-    &[
-        ProviderOption {
-            id: "vercel",
-            label: "Vercel AI Gateway",
-            api_key_env: "AI_GATEWAY_API_KEY",
-            models: &[
-                ModelOption {
-                    id: "fish-audio/transcribe-1",
-                    label: "transcribe-1",
-                },
-                ModelOption {
-                    id: "google/gemini-3.5-transcribe",
-                    label: "gemini-3.5-transcribe",
-                },
-                ModelOption {
-                    id: "google/gemini-3.5-transcribe-live",
-                    label: "gemini-3.5-transcribe-live",
-                },
-                ModelOption {
-                    id: "microsoft/mai-transcribe-2",
-                    label: "mai-transcribe-2",
-                },
-                ModelOption {
-                    id: "microsoft/mai-transcribe-2-streaming",
-                    label: "mai-transcribe-2-streaming",
-                },
-                ModelOption {
-                    id: "mistral/voxtral-mini-transcribe-3",
-                    label: "voxtral-mini-transcribe-3",
-                },
-                ModelOption {
-                    id: "mistral/voxtral-small-transcribe-3",
-                    label: "voxtral-small-transcribe-3",
-                },
-                ModelOption {
-                    id: "openai/gpt-4o-mini-transcribe",
-                    label: "gpt-4o-mini-transcribe",
-                },
-                ModelOption {
-                    id: "openai/gpt-4o-transcribe",
-                    label: "gpt-4o-transcribe",
-                },
-                ModelOption {
-                    id: "openai/gpt-realtime-whisper",
-                    label: "gpt-realtime-whisper",
-                },
-                ModelOption {
-                    id: "openai/whisper-1",
-                    label: "whisper-1",
-                },
-                ModelOption {
-                    id: "spacexai/grok-stt",
-                    label: "grok-stt",
-                },
-            ],
-        },
-        ProviderOption {
-            id: "mistral",
-            label: "Mistral AI",
-            api_key_env: "MISTRAL_API_KEY",
-            models: &[
-                ModelOption {
-                    id: "voxtral-mini-transcribe-3-0",
-                    label: "voxtral-mini-transcribe-3-0",
-                },
-                ModelOption {
-                    id: "voxtral-small-transcribe-3-0",
-                    label: "voxtral-small-transcribe-3-0",
-                },
-            ],
-        },
-        ProviderOption {
-            id: "openai",
-            label: "OpenAI",
-            api_key_env: "OPENAI_API_KEY",
-            models: &[
-                ModelOption {
-                    id: "gpt-realtime-whisper",
-                    label: "gpt-realtime-whisper",
-                },
-                ModelOption {
-                    id: "gpt-4o-transcribe",
-                    label: "gpt-4o-transcribe",
-                },
-                ModelOption {
-                    id: "whisper-1",
-                    label: "whisper-1",
-                },
-            ],
-        },
-        ProviderOption {
-            id: "xai",
-            label: "xAI",
-            api_key_env: "XAI_API_KEY",
-            models: &[ModelOption {
-                id: "grok-stt",
-                label: "grok-stt",
-            }],
-        },
-        ProviderOption {
-            id: "elevenlabs",
-            label: "ElevenLabs",
-            api_key_env: "ELEVENLABS_API_KEY",
-            models: &[ModelOption {
-                id: "eleven-scribe-2-realtime",
-                label: "eleven-scribe-2-realtime",
-            }],
-        },
-    ]
-}
-
-/// Resolve a provider id to its catalogue entry.
-#[must_use]
-pub fn provider_option(id: &str) -> Option<&'static ProviderOption> {
-    provider_options().iter().find(|option| option.id == id)
-}
-
-/// Resolve a model id inside a provider's catalogue.
-#[must_use]
-pub fn model_option(provider: &str, model: &str) -> Option<&'static ModelOption> {
-    provider_option(provider)?
-        .models
-        .iter()
-        .find(|option| option.id == model)
-}
-
 /// Hint shown under the API key row when a stored key cannot be revealed.
 pub const STORED_KEY_REVEAL_HINT: &str =
     "Stored keys are never displayed; paste a new key to replace it.";
@@ -576,6 +432,8 @@ pub struct SessionController {
     settings: Option<Settings>,
     /// Latest provider catalogue from the Bun capability handshake.
     capabilities: Option<Vec<ProviderCapability>>,
+    /// Where that catalogue came from (`builtin` fallback or live discovery).
+    capability_source: Option<CapabilitySource>,
     /// The last `Start` command, kept so Retry can reuse the session id.
     last_start: Option<SttCommand>,
     sink: Option<Box<dyn SttSessionSink>>,
@@ -645,6 +503,7 @@ impl SessionController {
             settings_draft: SettingsDraft::default(),
             settings: None,
             capabilities: None,
+            capability_source: None,
             last_start: None,
             sink: None,
             events: None,
@@ -806,13 +665,12 @@ impl SessionController {
         self.draft.output.as_ref()
     }
 
-    /// Catalogue label for a provider id (capabilities first, static fallback).
+    /// Catalogue label for a provider id.
     fn provider_label_for(&self, provider: &str) -> Option<&str> {
         self.capabilities
             .as_ref()
             .and_then(|providers| providers.iter().find(|option| option.id == provider))
             .map(|option| option.label.as_str())
-            .or_else(|| provider_option(provider).map(|option| option.label))
     }
 
     /// Catalogue label for a model id inside a provider.
@@ -822,61 +680,49 @@ impl SessionController {
             .and_then(|providers| providers.iter().find(|option| option.id == provider))
             .and_then(|option| option.models.iter().find(|option| option.id == model))
             .map(|option| option.label.as_str())
-            .or_else(|| model_option(provider, model).map(|option| option.label))
     }
 
     fn provider_exists(&self, provider: &str) -> bool {
-        self.capabilities.as_ref().map_or_else(
-            || provider_option(provider).is_some(),
-            |providers| providers.iter().any(|option| option.id == provider),
-        )
+        self.capabilities
+            .as_ref()
+            .is_some_and(|providers| providers.iter().any(|option| option.id == provider))
     }
 
     fn model_exists(&self, provider: &str, model: &str) -> bool {
-        self.capabilities.as_ref().map_or_else(
-            || model_option(provider, model).is_some(),
-            |providers| {
-                providers
-                    .iter()
-                    .find(|option| option.id == provider)
-                    .is_some_and(|option| option.models.iter().any(|option| option.id == model))
-            },
-        )
+        self.capabilities.as_ref().is_some_and(|providers| {
+            providers
+                .iter()
+                .find(|option| option.id == provider)
+                .is_some_and(|option| option.models.iter().any(|option| option.id == model))
+        })
+    }
+
+    /// Mode of a model in the latest catalogue.
+    fn model_mode(&self, provider: &str, model: &str) -> Option<TranscriptionMode> {
+        self.capabilities
+            .as_ref()?
+            .iter()
+            .find(|option| option.id == provider)?
+            .models
+            .iter()
+            .find(|option| option.id == model)
+            .map(|option| option.mode)
     }
 
     fn provider_ids(&self) -> Vec<String> {
-        self.capabilities.as_ref().map_or_else(
-            || {
-                provider_options()
-                    .iter()
-                    .map(|option| option.id.to_string())
-                    .collect()
-            },
-            |providers| providers.iter().map(|option| option.id.clone()).collect(),
-        )
+        self.capabilities
+            .as_ref()
+            .map_or_else(Vec::new, |providers| {
+                providers.iter().map(|option| option.id.clone()).collect()
+            })
     }
 
     fn model_ids(&self, provider: &str) -> Vec<String> {
-        self.capabilities.as_ref().map_or_else(
-            || {
-                provider_option(provider)
-                    .map(|option| {
-                        option
-                            .models
-                            .iter()
-                            .map(|model| model.id.to_string())
-                            .collect()
-                    })
-                    .unwrap_or_default()
-            },
-            |providers| {
-                providers
-                    .iter()
-                    .find(|option| option.id == provider)
-                    .map(|option| option.models.iter().map(|model| model.id.clone()).collect())
-                    .unwrap_or_default()
-            },
-        )
+        self.capabilities
+            .as_ref()
+            .and_then(|providers| providers.iter().find(|option| option.id == provider))
+            .map(|option| option.models.iter().map(|model| model.id.clone()).collect())
+            .unwrap_or_default()
     }
 
     // ----- Dialogs -----------------------------------------------------
@@ -909,10 +755,67 @@ impl SessionController {
     }
 
     /// Environment variable the worker reads for the selected provider.
+    ///
+    /// Comes from the capability handshake so the UI never maintains its own
+    /// provider catalogue.
     #[must_use]
-    pub fn settings_api_key_env(&self) -> Option<&'static str> {
+    pub fn settings_api_key_env(&self) -> Option<&str> {
         let provider = self.settings_draft.provider.as_deref()?;
-        provider_option(provider).map(|option| option.api_key_env)
+        self.capabilities
+            .as_ref()?
+            .iter()
+            .find(|option| option.id == provider)?
+            .key_env_vars
+            .first()
+            .map(String::as_str)
+    }
+
+    /// Mode of the model chosen for the next take (New Session form).
+    #[must_use]
+    pub fn draft_model_mode(&self) -> Option<TranscriptionMode> {
+        self.model_mode(
+            self.draft.provider.as_deref()?,
+            self.draft.model.as_deref()?,
+        )
+    }
+
+    /// Mode of the model selected in the Settings dialog.
+    #[must_use]
+    pub fn settings_model_mode(&self) -> Option<TranscriptionMode> {
+        self.model_mode(
+            self.settings_draft.provider.as_deref()?,
+            self.settings_draft.model.as_deref()?,
+        )
+    }
+
+    /// Mode of the model used by the active take.
+    ///
+    /// `None` before a take starts and when the catalogue does not know the
+    /// model (an older worker, or a catalogue that has not arrived yet).
+    #[must_use]
+    pub fn session_model_mode(&self) -> Option<TranscriptionMode> {
+        if !self.machine.state().is_active() {
+            return None;
+        }
+        let SttCommand::Start {
+            provider, model, ..
+        } = self.last_start.as_ref()?
+        else {
+            return None;
+        };
+        self.model_mode(provider, model)
+    }
+
+    /// Where the current catalogue came from.
+    #[must_use]
+    pub fn catalogue_source(&self) -> Option<CapabilitySource> {
+        self.capability_source
+    }
+
+    /// Whether a catalogue has arrived at least once.
+    #[must_use]
+    pub fn catalogue_loaded(&self) -> bool {
+        self.capabilities.is_some()
     }
 
     /// The stored key mask for the provider selected in the dialog.
@@ -1016,7 +919,24 @@ impl SessionController {
 
     /// Replace the provider catalogue from a `capabilities` event.
     pub fn set_capabilities(&mut self, providers: Vec<ProviderCapability>) {
+        self.apply_capabilities(providers, CapabilitySource::Builtin);
+    }
+
+    /// Replace the provider catalogue and record where it came from.
+    ///
+    /// The handshake answers twice (builtin, then discovered); the later event
+    /// simply replaces the earlier one. A first catalogue also seeds the new
+    /// session form from the stored settings.
+    pub fn apply_capabilities(
+        &mut self,
+        providers: Vec<ProviderCapability>,
+        source: CapabilitySource,
+    ) {
         self.capabilities = Some(providers);
+        self.capability_source = Some(source);
+        if self.screen == Screen::Form {
+            self.seed_draft_from_settings();
+        }
     }
 
     /// Ask the worker for the current provider/model catalogue.
@@ -1085,8 +1005,11 @@ impl SessionController {
             return;
         }
 
-        if let SttEvent::Capabilities { providers, .. } = &event {
-            self.set_capabilities(providers.clone());
+        if let SttEvent::Capabilities {
+            providers, source, ..
+        } = &event
+        {
+            self.apply_capabilities(providers.clone(), *source);
             return;
         }
 
@@ -1287,6 +1210,10 @@ impl SessionController {
     /// model, but only when both exist in the current catalogue. A fresh
     /// controller (no settings, or no model configured) starts empty.
     fn seed_draft_from_settings(&mut self) {
+        // Never overwrite a choice the user already made in this draft.
+        if self.draft.provider.is_some() {
+            return;
+        }
         let Some(settings) = self.settings.clone() else {
             return;
         };
@@ -1819,9 +1746,121 @@ fn idle_waveform() -> Arc<[f32]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use speechtt_core::protocol::ModelCapabilityInfo;
+
+    /// Minimal catalogue mirroring the worker handshake, sorted by label like
+    /// `listCapabilities`.
+    fn test_capabilities() -> Vec<ProviderCapability> {
+        let provider =
+            |id: &str, label: &str, key: &str, models: Vec<(&str, &str, TranscriptionMode)>| {
+                ProviderCapability {
+                    id: id.to_string(),
+                    label: label.to_string(),
+                    available: false,
+                    key_env_vars: vec![key.to_string()],
+                    models: models
+                        .into_iter()
+                        .map(|(id, label, mode)| ModelCapabilityInfo {
+                            id: id.to_string(),
+                            label: label.to_string(),
+                            mode,
+                        })
+                        .collect(),
+                }
+            };
+
+        vec![
+            provider(
+                "elevenlabs",
+                "ElevenLabs",
+                "ELEVENLABS_API_KEY",
+                vec![
+                    ("scribe_v2", "Scribe v2", TranscriptionMode::Segmented),
+                    (
+                        "scribe_v2_realtime",
+                        "Scribe v2 Realtime",
+                        TranscriptionMode::Streaming,
+                    ),
+                ],
+            ),
+            provider(
+                "mistral",
+                "Mistral AI",
+                "MISTRAL_API_KEY",
+                vec![
+                    (
+                        "voxtral-mini-transcribe-3-0",
+                        "Voxtral Mini Transcribe 3.0",
+                        TranscriptionMode::Segmented,
+                    ),
+                    (
+                        "voxtral-small-transcribe-3-0",
+                        "Voxtral Small Transcribe 3.0",
+                        TranscriptionMode::Segmented,
+                    ),
+                ],
+            ),
+            provider(
+                "openai",
+                "OpenAI",
+                "OPENAI_API_KEY",
+                vec![
+                    (
+                        "gpt-realtime-whisper",
+                        "GPT Realtime Whisper",
+                        TranscriptionMode::Streaming,
+                    ),
+                    (
+                        "gpt-4o-transcribe",
+                        "GPT-4o Transcribe",
+                        TranscriptionMode::Segmented,
+                    ),
+                    ("whisper-1", "Whisper 1", TranscriptionMode::Segmented),
+                ],
+            ),
+            ProviderCapability {
+                id: "vercel-ai-gateway".to_string(),
+                label: "Vercel AI Gateway".to_string(),
+                available: false,
+                key_env_vars: vec![
+                    "AI_GATEWAY_API_KEY".to_string(),
+                    "VERCEL_AI_GATEWAY_API_KEY".to_string(),
+                ],
+                models: vec![
+                    ModelCapabilityInfo {
+                        id: "fish-audio/transcribe-1".to_string(),
+                        label: "Transcribe-1".to_string(),
+                        mode: TranscriptionMode::Segmented,
+                    },
+                    ModelCapabilityInfo {
+                        id: "openai/gpt-4o-transcribe".to_string(),
+                        label: "GPT-4o Transcribe".to_string(),
+                        mode: TranscriptionMode::Segmented,
+                    },
+                    ModelCapabilityInfo {
+                        id: "openai/gpt-realtime-whisper".to_string(),
+                        label: "GPT Realtime Whisper".to_string(),
+                        mode: TranscriptionMode::Streaming,
+                    },
+                ],
+            },
+            provider(
+                "xai",
+                "xAI",
+                "XAI_API_KEY",
+                vec![("grok-stt", "Grok STT", TranscriptionMode::Streaming)],
+            ),
+        ]
+    }
+
+    /// Installs the catalogue the worker would send.
+    fn install_catalogue(controller: &mut SessionController) {
+        controller.set_capabilities(test_capabilities());
+    }
 
     fn complete_controller() -> SessionController {
         let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
         controller.open_form();
         controller.cycle_provider();
         controller.cycle_model();
@@ -1832,8 +1871,9 @@ mod tests {
     }
 
     fn valid_settings(controller: &mut SessionController) -> bool {
+        install_catalogue(controller);
         controller.open_settings();
-        controller.set_settings_provider("vercel");
+        controller.set_settings_provider("vercel-ai-gateway");
         controller.set_settings_model("openai/gpt-realtime-whisper");
         controller.set_settings_api_key("sk-test-key");
         controller.settings_draft_valid()
@@ -1865,10 +1905,11 @@ mod tests {
     #[test]
     fn settings_draft_starts_invalid_and_requires_a_key() {
         let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
         controller.open_settings();
         assert!(!controller.settings_draft_valid());
 
-        assert!(controller.set_settings_provider("vercel"));
+        assert!(controller.set_settings_provider("vercel-ai-gateway"));
         assert!(!controller.settings_draft_valid());
         assert!(controller.set_settings_model("openai/gpt-realtime-whisper"));
         assert!(!controller.settings_draft_valid(), "no key yet");
@@ -1880,6 +1921,7 @@ mod tests {
     #[test]
     fn an_untouched_stored_key_makes_the_draft_valid() {
         let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
         controller.open_settings_with(Some("mistral"), Some("voxtral-mini-transcribe-3-0"), true);
         assert!(controller.settings_draft_valid());
         assert_eq!(controller.settings_draft().api_key, "");
@@ -1888,8 +1930,9 @@ mod tests {
     #[test]
     fn changing_the_provider_clears_its_model() {
         let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
         controller.open_settings();
-        assert!(controller.set_settings_provider("vercel"));
+        assert!(controller.set_settings_provider("vercel-ai-gateway"));
         assert!(controller.set_settings_model("openai/gpt-realtime-whisper"));
 
         assert!(controller.set_settings_provider("mistral"));
@@ -1910,7 +1953,7 @@ mod tests {
         assert_eq!(
             change,
             SettingsChange {
-                provider: "vercel".to_string(),
+                provider: "vercel-ai-gateway".to_string(),
                 model: "openai/gpt-realtime-whisper".to_string(),
                 api_key: Some("sk-test-key".to_string()),
             }
@@ -1921,7 +1964,12 @@ mod tests {
     #[test]
     fn an_unchanged_stored_key_is_sent_as_none() {
         let mut controller = SessionController::new();
-        controller.open_settings_with(Some("vercel"), Some("openai/gpt-4o-transcribe"), true);
+        install_catalogue(&mut controller);
+        controller.open_settings_with(
+            Some("vercel-ai-gateway"),
+            Some("openai/gpt-4o-transcribe"),
+            true,
+        );
 
         let change = controller.save_settings().expect("valid draft saves");
         assert_eq!(change.api_key, None);
@@ -1938,8 +1986,9 @@ mod tests {
     #[test]
     fn settings_debug_output_never_contains_the_key() {
         let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
         controller.open_settings();
-        controller.set_settings_provider("vercel");
+        controller.set_settings_provider("vercel-ai-gateway");
         controller.set_settings_model("openai/gpt-realtime-whisper");
         controller.set_settings_api_key("sk-super-secret-value");
 
@@ -1968,23 +2017,119 @@ mod tests {
     }
 
     #[test]
-    fn provider_catalogue_contains_the_five_supported_services() {
-        let ids: Vec<_> = provider_options().iter().map(|option| option.id).collect();
-        assert_eq!(ids, ["vercel", "mistral", "openai", "xai", "elevenlabs"]);
-        assert!(
-            provider_options()
-                .iter()
-                .all(|option| !option.models.is_empty() && !option.api_key_env.is_empty())
+    fn model_modes_come_from_the_catalogue() {
+        let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
+        controller.open_settings();
+        assert!(controller.set_settings_provider("vercel-ai-gateway"));
+
+        assert!(controller.set_settings_model("openai/gpt-realtime-whisper"));
+        assert_eq!(
+            controller.settings_model_mode(),
+            Some(TranscriptionMode::Streaming)
+        );
+
+        assert!(controller.set_settings_model("openai/gpt-4o-transcribe"));
+        assert_eq!(
+            controller.settings_model_mode(),
+            Some(TranscriptionMode::Segmented)
+        );
+        assert_eq!(controller.session_model_mode(), None, "no take yet");
+    }
+
+    #[test]
+    fn the_setup_draft_exposes_its_model_mode() {
+        let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
+        controller.open_form();
+
+        assert_eq!(controller.draft_model_mode(), None);
+        controller.cycle_provider();
+        assert_eq!(controller.draft_model_mode(), None, "no model yet");
+
+        controller.cycle_model();
+        assert_eq!(
+            controller.draft_model_mode(),
+            Some(TranscriptionMode::Segmented)
+        );
+
+        controller.cycle_model();
+        assert_eq!(
+            controller.draft_model_mode(),
+            Some(TranscriptionMode::Streaming)
+        );
+    }
+
+    #[test]
+    fn the_active_take_exposes_its_model_mode() {
+        let mut controller = complete_controller();
+        assert_eq!(controller.session_model_mode(), None, "no take yet");
+
+        assert!(controller.start_recording());
+        assert_eq!(
+            controller.session_model_mode(),
+            Some(TranscriptionMode::Segmented),
+            "the first catalogue model is batch"
+        );
+    }
+
+    #[test]
+    fn a_discovered_catalogue_replaces_the_builtin_one() {
+        let mut controller = SessionController::new();
+        assert_eq!(controller.catalogue_source(), None);
+
+        controller.apply_capabilities(test_capabilities(), CapabilitySource::Discovered);
+
+        assert!(controller.catalogue_loaded());
+        assert_eq!(
+            controller.catalogue_source(),
+            Some(CapabilitySource::Discovered)
+        );
+        assert_eq!(
+            controller.settings_api_key_env(),
+            None,
+            "the dialog has no provider selected yet"
+        );
+    }
+
+    #[test]
+    fn the_catalogue_comes_from_the_handshake_only() {
+        let mut controller = SessionController::new();
+        assert!(!controller.catalogue_loaded());
+        assert_eq!(controller.settings_provider_label(), None);
+
+        install_catalogue(&mut controller);
+        assert!(controller.catalogue_loaded());
+        assert_eq!(
+            controller.catalogue_source(),
+            Some(CapabilitySource::Builtin)
+        );
+        let ids: Vec<_> = controller
+            .capabilities()
+            .expect("catalogue installed")
+            .iter()
+            .map(|option| option.id.as_str())
+            .collect();
+        assert_eq!(
+            ids,
+            [
+                "elevenlabs",
+                "mistral",
+                "openai",
+                "vercel-ai-gateway",
+                "xai"
+            ]
         );
     }
 
     #[test]
     fn the_api_key_row_names_the_selected_providers_variable() {
         let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
         controller.open_settings();
         assert_eq!(controller.settings_api_key_env(), None);
 
-        assert!(controller.set_settings_provider("vercel"));
+        assert!(controller.set_settings_provider("vercel-ai-gateway"));
         assert_eq!(
             controller.settings_api_key_env(),
             Some("AI_GATEWAY_API_KEY")
@@ -1997,19 +2142,20 @@ mod tests {
     #[test]
     fn cycling_selects_a_provider_and_then_its_first_model() {
         let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
         controller.open_settings();
 
         assert!(controller.cycle_settings_provider());
         assert_eq!(
             controller.settings_draft().provider.as_deref(),
-            Some("vercel")
+            Some("elevenlabs")
         );
         assert_eq!(controller.settings_draft().model, None);
 
         assert!(controller.cycle_settings_model());
         assert_eq!(
             controller.settings_draft().model.as_deref(),
-            Some("fish-audio/transcribe-1")
+            Some("scribe_v2")
         );
     }
 }

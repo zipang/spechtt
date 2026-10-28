@@ -19,7 +19,9 @@ use speechtt_core::output::OutputError;
 use speechtt_core::output::clipboard::ClipboardSink;
 use speechtt_core::output::file::FileOpener;
 use speechtt_core::output::paste::PasteSink;
-use speechtt_core::protocol::{ProviderCapability, SecretString, SttCommand, SttEvent};
+use speechtt_core::protocol::{
+    ModelCapabilityInfo, ProviderCapability, SecretString, SttCommand, SttEvent, TranscriptionMode,
+};
 use speechtt_core::session::OutputTarget;
 use speechtt_core::settings::{Settings, SettingsError, SettingsStore};
 use speechtt_ui::app::{AppServices, SpeechTtApp};
@@ -243,8 +245,35 @@ impl Drop for TempDir {
 
 // ----- Helpers ---------------------------------------------------------
 
+/// Catalogue the worker would send after a handshake.
+fn catalogue() -> Vec<ProviderCapability> {
+    vec![ProviderCapability {
+        id: "vercel-ai-gateway".to_string(),
+        label: "Vercel AI Gateway".to_string(),
+        available: true,
+        key_env_vars: vec!["AI_GATEWAY_API_KEY".to_string()],
+        models: vec![
+            ModelCapabilityInfo {
+                id: "openai/gpt-4o-transcribe".to_string(),
+                label: "GPT-4o Transcribe".to_string(),
+                mode: TranscriptionMode::Segmented,
+            },
+            ModelCapabilityInfo {
+                id: "openai/gpt-realtime-whisper".to_string(),
+                label: "gpt-realtime-whisper".to_string(),
+                mode: TranscriptionMode::Streaming,
+            },
+        ],
+    }]
+}
+
+fn install_catalogue(controller: &mut SessionController) {
+    controller.set_capabilities(catalogue());
+}
+
 fn complete_draft(output: OutputTarget) -> SessionController {
     let mut controller = SessionController::new();
+    install_catalogue(&mut controller);
     controller.open_form();
     controller.cycle_provider();
     controller.cycle_model();
@@ -264,12 +293,12 @@ fn duplex_controller(output: OutputTarget) -> (SessionController, RecordingSink)
 
 fn settings_with_key() -> Settings {
     let mut settings = Settings {
-        provider: "vercel".into(),
+        provider: "vercel-ai-gateway".into(),
         model: "openai/gpt-realtime-whisper".into(),
         auto_paste: false,
         ..Settings::default()
     };
-    settings.set_api_key("vercel", "sk-e2e-secret");
+    settings.set_api_key("vercel-ai-gateway", "sk-e2e-secret");
     settings
 }
 
@@ -278,12 +307,12 @@ const MIXED_CASE_KEY: &str = "vck_AbCdEfGhIjKlMnOpQrStUvWxYzH0123456789";
 
 fn settings_with_mixed_case_key() -> Settings {
     let mut settings = Settings {
-        provider: "vercel".into(),
+        provider: "vercel-ai-gateway".into(),
         model: "openai/gpt-realtime-whisper".into(),
         auto_paste: false,
         ..Settings::default()
     };
-    settings.set_api_key("vercel", MIXED_CASE_KEY);
+    settings.set_api_key("vercel-ai-gateway", MIXED_CASE_KEY);
     settings
 }
 
@@ -630,9 +659,10 @@ fn capabilities_populate_options_and_connection_state() {
     let mut controller = SessionController::new();
     controller.set_capabilities(vec![
         ProviderCapability {
-            id: "vercel".into(),
+            id: "vercel-ai-gateway".into(),
             label: "Vercel AI Gateway".into(),
             available: false,
+            key_env_vars: Vec::new(),
             models: vec![speechtt_core::protocol::ModelCapabilityInfo {
                 id: "openai/gpt-realtime-whisper".into(),
                 label: "GPT Realtime Whisper".into(),
@@ -643,6 +673,7 @@ fn capabilities_populate_options_and_connection_state() {
             id: "mistral".into(),
             label: "Mistral AI".into(),
             available: true,
+            key_env_vars: Vec::new(),
             models: vec![speechtt_core::protocol::ModelCapabilityInfo {
                 id: "voxtral-mini-transcribe-3-0".into(),
                 label: "Voxtral Mini".into(),
@@ -652,7 +683,7 @@ fn capabilities_populate_options_and_connection_state() {
     ]);
 
     controller.open_settings();
-    assert!(controller.set_settings_provider("vercel"));
+    assert!(controller.set_settings_provider("vercel-ai-gateway"));
     assert!(controller.set_settings_model("openai/gpt-realtime-whisper"));
     assert_eq!(
         controller.settings_provider_label(),
@@ -662,7 +693,10 @@ fn capabilities_populate_options_and_connection_state() {
         controller.settings_model_label(),
         Some("GPT Realtime Whisper")
     );
-    assert_eq!(controller.provider_available("vercel"), Some(false));
+    assert_eq!(
+        controller.provider_available("vercel-ai-gateway"),
+        Some(false)
+    );
 
     controller.set_settings_api_key("sk-capability-test");
     assert!(
@@ -683,6 +717,7 @@ fn capabilities_populate_options_and_connection_state() {
 #[test]
 fn open_form_prefills_the_persisted_default_provider_and_model() {
     let mut controller = SessionController::new();
+    install_catalogue(&mut controller);
     controller.apply_settings(settings_with_key());
 
     controller.open_form();
@@ -693,7 +728,7 @@ fn open_form_prefills_the_persisted_default_provider_and_model() {
     assert_eq!(
         controller.model_label(),
         Some("gpt-realtime-whisper"),
-        "the static catalogue label is used when no capabilities arrived"
+        "the handshake label is used for the pre-filled model"
     );
 
     controller.set_draft_output(OutputTarget::Memory);
@@ -715,7 +750,7 @@ fn open_form_prefills_the_persisted_default_provider_and_model() {
             api_key,
             ..
         } => {
-            assert_eq!(provider, "vercel");
+            assert_eq!(provider, "vercel-ai-gateway");
             assert_eq!(model, "openai/gpt-realtime-whisper");
             assert_eq!(api_key, Some(SecretString::new("sk-e2e-secret")));
         }
@@ -728,10 +763,10 @@ fn open_form_starts_empty_without_a_configured_model() {
     let mut controller = SessionController::new();
     // A provider-only/default settings file has no model to pre-fill.
     let mut settings = Settings {
-        provider: "vercel".into(),
+        provider: "vercel-ai-gateway".into(),
         ..Settings::default()
     };
-    settings.set_api_key("vercel", "sk-provider-only");
+    settings.set_api_key("vercel-ai-gateway", "sk-provider-only");
     controller.apply_settings(settings);
 
     controller.open_form();
@@ -750,6 +785,7 @@ fn new_session_form_cycles_the_capability_catalogue() {
             id: "custom".into(),
             label: "Custom STT".into(),
             available: true,
+            key_env_vars: Vec::new(),
             models: vec![
                 speechtt_core::protocol::ModelCapabilityInfo {
                     id: "custom-large".into(),
@@ -767,6 +803,7 @@ fn new_session_form_cycles_the_capability_catalogue() {
             id: "other".into(),
             label: "Other STT".into(),
             available: true,
+            key_env_vars: Vec::new(),
             models: vec![speechtt_core::protocol::ModelCapabilityInfo {
                 id: "other-one".into(),
                 label: "Other One".into(),
@@ -811,18 +848,23 @@ fn new_session_form_cycles_the_capability_catalogue() {
 #[test]
 fn start_uses_the_session_choice_and_the_settings_key_for_that_provider() {
     let mut settings = Settings {
-        provider: "vercel".into(),
-        model: "fish-audio/transcribe-1".into(),
+        provider: "vercel-ai-gateway".into(),
+        model: "openai/gpt-realtime-whisper".into(),
         ..Settings::default()
     };
-    settings.set_api_key("vercel", "sk-vercel");
+    settings.set_api_key("vercel-ai-gateway", "sk-vercel");
     let mut controller = SessionController::new();
+    install_catalogue(&mut controller);
     controller.apply_settings(settings);
 
     controller.open_form();
     // The user explicitly changes the default model for this session.
     controller.cycle_model();
-    assert_eq!(controller.model_label(), Some("gemini-3.5-transcribe"));
+    assert_eq!(
+        controller.model_label(),
+        Some("GPT-4o Transcribe"),
+        "cycle_model moves to the next model in label order"
+    );
     controller.set_draft_output(OutputTarget::Memory);
     controller.set_draft_name("chosen model");
     assert!(controller.create_session());
@@ -842,8 +884,8 @@ fn start_uses_the_session_choice_and_the_settings_key_for_that_provider() {
             api_key,
             ..
         } => {
-            assert_eq!(provider, "vercel");
-            assert_eq!(model, "google/gemini-3.5-transcribe");
+            assert_eq!(provider, "vercel-ai-gateway");
+            assert_eq!(model, "openai/gpt-4o-transcribe");
             assert_eq!(api_key, Some(SecretString::new("sk-vercel")));
         }
         other => panic!("expected start, got {other:?}"),
@@ -854,8 +896,9 @@ fn start_uses_the_session_choice_and_the_settings_key_for_that_provider() {
 fn settings_save_round_trips_to_the_store_and_start_carries_the_key() {
     let store = MemoryStore::new(Settings::default());
     let mut controller = SessionController::new();
+    install_catalogue(&mut controller);
     controller.open_settings();
-    assert!(controller.set_settings_provider("vercel"));
+    assert!(controller.set_settings_provider("vercel-ai-gateway"));
     assert!(controller.set_settings_model("openai/gpt-realtime-whisper"));
     controller.set_settings_api_key("sk-round-trip");
 
@@ -867,7 +910,10 @@ fn settings_save_round_trips_to_the_store_and_start_carries_the_key() {
         settings.set_api_key(&change.provider, key.clone());
     }
     store.save(&settings).expect("save to store");
-    assert_eq!(store.get().api_key("vercel"), Some("sk-round-trip"));
+    assert_eq!(
+        store.get().api_key("vercel-ai-gateway"),
+        Some("sk-round-trip")
+    );
 
     // Start uses the persisted provider/model/key that `open_form` pre-fills.
     controller.apply_settings(store.get());
@@ -893,7 +939,7 @@ fn settings_save_round_trips_to_the_store_and_start_carries_the_key() {
             api_key,
             ..
         } => {
-            assert_eq!(provider, "vercel");
+            assert_eq!(provider, "vercel-ai-gateway");
             assert_eq!(model, "openai/gpt-realtime-whisper");
             assert_eq!(api_key, Some(SecretString::new("sk-round-trip")));
         }
@@ -904,7 +950,7 @@ fn settings_save_round_trips_to_the_store_and_start_carries_the_key() {
 #[test]
 fn a_missing_key_blocks_recording_with_a_settings_shortcut() {
     let mut settings = Settings {
-        provider: "vercel".into(),
+        provider: "vercel-ai-gateway".into(),
         model: "openai/gpt-realtime-whisper".into(),
         ..Settings::default()
     };
@@ -920,7 +966,7 @@ fn a_missing_key_blocks_recording_with_a_settings_shortcut() {
     assert_eq!(
         controller.app_error(),
         Some(&AppError::MissingApiKey {
-            provider: "vercel".into()
+            provider: "vercel-ai-gateway".into()
         })
     );
     assert_eq!(
@@ -1027,6 +1073,10 @@ fn the_app_constructs_from_fakes_and_persists_settings(cx: &mut gpui_kit::TestAp
         cx.new(|cx| SpeechTtApp::with_services(fake.services(), window, cx))
     });
 
+    cx.update(|cx| {
+        view.update(cx, |app, cx| app.apply_capabilities(catalogue(), cx));
+    });
+
     assert_eq!(
         cx.update(|cx| view.read(cx).view_state()),
         ViewState::Prompt
@@ -1054,7 +1104,7 @@ fn the_app_constructs_from_fakes_and_persists_settings(cx: &mut gpui_kit::TestAp
     .unwrap();
 
     let saved = store_handle.get();
-    assert_eq!(saved.provider, "vercel");
+    assert_eq!(saved.provider, "vercel-ai-gateway");
     assert!(!saved.model.is_empty());
     assert_eq!(saved.api_key("vercel"), Some("sk-app-round-trip"));
     assert_eq!(cx.update(|cx| view.read(cx).active_dialog()), None);
@@ -1066,7 +1116,7 @@ fn the_app_constructs_from_fakes_and_persists_settings(cx: &mut gpui_kit::TestAp
         window.render_frame(cx);
         let app = view.read(cx);
         let draft = app.settings_draft();
-        assert_eq!(draft.provider.as_deref(), Some("vercel"));
+        assert_eq!(draft.provider.as_deref(), Some("vercel-ai-gateway"));
         assert_eq!(draft.model.as_deref(), Some(saved.model.as_str()));
         assert!(draft.api_key_unchanged, "the stored key is not re-typed");
         assert!(app.settings_connected(), "the stored key shows CONNECTED");
@@ -1080,6 +1130,9 @@ fn the_shared_test_window_does_not_write_the_real_settings_file(cx: &mut gpui_ki
     let before = std::fs::read(&real_path).ok();
 
     let (window, view) = common::open_speechtt_window(cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| app.apply_capabilities(catalogue(), cx));
+    });
     cx.update_window(window.into(), |_, window, cx| {
         view.update(cx, |app, cx| app.open_settings(window, cx));
         view.update(cx, |app, cx| {
@@ -1124,6 +1177,10 @@ fn the_app_event_pump_updates_the_caption_and_copy_uses_the_clipboard(
 
     let (window, view) = common::open_window(cx, None, |window, cx| {
         cx.new(|cx| SpeechTtApp::with_services(fake.services(), window, cx))
+    });
+
+    cx.update(|cx| {
+        view.update(cx, |app, cx| app.apply_capabilities(catalogue(), cx));
     });
 
     cx.update_window(window.into(), |_, window, cx| {
@@ -1181,7 +1238,7 @@ fn the_app_event_pump_updates_the_caption_and_copy_uses_the_clipboard(
     let commands = sink_handle.commands();
     assert!(commands.iter().any(|command| matches!(
         command,
-        SttCommand::Start { provider, .. } if provider == "vercel"
+        SttCommand::Start { provider, .. } if provider == "vercel-ai-gateway"
     )));
 }
 
@@ -1202,6 +1259,10 @@ fn a_mixed_case_settings_key_is_saved_byte_for_byte(cx: &mut gpui_kit::TestAppCo
     };
     let (window, view) = common::open_window(cx, None, |window, cx| {
         cx.new(|cx| SpeechTtApp::with_services(fake.services(), window, cx))
+    });
+
+    cx.update(|cx| {
+        view.update(cx, |app, cx| app.apply_capabilities(catalogue(), cx));
     });
 
     cx.update_window(window.into(), |_, window, cx| {
@@ -1265,6 +1326,10 @@ fn a_pasted_mixed_case_key_reaches_the_store_unchanged(cx: &mut gpui_kit::TestAp
         cx.new(|cx| SpeechTtApp::with_services(fake.services(), window, cx))
     });
 
+    cx.update(|cx| {
+        view.update(cx, |app, cx| app.apply_capabilities(catalogue(), cx));
+    });
+
     cx.update_window(window.into(), |_, window, cx| {
         view.update(cx, |app, cx| {
             app.open_settings(window, cx);
@@ -1304,6 +1369,10 @@ fn a_stored_key_shows_only_its_mask_and_reveal_stays_disabled(cx: &mut gpui_kit:
     };
     let (window, view) = common::open_window(cx, None, |window, cx| {
         cx.new(|cx| SpeechTtApp::with_services(fake.services(), window, cx))
+    });
+
+    cx.update(|cx| {
+        view.update(cx, |app, cx| app.apply_capabilities(catalogue(), cx));
     });
 
     cx.update_window(window.into(), |_, window, cx| {

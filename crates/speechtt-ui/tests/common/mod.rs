@@ -23,7 +23,9 @@ use speechtt_core::output::OutputError;
 use speechtt_core::output::clipboard::ClipboardSink;
 use speechtt_core::output::file::FileOpener;
 use speechtt_core::output::paste::PasteSink;
-use speechtt_core::protocol::SttCommand;
+use speechtt_core::protocol::{
+    ModelCapabilityInfo, ProviderCapability, SttCommand, TranscriptionMode,
+};
 use speechtt_core::settings::{Settings, SettingsError, SettingsStore};
 use speechtt_ui::app::{AppServices, SpeechTtApp};
 use speechtt_ui::controller::{SAMPLE_RATE, SystemClock};
@@ -170,6 +172,31 @@ pub fn open_window<V: Render>(
     })
 }
 
+/// Deterministic catalogue the fake worker would return after a handshake.
+///
+/// Installed by [`open_speechtt_window`] so Settings and the setup form can be
+/// exercised without a live Bun worker.
+pub fn test_catalogue() -> Vec<ProviderCapability> {
+    vec![ProviderCapability {
+        id: "vercel-ai-gateway".to_string(),
+        label: "Vercel AI Gateway".to_string(),
+        available: true,
+        key_env_vars: vec!["AI_GATEWAY_API_KEY".to_string()],
+        models: vec![
+            ModelCapabilityInfo {
+                id: "openai/gpt-4o-transcribe".to_string(),
+                label: "GPT-4o Transcribe".to_string(),
+                mode: TranscriptionMode::Segmented,
+            },
+            ModelCapabilityInfo {
+                id: "openai/gpt-realtime-whisper".to_string(),
+                label: "gpt-realtime-whisper".to_string(),
+                mode: TranscriptionMode::Streaming,
+            },
+        ],
+    }]
+}
+
 /// Opens the real SpeechTT widget window (theme applied, production view,
 /// hermetic services).
 pub fn open_speechtt_window(
@@ -181,7 +208,9 @@ pub fn open_speechtt_window(
     });
     open_window(cx, None, |window, cx| {
         window.set_window_title(speechtt_ui::app::APP_TITLE);
-        cx.new(|cx| SpeechTtApp::with_services(test_services(), window, cx))
+        let view = cx.new(|cx| SpeechTtApp::with_services(test_services(), window, cx));
+        view.update(cx, |app, cx| app.apply_capabilities(test_catalogue(), cx));
+        view
     })
 }
 
@@ -198,6 +227,8 @@ pub fn open_speechtt_window_at(
     });
     open_window(cx, Some(size(px(width), px(height))), |window, cx| {
         window.set_window_title(speechtt_ui::app::APP_TITLE);
-        cx.new(|cx| SpeechTtApp::with_services(test_services(), window, cx))
+        let view = cx.new(|cx| SpeechTtApp::with_services(test_services(), window, cx));
+        view.update(cx, |app, cx| app.apply_capabilities(test_catalogue(), cx));
+        view
     })
 }

@@ -13,6 +13,12 @@ import type {
 import { sessionConfigFromStart } from "./adapters/types";
 import { VercelAiSdkAdapter } from "./adapters/vercel-ai-sdk";
 import {
+	type DiscoveredModel,
+	type DiscoveryResult,
+	cachedGatewayModels,
+	discoverGatewayModels,
+} from "./discovery";
+import {
 	type InboundCommand,
 	type OutboundEvent,
 	parseInboundLine,
@@ -24,6 +30,22 @@ import {
 	resolveModelCapability,
 	resolveProviderApiKey,
 } from "./registry";
+
+/**
+ * Discovery seam for the capabilities handshake. The default source is the
+ * anonymous gateway client; tests inject a deterministic one.
+ */
+export interface DiscoverySource {
+	/** Freshly cached models, if any, without performing I/O. */
+	cached(): readonly DiscoveredModel[] | undefined;
+	/** Fetches the live catalogue; never receives an API key. */
+	discover(): Promise<DiscoveryResult | undefined>;
+}
+
+export const defaultDiscoverySource: DiscoverySource = {
+	cached: () => cachedGatewayModels(),
+	discover: () => discoverGatewayModels(),
+};
 
 function errorMessage(error: unknown): string {
 	if (error instanceof Error && error.message.length > 0) {
@@ -50,8 +72,10 @@ export async function runWorkerLoop(
 	lines: AsyncIterable<string>,
 	emit: (event: OutboundEvent) => void,
 	adapterFactory: SttAdapterFactory = defaultAdapterFactory,
+	discovery: DiscoverySource = defaultDiscoverySource,
 ): Promise<void> {
 	let active: SttSession | undefined;
+	let closed = false;
 
 	const stopActive = async (): Promise<void> => {
 		const session = active;
@@ -134,20 +158,49 @@ export async function runWorkerLoop(
 
 	const handleCommand = async (command: InboundCommand): Promise<void> => {
 		switch (command.type) {
-			case "capabilities":
+			case "capabilities": {
 				// Read-only handshake: never touches the active session, and
 				// works before one exists. The response is built from the
-				// registry only; the supplied key is never echoed.
-				emit({
+				// registry only; the supplied key is never echoed, and the key
+				// is never passed to discovery either.
+				const capabilities = (
+					source: "builtin" | "discovered",
+					gatewayModels?: readonly DiscoveredModel[],
+				): OutboundEvent => ({
 					type: "capabilities",
 					...(command.requestId === undefined
 						? {}
 						: { requestId: command.requestId }),
+					source,
 					providers: listCapabilities({
 						apiKeyFor: () => command.apiKey,
+						gatewayModels,
 					}),
 				});
+
+				const cached = discovery.cached();
+				if (cached !== undefined && cached.length > 0) {
+					emit(capabilities("discovered", cached));
+					return;
+				}
+
+				// Answer immediately from the curated catalogue so Settings is
+				// never blocked by the network, then refresh if discovery
+				// succeeds while the worker is still consuming input.
+				emit(capabilities("builtin"));
+				void discovery.discover().then(
+					(result) => {
+						if (closed || result === undefined || result.models.length === 0) {
+							return;
+						}
+						emit(capabilities("discovered", result.models));
+					},
+					() => {
+						// Discovery is best-effort: keep the builtin catalogue.
+					},
+				);
 				return;
+			}
 
 			case "start":
 				await handleStart(command);
@@ -196,6 +249,7 @@ export async function runWorkerLoop(
 		}
 	}
 
+	closed = true;
 	await abortActive();
 }
 
