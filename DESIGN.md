@@ -181,8 +181,10 @@ stylesheet only — they are not front-matter entries.
 ## Layout
 
 A 4px linear spacing scale with `1rem` (16px) as the base step. The floating
-panel is 480 x 280 px with `--rounded-lg` corners and `--space-base` internal
-padding. The top info strip (shortcuts + settings) is `surface-dark`; the
+panel opens at 480 x 520 px (or the size and position remembered from the last
+run) with `--rounded-lg` corners and `--space-base` internal padding. The New
+Session form uses the roomier prominent rows, so the default height shows all
+four without clipping; the body scrolls if it ever overflows. The top info strip (shortcuts + settings) is `surface-dark`; the
 transcript well is `surface-alt`; the record control sits on `surface`. The
 settings panel is a larger card (`surface-card`) that opens beside the widget,
 not inside it.
@@ -249,7 +251,7 @@ dismissing or alternative action (Cancel, Back). No other tones are needed.
 Rendered by `components::IconButton`: 32px ghost targets in the window header
 and dialog close slots, icon in `text`/`text.muted` with a `brand.primary`
 hover tint. Always include an accessible label; shortcuts are displayed in
-the top strip. Dense inline controls inside the 480×280 widget (Reveal, select
+the top strip. Dense inline controls inside the widget (Reveal, select
 carets, "New take") may stay small and are not action buttons.
 
 ### Shortcut hints

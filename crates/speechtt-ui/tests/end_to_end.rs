@@ -23,9 +23,11 @@ use speechtt_core::protocol::{
     ModelCapabilityInfo, ProviderCapability, SecretString, SttCommand, SttEvent, TranscriptionMode,
 };
 use speechtt_core::session::OutputTarget;
-use speechtt_core::settings::{Settings, SettingsError, SettingsStore};
+use speechtt_core::settings::{Settings, SettingsError, SettingsStore, WindowLayout};
 use speechtt_ui::app::{AppServices, SpeechTtApp};
-use speechtt_ui::controller::{AppError, Clock, Dialog, SAMPLE_RATE, SessionController, ViewState};
+use speechtt_ui::controller::{
+    AppError, Clock, Dialog, SAMPLE_RATE, SessionController, SettingsChange, ViewState,
+};
 
 // ----- Fakes -----------------------------------------------------------
 
@@ -1402,4 +1404,79 @@ fn a_stored_key_shows_only_its_mask_and_reveal_stays_disabled(cx: &mut gpui_kit:
         assert_eq!(view.read(cx).settings_stored_key_label(), None);
     })
     .unwrap();
+}
+
+// ----- T13: remembered window geometry ---------------------------------
+
+#[gpui_kit::test]
+fn a_stable_window_geometry_is_persisted_after_the_quiet_period(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        speechtt_ui::theme::apply(cx);
+    });
+
+    let store = MemoryStore::new(Settings::default());
+    let store_handle = store.clone();
+    let fake = FakeApp {
+        store,
+        ..FakeApp::default()
+    };
+    let (_window, view) = common::open_window(cx, None, |window, cx| {
+        cx.new(|cx| SpeechTtApp::with_services(fake.services(), window, cx))
+    });
+
+    let start = Instant::now();
+    let layout = WindowLayout::new(700, 600, 120, 80);
+
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            app.remember_window_layout(layout, start);
+            assert!(
+                !app.flush_pending_window_layout(start + Duration::from_millis(599)),
+                "the debounce must keep the drag from writing on every frame"
+            );
+            assert!(app.flush_pending_window_layout(start + Duration::from_millis(600)));
+            assert!(
+                !app.flush_pending_window_layout(start + Duration::from_secs(2)),
+                "nothing left to persist"
+            );
+        });
+    });
+
+    assert_eq!(store_handle.get().window, Some(layout));
+}
+
+#[gpui_kit::test]
+fn saving_settings_keeps_the_remembered_geometry(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        speechtt_ui::theme::apply(cx);
+    });
+
+    let layout = WindowLayout::new(640, 560, 20, 30);
+    let mut settings = settings_with_key();
+    settings.window = Some(layout);
+    let store = MemoryStore::new(settings);
+    let store_handle = store.clone();
+    let fake = FakeApp {
+        store,
+        ..FakeApp::default()
+    };
+    let (_window, view) = common::open_window(cx, None, |window, cx| {
+        cx.new(|cx| SpeechTtApp::with_services(fake.services(), window, cx))
+    });
+
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            app.apply_settings_change(SettingsChange {
+                provider: "vercel-ai-gateway".to_string(),
+                model: "openai/gpt-4o-transcribe".to_string(),
+                api_key: Some("sk-rotated".to_string()),
+            });
+        });
+    });
+
+    let saved = store_handle.get();
+    assert_eq!(saved.window, Some(layout));
+    assert_eq!(saved.model, "openai/gpt-4o-transcribe");
 }

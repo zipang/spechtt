@@ -92,6 +92,10 @@ pub mod rem {
     pub const TWO_XL: f32 = 1.953125;
 }
 
-/// Window dimensions of the widget (mockups: 480×280).
+/// Window dimensions of the widget.
+///
+/// Tall enough for the four prominent New Session rows plus the optional error
+/// strip (line height is 26 px in this theme); a remembered size overrides it
+/// on later launches, and the body scrolls if a future row is added.
 pub const WIDGET_WIDTH: f32 = 480.0;
-pub const WIDGET_HEIGHT: f32 = 280.0;
+pub const WIDGET_HEIGHT: f32 = 520.0;

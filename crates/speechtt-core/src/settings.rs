@@ -49,6 +49,41 @@ const APP_DIR: &str = "speechtt";
 /// Name of the settings file.
 const SETTINGS_FILE: &str = "settings.json";
 
+/// Persisted window geometry, in logical (DPI-independent) pixels.
+///
+/// `x`/`y` may be negative on multi-monitor setups; the UI clamps the restored
+/// rectangle to the visible display area before opening the window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowLayout {
+    pub width: u32,
+    pub height: u32,
+    pub x: i32,
+    pub y: i32,
+}
+
+impl WindowLayout {
+    /// Below this the widget stops being usable.
+    pub const MIN_WIDTH: u32 = 420;
+    pub const MIN_HEIGHT: u32 = 320;
+
+    #[must_use]
+    pub fn new(width: u32, height: u32, x: i32, y: i32) -> Self {
+        Self {
+            width,
+            height,
+            x,
+            y,
+        }
+    }
+
+    /// A layout large enough to render the widget.
+    #[must_use]
+    pub fn is_usable(&self) -> bool {
+        self.width >= Self::MIN_WIDTH && self.height >= Self::MIN_HEIGHT
+    }
+}
+
 /// User settings, persisted as JSON.
 ///
 /// `deny_unknown_fields` turns stale or misspelled keys into a load error
@@ -67,6 +102,9 @@ pub struct Settings {
     pub shortcuts: BTreeMap<String, String>,
     /// Paste the finished transcript into the focused field automatically.
     pub auto_paste: bool,
+    /// Last window size and position; `None` until the user moves or resizes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<WindowLayout>,
 }
 
 impl Default for Settings {
@@ -77,6 +115,7 @@ impl Default for Settings {
             api_keys: BTreeMap::new(),
             shortcuts: BTreeMap::new(),
             auto_paste: true,
+            window: None,
         }
     }
 }
@@ -100,6 +139,19 @@ impl Settings {
     /// Idempotent. A key stored under an alias is moved to the canonical id
     /// without re-encoding the secret; when both exist the canonical entry wins
     /// so a migrated file never loses the key the app was using.
+    /// Drops a persisted geometry that is too small to be usable.
+    pub fn normalize_window_layout(&mut self) {
+        if self.window.is_some_and(|layout| !layout.is_usable()) {
+            self.window = None;
+        }
+    }
+
+    /// Rewrites legacy ids and drops unusable window geometry.
+    pub fn normalize(&mut self) {
+        self.normalize_provider_ids();
+        self.normalize_window_layout();
+    }
+
     pub fn normalize_provider_ids(&mut self) {
         self.provider = canonical_provider_id(&self.provider).to_owned();
         for (alias, canonical) in PROVIDER_ALIASES {
@@ -255,7 +307,7 @@ impl SettingsStore for JsonFileStore {
                         path: self.path.clone(),
                         source,
                     })?;
-                settings.normalize_provider_ids();
+                settings.normalize();
                 Ok(settings)
             }
             Err(source) if source.kind() == io::ErrorKind::NotFound => Ok(Settings::default()),
@@ -269,7 +321,7 @@ impl SettingsStore for JsonFileStore {
     fn save(&self, settings: &Settings) -> Result<(), SettingsError> {
         // Persist canonical ids only, so a migrated file never regress.
         let mut settings = settings.clone();
-        settings.normalize_provider_ids();
+        settings.normalize();
         let mut contents = serde_json::to_vec_pretty(&settings).map_err(SettingsError::Encode)?;
         contents.push(b'\n');
 
@@ -425,6 +477,7 @@ mod tests {
             )]),
             shortcuts: BTreeMap::from([("startRecording".to_owned(), "Ctrl+Shift+R".to_owned())]),
             auto_paste: false,
+            window: None,
         }
     }
 
@@ -788,6 +841,71 @@ mod tests {
         let path = resolve_default_path(None, None, PathBuf::from("/tmp"));
 
         assert_eq!(path, PathBuf::from("/tmp/speechtt/settings.json"));
+    }
+
+    // T13.1 — window geometry --------------------------------------------
+
+    #[test]
+    fn window_layout_round_trips_through_save_and_load() {
+        let dir = TempDir::new("window-layout");
+        let store = JsonFileStore::new(dir.join("settings.json"));
+        let mut settings = sample_settings();
+        settings.window = Some(WindowLayout::new(720, 540, -120, 48));
+
+        store.save(&settings).expect("save geometry");
+        let loaded = store.load().expect("load geometry");
+
+        assert_eq!(loaded.window, Some(WindowLayout::new(720, 540, -120, 48)));
+        assert_eq!(loaded, settings);
+    }
+
+    #[test]
+    fn a_missing_window_field_loads_as_none() {
+        let settings: Settings =
+            serde_json::from_str(r#"{"provider":"mistral","model":"m"}"#).expect("deserializes");
+
+        assert_eq!(settings.window, None);
+        assert_eq!(Settings::default().window, None);
+    }
+
+    #[test]
+    fn unusable_window_layouts_are_dropped() {
+        let mut settings = Settings {
+            window: Some(WindowLayout::new(100, 200, 10, 10)),
+            ..Settings::default()
+        };
+
+        settings.normalize_window_layout();
+
+        assert_eq!(settings.window, None);
+    }
+
+    #[test]
+    fn a_usable_window_layout_survives_normalization() {
+        let layout = WindowLayout::new(WindowLayout::MIN_WIDTH, WindowLayout::MIN_HEIGHT, -8, 4);
+        let mut settings = Settings {
+            window: Some(layout),
+            provider: "vercel".to_owned(),
+            ..Settings::default()
+        };
+
+        settings.normalize();
+
+        assert_eq!(settings.window, Some(layout));
+        assert_eq!(settings.provider, DEFAULT_PROVIDER);
+    }
+
+    #[test]
+    fn loading_a_settings_file_drops_an_unusable_geometry() {
+        let dir = TempDir::new("tiny-geometry");
+        let store = JsonFileStore::new(dir.join("settings.json"));
+        fs::write(
+            store.path(),
+            r#"{"provider":"mistral","window":{"width":10,"height":10,"x":0,"y":0}}"#,
+        )
+        .expect("write settings");
+
+        assert_eq!(store.load().expect("loads").window, None);
     }
 
     // T11.6 — provider id migration --------------------------------------

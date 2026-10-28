@@ -22,7 +22,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gpui_kit::prelude::*;
 use gpui_kit::{
@@ -39,7 +39,7 @@ use speechtt_core::output::clipboard::{ClipboardSink, SystemClipboard};
 use speechtt_core::output::file::{FileOpener, SystemOpener};
 use speechtt_core::output::paste::{PasteSink, SystemPaste};
 use speechtt_core::session::{OutputTarget, SessionField, SessionState};
-use speechtt_core::settings::{JsonFileStore, Settings, SettingsStore};
+use speechtt_core::settings::{JsonFileStore, Settings, SettingsStore, WindowLayout};
 
 use crate::components::{ActionButton, AppFooter, AppHeader, IconButton};
 use crate::controller::{
@@ -107,6 +107,8 @@ pub struct SpeechTtApp {
     listener: Box<dyn ShortcutListener>,
     clock: Box<dyn Clock>,
     stored_settings: Settings,
+    /// Geometry seen on screen, waiting for the quiet period before persisting.
+    pending_window_layout: Option<(WindowLayout, Instant)>,
 }
 
 impl SpeechTtApp {
@@ -247,6 +249,7 @@ impl SpeechTtApp {
             listener: services.listener,
             clock: services.clock,
             stored_settings,
+            pending_window_layout: None,
         };
 
         if let Some(error) = settings_error {
@@ -284,8 +287,10 @@ impl SpeechTtApp {
                     .timer(Duration::from_millis(200))
                     .await;
                 let updated = this.update(cx, |this, cx| {
+                    let now = this.clock.now();
+                    this.flush_pending_window_layout(now);
                     if this.controller.session_state().is_active()
-                        && this.controller.refresh_elapsed(this.clock.now())
+                        && this.controller.refresh_elapsed(now)
                     {
                         cx.notify();
                     }
@@ -815,6 +820,7 @@ impl SpeechTtApp {
             api_keys: self.stored_settings.api_keys.clone(),
             shortcuts: self.stored_settings.shortcuts.clone(),
             auto_paste: self.stored_settings.auto_paste,
+            window: self.stored_settings.window,
         };
         let mut next = next;
         if let Some(key) = &change.api_key {
@@ -973,6 +979,78 @@ impl SpeechTtApp {
         }
     }
 
+    // ----- Window geometry ---------------------------------------------
+
+    /// Default geometry used when nothing usable has been persisted.
+    fn default_window_layout() -> WindowLayout {
+        WindowLayout::new(
+            crate::tokens::WIDGET_WIDTH as u32,
+            crate::tokens::WIDGET_HEIGHT as u32,
+            0,
+            0,
+        )
+    }
+
+    /// Records the live window geometry, debounced through the clock loop.
+    ///
+    /// Maximized/fullscreen windows are ignored: restoring a maximized flag is
+    /// out of scope, and the windowed rectangle stays the useful one.
+    fn observe_window_bounds(&mut self, window: &Window) {
+        let WindowBounds::Windowed(bounds) = window.window_bounds() else {
+            return;
+        };
+        let layout = WindowLayout::new(
+            f32::from(bounds.size.width).round() as u32,
+            f32::from(bounds.size.height).round() as u32,
+            f32::from(bounds.origin.x).round() as i32,
+            f32::from(bounds.origin.y).round() as i32,
+        );
+        self.remember_window_layout(layout, self.clock.now());
+    }
+
+    /// Marks `layout` as pending; it is written once stable for 600 ms.
+    ///
+    /// A geometry identical to the stored one clears the pending change, and
+    /// the untouched default is not persisted at all, so a first launch never
+    /// creates a settings file just because the window was rendered.
+    pub fn remember_window_layout(&mut self, layout: WindowLayout, now: Instant) {
+        let default = Self::default_window_layout();
+        if self.stored_settings.window == Some(layout)
+            || (self.stored_settings.window.is_none() && layout == default)
+        {
+            self.pending_window_layout = None;
+            return;
+        }
+        if self.pending_window_layout.map(|(pending, _)| pending) != Some(layout) {
+            self.pending_window_layout = Some((layout, now));
+        }
+    }
+
+    /// Persists the pending geometry once it has been stable for 600 ms.
+    ///
+    /// Returns `true` when the store was written. Failures are silent: a
+    /// remembered window position must never surface an error strip.
+    pub fn flush_pending_window_layout(&mut self, now: Instant) -> bool {
+        const QUIET: Duration = Duration::from_millis(600);
+        let Some((layout, since)) = self.pending_window_layout else {
+            return false;
+        };
+        if now.checked_duration_since(since).unwrap_or_default() < QUIET {
+            return false;
+        }
+
+        let mut next = self.stored_settings.clone();
+        next.window = Some(layout);
+        match self.settings_store.save(&next) {
+            Ok(()) => {
+                self.stored_settings = next;
+                self.pending_window_layout = None;
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
     fn clear_session_name(&self, window: &mut Window, cx: &mut Context<Self>) {
         self.session_name
             .update(cx, |state, cx| state.set_value("", window, cx));
@@ -982,7 +1060,7 @@ impl SpeechTtApp {
 impl gpui_kit::Render for SpeechTtApp {
     fn render(
         &mut self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl gpui_kit::IntoElement {
         let mut root = v_flex()
@@ -1041,6 +1119,7 @@ impl gpui_kit::Render for SpeechTtApp {
             root = root.child(self.render_form_footer(cx));
         }
 
+        self.observe_window_bounds(window);
         root
     }
 }

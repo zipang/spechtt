@@ -18,7 +18,8 @@ pub mod tokens;
 
 mod views;
 
-use gpui_kit::{AppContext, Bounds, Point, Size, WindowBounds, WindowOptions, px};
+use gpui_kit::{AppContext, Bounds, Pixels, Point, Size, WindowBounds, WindowOptions, point, px};
+use speechtt_core::settings::{JsonFileStore, SettingsStore, WindowLayout};
 
 // SpeechTT's own icon set — embedded as borrowed static bytes, nothing more.
 // Components that need their own internals (spinners, carets, close buttons)
@@ -62,16 +63,64 @@ impl gpui_kit::AssetSource for AppAssets {
     }
 }
 
-/// Window dimensions of the widget (mockups: 480×280).
-pub fn widget_window_options() -> WindowOptions {
+/// At least this much of the window stays inside the visible display area.
+const MIN_VISIBLE_EDGE: f32 = 60.;
+
+/// Default widget bounds when no usable geometry was persisted.
+#[must_use]
+pub fn default_window_bounds() -> Bounds<Pixels> {
+    Bounds {
+        origin: Point::default(),
+        size: Size {
+            width: px(tokens::WIDGET_WIDTH),
+            height: px(tokens::WIDGET_HEIGHT),
+        },
+    }
+}
+
+/// Restores a persisted layout, clamping it into the first visible display.
+///
+/// Sizes below [`WindowLayout`]'s minimum are rejected (default bounds), and a
+/// position that would leave the widget off-screen is pulled back so at least
+/// [`MIN_VISIBLE_EDGE`] logical pixels remain visible.
+#[must_use]
+pub fn restored_window_bounds(
+    layout: Option<WindowLayout>,
+    displays: &[Bounds<Pixels>],
+) -> Bounds<Pixels> {
+    let Some(layout) = layout.filter(WindowLayout::is_usable) else {
+        return default_window_bounds();
+    };
+
+    let mut width = px(layout.width as f32);
+    let mut height = px(layout.height as f32);
+    if let Some(display) = displays.first() {
+        width = width.min(display.size.width);
+        height = height.min(display.size.height);
+    }
+
+    let mut origin = point(px(layout.x as f32), px(layout.y as f32));
+    if let Some(display) = displays.first() {
+        let edge = px(MIN_VISIBLE_EDGE);
+        let min_x = display.origin.x - width + edge;
+        let max_x = display.origin.x + display.size.width - edge;
+        let min_y = display.origin.y;
+        let max_y = display.origin.y + display.size.height - edge;
+        origin.x = origin.x.clamp(min_x.min(max_x), max_x);
+        origin.y = origin.y.clamp(min_y.min(max_y), max_y);
+    }
+
+    Bounds {
+        origin,
+        size: Size { width, height },
+    }
+}
+
+/// Window options for the widget, restoring a persisted layout when present.
+#[must_use]
+pub fn widget_window_options(layout: Option<WindowLayout>) -> WindowOptions {
     WindowOptions {
-        window_bounds: Some(WindowBounds::Windowed(Bounds {
-            origin: Point::default(),
-            size: Size {
-                width: px(tokens::WIDGET_WIDTH),
-                height: px(tokens::WIDGET_HEIGHT),
-            },
-        })),
+        window_bounds: Some(WindowBounds::Windowed(restored_window_bounds(layout, &[]))),
         ..WindowOptions::default()
     }
 }
@@ -90,7 +139,24 @@ pub fn run() {
             // SpeechTT Sensor token mapping, so the first frame is ours.
             theme::apply(cx);
 
-            gpui_kit::open_window(widget_window_options(), cx, |window, cx| {
+            // Restore the last size/position before the window exists, so the
+            // first frame is already at the right geometry.
+            let layout = JsonFileStore::new(JsonFileStore::default_path())
+                .load()
+                .ok()
+                .and_then(|settings| settings.window);
+            let displays: Vec<Bounds<Pixels>> = cx
+                .displays()
+                .iter()
+                .map(|display| display.visible_bounds())
+                .collect();
+            let bounds = restored_window_bounds(layout, &displays);
+            let options = WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                ..WindowOptions::default()
+            };
+
+            gpui_kit::open_window(options, cx, |window, cx| {
                 window.set_window_title(app::APP_TITLE);
                 cx.new(|cx| app::SpeechTtApp::new(window, cx))
             })
