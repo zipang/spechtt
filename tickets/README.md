@@ -96,6 +96,18 @@ Decisions, deviations, verification output.
 | [T0009](done/T0009-e2e-wiring-and-error-ux.md) | End-to-end wiring and error UX | Cross-cutting |
 | [T0010](done/T0010-settings-key-integrity-and-reveal-ux.md) | Settings key integrity and stored-key reveal UX | Rust UI + core |
 
+### Review
+
+| Ticket | Title | Track | Primary files |
+|---|---|---|---|
+| [T0012](review/T0012-silence-aligned-batch-segmentation.md) | Silence-aligned audio segmentation for batch transcription | Bun worker | `src/stt/segmentation.ts`, `transcript-merge.ts`, `adapters/mistral.ts` |
+
+### In Progress
+
+| Ticket | Title | Track | Owner |
+|---|---|---|---|
+| [T0011](in_progress/T0011-dynamic-model-discovery-and-mode-badge.md) | Dynamic model discovery and streaming mode badge | Bun worker + Rust core/UI | coder |
+
 ### Planned
 
-_(none — all tickets through T0010 are done)_
+_(none)_

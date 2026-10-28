@@ -2,7 +2,13 @@ import { createMistral } from "@ai-sdk/mistral";
 import { type TranscriptionModel, transcribe as aiTranscribe } from "ai";
 import type { OutboundEvent } from "../protocol";
 import type { TranscriptionMode } from "../registry";
-import { appendSegment, defaultModelResolver } from "./vercel-ai-sdk";
+import {
+	type AudioSegment,
+	type SegmenterOptions,
+	Segmenter,
+} from "../segmentation";
+import { mergeTranscript } from "../transcript-merge";
+import { defaultModelResolver } from "./vercel-ai-sdk";
 import type {
 	EmitFn,
 	SttAdapter,
@@ -21,8 +27,8 @@ export interface MistralAdapterOptions {
 	transcribe?: TranscribeFn;
 	/** Injectable for tests; defaults to a `@ai-sdk/mistral` model. */
 	resolveModel?: MistralModelResolver;
-	/** Target segment duration before an automatic flush (default 2.5 s). */
-	segmentSeconds?: number;
+	/** Silence-alignment tuning; defaults come from [`Segmenter`]. */
+	segmentation?: Partial<Omit<SegmenterOptions, "sampleRate">>;
 }
 
 function writeAscii(target: Uint8Array, offset: number, value: string): void {
@@ -153,8 +159,7 @@ class FailedSegmentedSession implements SttSession {
 }
 
 class MistralSession implements SttSession {
-	private chunks: Uint8Array[] = [];
-	private bufferLength = 0;
+	private readonly segmenter: Segmenter;
 	private accumulated = "";
 	private paused = false;
 	private aborted = false;
@@ -162,7 +167,6 @@ class MistralSession implements SttSession {
 	private pending: Promise<void> = Promise.resolve();
 	private errorEmitted = false;
 	private readonly abortController = new AbortController();
-	private readonly segmentBytes: number;
 
 	constructor(
 		readonly sessionId: string,
@@ -170,12 +174,9 @@ class MistralSession implements SttSession {
 		private readonly transcribe: TranscribeFn,
 		private readonly model: TranscriptionModel,
 		private readonly sampleRate: number,
-		segmentSeconds: number,
+		segmentation: Partial<Omit<SegmenterOptions, "sampleRate">>,
 	) {
-		this.segmentBytes = Math.max(
-			1,
-			Math.round(sampleRate * 2 * segmentSeconds),
-		);
+		this.segmenter = new Segmenter({ sampleRate, ...segmentation });
 	}
 
 	pushAudio(pcm16Base64: string): void {
@@ -187,17 +188,17 @@ class MistralSession implements SttSession {
 		if (pcm.length === 0) {
 			return;
 		}
-		this.chunks.push(pcm);
-		this.bufferLength += pcm.length;
 
-		if (this.bufferLength >= this.segmentBytes) {
-			void this.queueFlush();
+		for (const segment of this.segmenter.push(pcm)) {
+			this.queueSegment(segment);
 		}
 	}
 
 	pause(): void {
 		this.paused = true;
-		void this.queueFlush();
+		for (const segment of this.segmenter.flush("pause")) {
+			this.queueSegment(segment);
+		}
 	}
 
 	resume(): void {
@@ -210,7 +211,9 @@ class MistralSession implements SttSession {
 		}
 		this.stopped = true;
 
-		await this.queueFlush();
+		for (const segment of this.segmenter.flush("stop")) {
+			this.queueSegment(segment);
+		}
 		await this.pending;
 
 		if (this.aborted) {
@@ -228,37 +231,24 @@ class MistralSession implements SttSession {
 			return;
 		}
 		this.aborted = true;
-		this.clearBuffer();
+		this.segmenter.reset();
 		this.abortController.abort(reason);
 	}
 
-	private clearBuffer(): void {
-		this.chunks = [];
-		this.bufferLength = 0;
-	}
-
-	private takeBuffer(): Uint8Array {
-		if (this.bufferLength === 0) {
-			return new Uint8Array();
+	/**
+	 * WAV-frames one segment and appends it to the serialized transcription
+	 * queue. Only finalized text reaches `committed`: the junction dedupe runs
+	 * here so the Rust-side accumulator never sees a repeated boundary word.
+	 */
+	private queueSegment(segment: AudioSegment): void {
+		if (segment.pcm16.length === 0) {
+			return;
 		}
 
-		const pcm = new Uint8Array(this.bufferLength);
-		let offset = 0;
-		for (const chunk of this.chunks) {
-			pcm.set(chunk, offset);
-			offset += chunk.length;
-		}
-		this.clearBuffer();
-		return pcm;
-	}
-
-	private queueFlush(): Promise<void> {
-		if (this.bufferLength === 0) {
-			return this.pending;
-		}
-
-		const pcm = this.takeBuffer();
-		const wav = pcm16ToWav(pcm, this.sampleRate);
+		const wav = pcm16ToWav(segment.pcm16, this.sampleRate);
+		console.error(
+			`[stt-worker] segment index=${segment.index} reason=${segment.reason} durationMs=${segment.durationMs} speechMs=${segment.speechMs} rmsDb=${segment.rmsDb.toFixed(1)} overlap=${segment.startsWithOverlap}`,
+		);
 
 		this.pending = this.pending.then(async () => {
 			if (this.aborted) {
@@ -280,11 +270,19 @@ class MistralSession implements SttSession {
 					return;
 				}
 
-				this.accumulated = appendSegment(this.accumulated, text);
+				const merged = mergeTranscript(this.accumulated, text, {
+					allowSingleWordOverlap: segment.startsWithOverlap,
+				});
+				const appended = merged.slice(this.accumulated.length).trim();
+				this.accumulated = merged;
+				if (appended.length === 0) {
+					return;
+				}
+
 				this.emit({
 					type: "committed",
 					sessionId: this.sessionId,
-					text,
+					text: appended,
 				});
 			} catch (error) {
 				if (this.aborted) {
@@ -293,8 +291,6 @@ class MistralSession implements SttSession {
 				this.emitError(errorMessage(error));
 			}
 		});
-
-		return this.pending;
 	}
 
 	private emitError(message: string): void {
@@ -313,21 +309,22 @@ class MistralSession implements SttSession {
 }
 
 /**
- * Batch/segmented adapter for Mistral Voxtral (and other `transcribe`-only
- * models). PCM16 chunks accumulate until a segment threshold, a `pause`, or a
- * `stop`; each segment is WAV-framed before the AI SDK `transcribe` call.
+ * Batch/segmented adapter for models that only expose `transcribe`.
+ *
+ * PCM16 chunks are fed to a [`Segmenter`], which cuts on silence instead of a
+ * byte count; each segment is WAV-framed and sent to the AI SDK `transcribe`.
  */
 export class MistralAdapter implements SttAdapter {
 	readonly mode: TranscriptionMode = "segmented";
 
 	private readonly transcribe: TranscribeFn;
 	private readonly resolveModel: MistralModelResolver;
-	private readonly segmentSeconds: number;
+	private readonly segmentation: Partial<Omit<SegmenterOptions, "sampleRate">>;
 
 	constructor(options: MistralAdapterOptions = {}) {
 		this.transcribe = options.transcribe ?? aiTranscribe;
 		this.resolveModel = options.resolveModel ?? defaultSegmentedModel;
-		this.segmentSeconds = options.segmentSeconds ?? 2.5;
+		this.segmentation = options.segmentation ?? {};
 	}
 
 	start(config: SttSessionConfig, emit: EmitFn): SttSession {
@@ -351,7 +348,7 @@ export class MistralAdapter implements SttAdapter {
 			this.transcribe,
 			model,
 			config.sampleRate,
-			this.segmentSeconds,
+			this.segmentation,
 		);
 	}
 }
