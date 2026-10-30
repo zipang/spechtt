@@ -10,8 +10,10 @@ import type {
 import { MistralAdapter } from "./adapters/mistral";
 import { VercelAiSdkAdapter } from "./adapters/vercel-ai-sdk";
 import type { DiscoveredModel, DiscoveryResult } from "./discovery";
+import type { FfmpegTools } from "./file-input";
 import {
 	type DiscoverySource,
+	type FileDeps,
 	defaultAdapterFactory,
 	runWorkerLoop,
 } from "./worker";
@@ -778,5 +780,306 @@ describe("runWorkerLoop capabilities handshake", () => {
 
 		expect(argumentCounts).toEqual([0]);
 		expect(JSON.stringify(events)).not.toContain(secret);
+	});
+});
+
+const FILE_COMMAND = JSON.stringify({
+	type: "transcribeFile",
+	sessionId: "file-1",
+	provider: "vercel-ai-gateway",
+	model: "openai/gpt-4o-transcribe",
+	path: "/home/user/clips/interview.mp4",
+	apiKey: "sk-file",
+});
+
+class FakeFileSession implements SttSession {
+	stopped = false;
+	aborted = false;
+	pushes: string[] = [];
+
+	constructor(
+		readonly sessionId: string,
+		private readonly emit: EmitFn,
+	) {}
+
+	pushAudio(pcm16Base64: string): void {
+		this.pushes.push(pcm16Base64);
+	}
+
+	pause(): void {}
+
+	resume(): void {}
+
+	async stop(): Promise<void> {
+		this.stopped = true;
+		this.emit({
+			type: "stopped",
+			sessionId: this.sessionId,
+			fullText: "file text",
+		});
+	}
+
+	async abort(): Promise<void> {
+		this.aborted = true;
+	}
+}
+
+function fakeFileDeps(options: { ffmpeg?: FfmpegTools } = {}) {
+	const configs: (SttSessionConfig & { path: string })[] = [];
+	const sessions: FakeFileSession[] = [];
+	let resolutions = 0;
+	const deps: FileDeps = {
+		findFfmpeg: () => {
+			resolutions += 1;
+			return options.ffmpeg ?? { ffmpeg: "/usr/bin/ffmpeg", ffprobe: "/usr/bin/ffprobe" };
+		},
+		createSession: (config, emit) => {
+			configs.push(config);
+			const session = new FakeFileSession(config.sessionId, emit);
+			sessions.push(session);
+			return session;
+		},
+	};
+
+	return { deps, configs, sessions, resolutions: () => resolutions };
+}
+
+describe("runWorkerLoop transcribeFile", () => {
+	const savedEnv: Record<string, string | undefined> = {};
+
+	beforeEach(() => {
+		for (const name of [
+			"AI_GATEWAY_API_KEY",
+			"VERCEL_AI_GATEWAY_API_KEY",
+			"MISTRAL_API_KEY",
+			"OPENAI_API_KEY",
+			"XAI_API_KEY",
+			"ELEVENLABS_API_KEY",
+		]) {
+			savedEnv[name] = process.env[name];
+			delete process.env[name];
+		}
+	});
+
+	afterEach(() => {
+		for (const [name, value] of Object.entries(savedEnv)) {
+			if (value === undefined) {
+				delete process.env[name];
+			} else {
+				process.env[name] = value;
+			}
+		}
+	});
+
+	test("routes the path to a file session instead of the live adapter", async () => {
+		const { factory, adapter, events } = fakeFactory();
+		const files = fakeFileDeps();
+
+		await runWorkerLoop(
+			linesOf([FILE_COMMAND, JSON.stringify({ type: "stop" })]),
+			(event) => events.push(event),
+			factory,
+			undefined,
+			files.deps,
+		);
+
+		expect(adapter.sessions).toHaveLength(0);
+		expect(files.configs).toEqual([
+			{
+				sessionId: "file-1",
+				provider: "vercel-ai-gateway",
+				model: "openai/gpt-4o-transcribe",
+				sampleRate: 16_000,
+				apiKey: "sk-file",
+				path: "/home/user/clips/interview.mp4",
+			},
+		]);
+		expect(events).toEqual([
+			{ type: "ready" },
+			{ type: "stopped", sessionId: "file-1", fullText: "file text" },
+		]);
+		expect(files.sessions[0]?.stopped).toBe(true);
+	});
+
+	test("never forwards audio chunks to a file session", async () => {
+		const { factory, events } = fakeFactory();
+		const files = fakeFileDeps();
+
+		await runWorkerLoop(
+			linesOf([FILE_COMMAND, audio("a1"), JSON.stringify({ type: "stop" })]),
+			(event) => events.push(event),
+			factory,
+			undefined,
+			files.deps,
+		);
+
+		expect(files.sessions[0]?.pushes).toEqual([]);
+	});
+
+	test("uses the provider environment variable when no key is sent", async () => {
+		process.env.AI_GATEWAY_API_KEY = "env-key";
+		const { factory, events } = fakeFactory();
+		const files = fakeFileDeps();
+
+		await runWorkerLoop(
+			linesOf([
+				JSON.stringify({ ...JSON.parse(FILE_COMMAND), apiKey: undefined }),
+				JSON.stringify({ type: "stop" }),
+			]),
+			(event) => events.push(event),
+			factory,
+			undefined,
+			files.deps,
+		);
+
+		expect(files.configs[0]?.apiKey).toBe("env-key");
+	});
+
+	test("rejects an unknown provider without creating a session", async () => {
+		const { factory, events } = fakeFactory();
+		const files = fakeFileDeps();
+
+		await runWorkerLoop(
+			linesOf([
+				JSON.stringify({ ...JSON.parse(FILE_COMMAND), provider: "acme" }),
+			]),
+			(event) => events.push(event),
+			factory,
+			undefined,
+			files.deps,
+		);
+
+		expect(events[1]).toMatchObject({
+			type: "error",
+			sessionId: "file-1",
+			code: "unsupported_provider",
+		});
+		expect(files.configs).toHaveLength(0);
+		expect(files.resolutions()).toBe(0);
+	});
+
+	test("reports a missing key and names the provider environment variables", async () => {
+		const { factory, events } = fakeFactory();
+		const files = fakeFileDeps();
+
+		await runWorkerLoop(
+			linesOf([JSON.stringify({ ...JSON.parse(FILE_COMMAND), apiKey: undefined })]),
+			(event) => events.push(event),
+			factory,
+			undefined,
+			files.deps,
+		);
+
+		expect(events[1]).toMatchObject({
+			type: "error",
+			sessionId: "file-1",
+			code: "missing_api_key",
+		});
+		expect((events[1] as { message: string }).message).toContain(
+			"AI_GATEWAY_API_KEY",
+		);
+		expect(files.configs).toHaveLength(0);
+	});
+
+	test("emits ffmpeg_missing without starting a session or a started event", async () => {
+		const { factory, events } = fakeFactory();
+		const files = fakeFileDeps();
+		files.deps.findFfmpeg = () => undefined;
+
+		await runWorkerLoop(
+			linesOf([FILE_COMMAND]),
+			(event) => events.push(event),
+			factory,
+			undefined,
+			files.deps,
+		);
+
+		const types = events.map((event) => event.type);
+		expect(types).toEqual(["ready", "error"]);
+		expect(types).not.toContain("started");
+		expect(events[1]).toMatchObject({
+			type: "error",
+			sessionId: "file-1",
+			code: "ffmpeg_missing",
+		});
+		expect((events[1] as { message: string }).message).toContain("ffmpeg");
+		expect(files.configs).toHaveLength(0);
+	});
+
+	test("stops the previous live session before starting the file session", async () => {
+		const { factory, adapter, events } = fakeFactory();
+		const files = fakeFileDeps();
+
+		await runWorkerLoop(
+			linesOf([START, FILE_COMMAND, JSON.stringify({ type: "stop" })]),
+			(event) => events.push(event),
+			factory,
+			undefined,
+			files.deps,
+		);
+
+		expect(adapter.sessions[0]?.stopped).toBe(true);
+		expect(files.sessions).toHaveLength(1);
+		expect(events.map((event) => event.type)).toEqual([
+			"ready",
+			"started",
+			"stopped",
+			"stopped",
+		]);
+	});
+
+	test("stops the active file session when a new start arrives", async () => {
+		const { factory, adapter, events } = fakeFactory();
+		const files = fakeFileDeps();
+
+		await runWorkerLoop(
+			linesOf([FILE_COMMAND, START, JSON.stringify({ type: "stop" })]),
+			(event) => events.push(event),
+			factory,
+			undefined,
+			files.deps,
+		);
+
+		expect(files.sessions[0]?.stopped).toBe(true);
+		expect(adapter.sessions).toHaveLength(1);
+		expect(adapter.sessions[0]?.stopped).toBe(true);
+	});
+
+	test("aborts an active file session on stdin EOF", async () => {
+		const { factory, events } = fakeFactory();
+		const files = fakeFileDeps();
+
+		await runWorkerLoop(
+			linesOf([FILE_COMMAND]),
+			(event) => events.push(event),
+			factory,
+			undefined,
+			files.deps,
+		);
+
+		expect(files.sessions[0]?.aborted).toBe(true);
+	});
+
+	test("degrades a throwing file session factory to stream_failed", async () => {
+		const { factory, events } = fakeFactory();
+		const files = fakeFileDeps();
+		files.deps.createSession = () => {
+			throw new Error("session blew up");
+		};
+
+		await runWorkerLoop(
+			linesOf([FILE_COMMAND]),
+			(event) => events.push(event),
+			factory,
+			undefined,
+			files.deps,
+		);
+
+		expect(events[1]).toEqual({
+			type: "error",
+			sessionId: "file-1",
+			code: "stream_failed",
+			message: "session blew up",
+		});
 	});
 });

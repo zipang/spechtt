@@ -477,3 +477,116 @@ describe("redactCommand capabilities", () => {
 		expect(redactCommand(command)).toEqual(command);
 	});
 });
+
+describe("transcribeFile", () => {
+	const fileLine = (overrides: Record<string, unknown> = {}) =>
+		JSON.stringify({
+			type: "transcribeFile",
+			sessionId: "session-1",
+			provider: "vercel-ai-gateway",
+			model: "openai/gpt-4o-transcribe",
+			path: "/home/user/recordings/meeting.mp4",
+			...overrides,
+		});
+
+	test("parses a file command with an API key", () => {
+		expect(parseInboundLine(fileLine({ apiKey: "sk-secret" }))).toEqual({
+			ok: true,
+			command: {
+				type: "transcribeFile",
+				sessionId: "session-1",
+				provider: "vercel-ai-gateway",
+				model: "openai/gpt-4o-transcribe",
+				path: "/home/user/recordings/meeting.mp4",
+				apiKey: "sk-secret",
+			},
+		});
+	});
+
+	test("omits the API key when the line has none", () => {
+		const result = parseInboundLine(fileLine());
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect("apiKey" in result.command).toBe(false);
+	});
+
+	test("carries no audio payload or sample rate", () => {
+		const result = parseInboundLine(fileLine());
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect("pcm16Base64" in result.command).toBe(false);
+		expect("sampleRate" in result.command).toBe(false);
+	});
+
+	test("rejects a missing, empty or NUL-containing path", () => {
+		for (const path of [undefined, "", "   ", "/tmp/a\u0000b", 42]) {
+			const result = parseInboundLine(fileLine({ path }));
+
+			expect(result.ok).toBe(false);
+			if (result.ok) return;
+			expect(result.message).toContain("path");
+		}
+	});
+
+	test("rejects a missing provider, model or session id", () => {
+		for (const field of ["provider", "model", "sessionId"]) {
+			const result = parseInboundLine(fileLine({ [field]: "" }));
+
+			expect(result.ok).toBe(false);
+			if (result.ok) return;
+			expect(result.message).toContain(field);
+		}
+	});
+
+	test("rejects a non-string API key", () => {
+		const result = parseInboundLine(fileLine({ apiKey: 12 }));
+
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.message).toContain("apiKey");
+	});
+
+	test("redacts the file API key without mutating the input", () => {
+		const command: InboundCommand = {
+			type: "transcribeFile",
+			sessionId: "session-1",
+			provider: "vercel-ai-gateway",
+			model: "openai/gpt-4o-transcribe",
+			path: "/tmp/a.wav",
+			apiKey: "sk-file-secret",
+		};
+
+		const redacted = redactCommand(command);
+
+		expect(redacted).toEqual({ ...command, apiKey: "[REDACTED]" });
+		expect(JSON.stringify(redacted)).not.toContain("sk-file-secret");
+	});
+});
+
+describe("progress events", () => {
+	test("serializes a progress event with a known total", () => {
+		const event: OutboundEvent = {
+			type: "progress",
+			sessionId: "session-1",
+			processedSeconds: 12.5,
+			totalSeconds: 340.25,
+		};
+
+		expect(JSON.parse(serializeOutboundEvent(event))).toEqual(event);
+	});
+
+	test("serializes an unknown total as null", () => {
+		const event: OutboundEvent = {
+			type: "progress",
+			sessionId: "session-1",
+			processedSeconds: 3,
+			totalSeconds: null,
+		};
+
+		expect(serializeOutboundEvent(event)).toBe(
+			'{"type":"progress","sessionId":"session-1","processedSeconds":3,"totalSeconds":null}\n',
+		);
+	});
+});

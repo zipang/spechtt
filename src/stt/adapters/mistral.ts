@@ -120,8 +120,11 @@ export function defaultMistralModel(
  * Segmented models exist across providers (`mistral/voxtral-*`,
  * `openai/whisper-1`, ...): use the Mistral SDK for direct Mistral sessions and
  * the shared provider resolver otherwise.
+ *
+ * Exported so the file adapter resolves models exactly like the live
+ * segmented adapter.
  */
-function defaultSegmentedModel(
+export function defaultSegmentedModel(
 	config: SttSessionConfig,
 ): TranscriptionModel {
 	return config.provider === "mistral"

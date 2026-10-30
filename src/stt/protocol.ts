@@ -13,7 +13,15 @@ export type SttErrorCode =
 	| "missing_api_key"
 	| "unsupported_provider"
 	| "stream_failed"
-	| "aborted";
+	| "aborted"
+	/** The requested path does not exist, is a directory, or is unreadable. */
+	| "file_not_found"
+	/** ffmpeg cannot demux the file: no audio stream or unsupported container. */
+	| "unsupported_file"
+	/** ffmpeg started but failed mid-decode. */
+	| "decode_failed"
+	/** `ffmpeg`/`ffprobe` are not installed or not on PATH. */
+	| "ffmpeg_missing";
 
 export interface StartCommand {
 	type: "start";
@@ -27,6 +35,23 @@ export interface StartCommand {
 export interface AudioCommand {
 	type: "audio";
 	pcm16Base64: string;
+}
+
+/**
+ * Transcribe a file that already exists on the worker's host.
+ *
+ * Only the path crosses the bridge: the worker decodes the file locally with
+ * ffmpeg (any container it supports) at a fixed 16 kHz mono, so no sample rate
+ * is transmitted.
+ */
+export interface TranscribeFileCommand {
+	type: "transcribeFile";
+	sessionId: string;
+	provider: string;
+	model: string;
+	/** Absolute path to an audio or video file on the worker's host. */
+	path: string;
+	apiKey?: string;
 }
 
 export interface PauseCommand {
@@ -54,6 +79,7 @@ export interface CapabilitiesCommand {
 
 export type InboundCommand =
 	| StartCommand
+	| TranscribeFileCommand
 	| AudioCommand
 	| PauseCommand
 	| ResumeCommand
@@ -93,6 +119,15 @@ export interface StoppedEvent {
 	fullText: string;
 }
 
+export interface ProgressEvent {
+	type: "progress";
+	sessionId: string;
+	/** Seconds of decoded audio consumed so far (monotonic, >= 0). */
+	processedSeconds: number;
+	/** ffprobe duration, or null when it cannot be determined. */
+	totalSeconds: number | null;
+}
+
 export interface ErrorEvent {
 	type: "error";
 	sessionId?: string;
@@ -118,6 +153,7 @@ export type OutboundEvent =
 	| DeltaEvent
 	| CommittedEvent
 	| StoppedEvent
+	| ProgressEvent
 	| ErrorEvent
 	| CapabilitiesEvent;
 
@@ -174,6 +210,44 @@ function parseStart(payload: Record<string, unknown>): ParseInboundResult {
 		provider: payload.provider,
 		model: payload.model,
 		sampleRate: payload.sampleRate,
+	};
+	if (typeof payload.apiKey === "string") {
+		command.apiKey = payload.apiKey;
+	}
+	return { ok: true, command };
+}
+
+function parseTranscribeFile(
+	payload: Record<string, unknown>,
+): ParseInboundResult {
+	if (!isNonEmptyString(payload.sessionId)) {
+		return invalid("transcribeFile.sessionId must be a non-empty string");
+	}
+	if (!isNonEmptyString(payload.provider)) {
+		return invalid("transcribeFile.provider must be a non-empty string");
+	}
+	if (!isNonEmptyString(payload.model)) {
+		return invalid("transcribeFile.model must be a non-empty string");
+	}
+	if (
+		!isNonEmptyString(payload.path) ||
+		payload.path.trim().length === 0 ||
+		payload.path.includes("\u0000")
+	) {
+		return invalid(
+			"transcribeFile.path must be a non-empty path without NUL bytes",
+		);
+	}
+	if (payload.apiKey !== undefined && typeof payload.apiKey !== "string") {
+		return invalid("transcribeFile.apiKey must be a string when present");
+	}
+
+	const command: TranscribeFileCommand = {
+		type: "transcribeFile",
+		sessionId: payload.sessionId,
+		provider: payload.provider,
+		model: payload.model,
+		path: payload.path,
 	};
 	if (typeof payload.apiKey === "string") {
 		command.apiKey = payload.apiKey;
@@ -254,6 +328,9 @@ export function parseInboundLine(line: string): ParseInboundResult {
 		case "capabilities":
 			return parseCapabilities(payload);
 
+		case "transcribeFile":
+			return parseTranscribeFile(payload);
+
 		default:
 			return invalid(
 				typeof payload.type === "string"
@@ -276,6 +353,7 @@ export function serializeOutboundEvent(event: OutboundEvent): string {
 export function redactCommand(command: InboundCommand): InboundCommand {
 	switch (command.type) {
 		case "start":
+		case "transcribeFile":
 		case "capabilities":
 			if (command.apiKey === undefined) {
 				return command;

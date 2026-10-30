@@ -4,7 +4,10 @@
  * Reads NDJSON `InboundCommand` lines from `stdin` and writes `OutboundEvent`
  * lines to `stdout`. `stderr` is reserved for diagnostics.
  */
-import { MistralAdapter } from "./adapters/mistral";
+import { defaultSegmentedModel, MistralAdapter } from "./adapters/mistral";
+import { createFileSession } from "./adapters/file";
+import type { TranscriptionModel } from "ai";
+import { transcribe as aiTranscribe } from "ai";
 import type {
 	SttAdapterFactory,
 	SttSession,
@@ -19,8 +22,16 @@ import {
 	discoverGatewayModels,
 } from "./discovery";
 import {
+	type FfmpegTools,
+	FILE_SAMPLE_RATE,
+	decodeFileToPcm16,
+	findFfmpeg as defaultFindFfmpeg,
+	probeDuration,
+} from "./file-input";
+import {
 	type InboundCommand,
 	type OutboundEvent,
+	type TranscribeFileCommand,
 	parseInboundLine,
 	serializeOutboundEvent,
 } from "./protocol";
@@ -68,18 +79,73 @@ export function defaultAdapterFactory(
 	return new VercelAiSdkAdapter();
 }
 
+/**
+ * File-session seam. A file session owns its own decoding, so the worker only
+ * needs to resolve the ffmpeg toolchain and build the session.
+ */
+export interface FileDeps {
+	/** Resolves `ffmpeg`/`ffprobe`; `undefined` when either is missing. */
+	findFfmpeg(): FfmpegTools | undefined;
+	/** Builds the session that transcribes `config.path`. */
+	createSession(
+		config: SttSessionConfig & { path: string },
+		emit: (event: OutboundEvent) => void,
+	): SttSession;
+}
+
+/** Per-platform install hint carried by the `ffmpeg_missing` error. */
+export function ffmpegInstallHint(
+	platform: NodeJS.Platform = process.platform,
+): string {
+	switch (platform) {
+		case "darwin":
+			return "install it with `brew install ffmpeg`";
+		case "win32":
+			return "install it with `winget install --id Gyan.FFmpeg -e`";
+		default:
+			return "install it with your package manager (apt/dnf/pacman install ffmpeg)";
+	}
+}
+
+function defaultFileModel(config: SttSessionConfig): TranscriptionModel {
+	return defaultSegmentedModel(config);
+}
+
+/** Real file-session wiring: ffmpeg decode + AI SDK batch transcription. */
+export const defaultFileDeps: FileDeps = {
+	findFfmpeg: () => defaultFindFfmpeg(),
+	createSession: (config, emit) => {
+		const tools = defaultFindFfmpeg();
+		if (tools === undefined) {
+			throw new Error("ffmpeg disappeared after it was resolved");
+		}
+		return createFileSession(config, emit, {
+			decode: (path, { signal }) =>
+				decodeFileToPcm16(path, { ffmpeg: tools.ffmpeg, signal }),
+			probeDuration: (path, signal) =>
+				probeDuration(path, tools.ffprobe, { signal }),
+			transcribe: aiTranscribe,
+			resolveModel: defaultFileModel,
+		});
+	},
+};
+
 export async function runWorkerLoop(
 	lines: AsyncIterable<string>,
 	emit: (event: OutboundEvent) => void,
 	adapterFactory: SttAdapterFactory = defaultAdapterFactory,
 	discovery: DiscoverySource = defaultDiscoverySource,
+	files: FileDeps = defaultFileDeps,
 ): Promise<void> {
 	let active: SttSession | undefined;
+	/** A file session never receives live audio, so routing must know the kind. */
+	let activeKind: "live" | "file" | undefined;
 	let closed = false;
 
 	const stopActive = async (): Promise<void> => {
 		const session = active;
 		active = undefined;
+		activeKind = undefined;
 		if (session === undefined) {
 			return;
 		}
@@ -99,6 +165,7 @@ export async function runWorkerLoop(
 	const abortActive = async (): Promise<void> => {
 		const session = active;
 		active = undefined;
+		activeKind = undefined;
 		if (session === undefined) {
 			return;
 		}
@@ -145,6 +212,72 @@ export async function runWorkerLoop(
 		try {
 			const adapter = await adapterFactory(config);
 			active = await adapter.start(config, emit);
+			activeKind = "live";
+		} catch (error) {
+			active = undefined;
+			emit({
+				type: "error",
+				sessionId: command.sessionId,
+				code: "stream_failed",
+				message: errorMessage(error),
+			});
+		}
+	};
+
+	/**
+	 * Starts a file session. Validation mirrors `start` (provider, key), then
+	 * the ffmpeg toolchain is resolved **before** any session exists so a
+	 * missing binary produces `ffmpeg_missing` and no `started` event.
+	 */
+	const handleTranscribeFile = async (
+		command: TranscribeFileCommand,
+	): Promise<void> => {
+		await stopActive();
+
+		if (getProvider(command.provider) === undefined) {
+			emit({
+				type: "error",
+				sessionId: command.sessionId,
+				code: "unsupported_provider",
+				message: `Unsupported STT provider: ${command.provider}`,
+			});
+			return;
+		}
+
+		const apiKey = resolveProviderApiKey(command.provider, command.apiKey);
+		if (apiKey === undefined) {
+			const provider = getProvider(command.provider);
+			const envHint = provider?.envVars.join(" or ") ?? "the provider key";
+			emit({
+				type: "error",
+				sessionId: command.sessionId,
+				code: "missing_api_key",
+				message: `Missing API key for ${command.provider}; set ${envHint} or pass apiKey in transcribeFile`,
+			});
+			return;
+		}
+
+		if (files.findFfmpeg() === undefined) {
+			emit({
+				type: "error",
+				sessionId: command.sessionId,
+				code: "ffmpeg_missing",
+				message: `ffmpeg and ffprobe are required to transcribe files; ${ffmpegInstallHint()}`,
+			});
+			return;
+		}
+
+		const config: SttSessionConfig & { path: string } = {
+			sessionId: command.sessionId,
+			provider: command.provider,
+			model: command.model,
+			sampleRate: FILE_SAMPLE_RATE,
+			apiKey,
+			path: command.path,
+		};
+		try {
+			active = files.createSession(config, emit);
+			activeKind = "file";
 		} catch (error) {
 			active = undefined;
 			emit({
@@ -206,8 +339,15 @@ export async function runWorkerLoop(
 				await handleStart(command);
 				return;
 
+			case "transcribeFile":
+				await handleTranscribeFile(command);
+				return;
+
 			case "audio":
-				active?.pushAudio(command.pcm16Base64);
+				// A file session owns its own decoding: live audio is ignored.
+				if (activeKind === "live") {
+					active?.pushAudio(command.pcm16Base64);
+				}
 				return;
 
 			case "pause":

@@ -129,6 +129,20 @@ pub enum SttCommand {
     Audio {
         pcm16_base64: String,
     },
+    /// Transcribe a file that already exists on the worker's host.
+    ///
+    /// Only the path crosses the bridge: the worker decodes the file locally
+    /// with ffmpeg at a fixed 16 kHz mono, so no sample rate is sent.
+    #[serde(rename_all = "camelCase")]
+    TranscribeFile {
+        session_id: String,
+        provider: String,
+        model: String,
+        /// Absolute path to an audio or video file on the worker's host.
+        path: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        api_key: Option<SecretString>,
+    },
     Pause,
     Resume,
     Stop,
@@ -165,7 +179,9 @@ impl SttCommand {
 }
 
 /// A streaming event sent Bun → Rust over the worker's `stdout`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// `Progress` carries `f64` seconds, so equality is `PartialEq` only.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 #[non_exhaustive]
 pub enum SttEvent {
@@ -187,6 +203,15 @@ pub enum SttEvent {
     Stopped {
         session_id: String,
         full_text: String,
+    },
+    /// Decoded position of a file session, in seconds.
+    #[serde(rename_all = "camelCase")]
+    Progress {
+        session_id: String,
+        processed_seconds: f64,
+        /// `ffprobe` duration, absent when it could not be determined.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        total_seconds: Option<f64>,
     },
     #[serde(rename_all = "camelCase")]
     Error {
@@ -220,7 +245,8 @@ impl SttEvent {
             | SttEvent::Partial { session_id, .. }
             | SttEvent::Delta { session_id, .. }
             | SttEvent::Committed { session_id, .. }
-            | SttEvent::Stopped { session_id, .. } => Some(session_id),
+            | SttEvent::Stopped { session_id, .. }
+            | SttEvent::Progress { session_id, .. } => Some(session_id),
             SttEvent::Error { session_id, .. } => session_id.as_deref(),
         }
     }
@@ -514,6 +540,84 @@ mod tests {
         let debug = format!("{command:?}");
         assert!(debug.contains("[REDACTED]"), "{debug}");
         assert!(!debug.contains("sk-live-secret"), "{debug}");
+    }
+
+    #[test]
+    fn transcribe_file_serializes_as_camel_case_and_omits_an_absent_key() {
+        let command = SttCommand::TranscribeFile {
+            session_id: "take-7".to_string(),
+            provider: "vercel-ai-gateway".to_string(),
+            model: "openai/gpt-4o-transcribe".to_string(),
+            path: "/home/user/clips/interview.mp4".to_string(),
+            api_key: None,
+        };
+
+        let json = serde_json::to_string(&command).expect("serializes");
+        assert_eq!(
+            json,
+            r#"{"type":"transcribeFile","sessionId":"take-7","provider":"vercel-ai-gateway","model":"openai/gpt-4o-transcribe","path":"/home/user/clips/interview.mp4"}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<SttCommand>(&json).expect("round-trips"),
+            command
+        );
+    }
+
+    #[test]
+    fn transcribe_file_serializes_a_key_but_redacts_it_in_debug() {
+        let command = SttCommand::TranscribeFile {
+            session_id: "take-7".to_string(),
+            provider: "vercel-ai-gateway".to_string(),
+            model: "openai/gpt-4o-transcribe".to_string(),
+            path: "/tmp/a.wav".to_string(),
+            api_key: Some(SecretString::new("sk-file-secret")),
+        };
+
+        let json = serde_json::to_string(&command).expect("serializes");
+        assert!(json.contains(r#""apiKey":"sk-file-secret""#), "{json}");
+
+        let debug = format!("{command:?}");
+        assert!(debug.contains("[REDACTED]"), "{debug}");
+        assert!(!debug.contains("sk-file-secret"), "{debug}");
+    }
+
+    #[test]
+    fn progress_serializes_with_and_without_a_known_total() {
+        let known = SttEvent::Progress {
+            session_id: "take-7".to_string(),
+            processed_seconds: 12.5,
+            total_seconds: Some(340.25),
+        };
+        assert_eq!(
+            serde_json::to_string(&known).expect("serializes"),
+            r#"{"type":"progress","sessionId":"take-7","processedSeconds":12.5,"totalSeconds":340.25}"#
+        );
+
+        let unknown = SttEvent::Progress {
+            session_id: "take-7".to_string(),
+            processed_seconds: 3.0,
+            total_seconds: None,
+        };
+        let json = serde_json::to_string(&unknown).expect("serializes");
+        assert_eq!(
+            json,
+            r#"{"type":"progress","sessionId":"take-7","processedSeconds":3.0}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<SttEvent>(&json).expect("round-trips"),
+            unknown
+        );
+    }
+
+    #[test]
+    fn progress_reports_its_session_id() {
+        let event = SttEvent::Progress {
+            session_id: "take-7".to_string(),
+            processed_seconds: 1.0,
+            total_seconds: None,
+        };
+
+        assert_eq!(event.session_id(), Some("take-7"));
     }
 
     #[test]

@@ -41,6 +41,7 @@ impl TranscriptBuffer {
             }
             SttEvent::Ready
             | SttEvent::Started { .. }
+            | SttEvent::Progress { .. }
             | SttEvent::Error { .. }
             | SttEvent::Capabilities { .. } => {}
         }

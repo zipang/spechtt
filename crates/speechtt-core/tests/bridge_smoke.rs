@@ -17,7 +17,9 @@ use std::time::{Duration, Instant};
 
 use async_channel::TryRecvError;
 use speechtt_core::backend::{BackendError, BunSubprocess, SttEventReceiver, WORKER_SCRIPT};
-use speechtt_core::protocol::{ProviderCapability, SttCommand, SttEvent, TranscriptionMode};
+use speechtt_core::protocol::{
+    ProviderCapability, SecretString, SttCommand, SttEvent, TranscriptionMode,
+};
 
 /// Every variable the registry consults. They are cleared before spawning so
 /// the availability flags do not depend on the developer's shell.
@@ -117,6 +119,20 @@ fn worker_script() -> PathBuf {
         .join("..")
         .join("..")
         .join(WORKER_SCRIPT)
+}
+
+fn binary_is_available(binary: &str, version_flag: &str) -> bool {
+    ProcessCommand::new(binary)
+        .arg(version_flag)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+fn ffmpeg_is_available() -> bool {
+    binary_is_available("ffmpeg", "-version") && binary_is_available("ffprobe", "-version")
 }
 
 fn bun_is_available() -> bool {
@@ -312,4 +328,115 @@ fn live_worker_recovers_from_a_malformed_line() {
         matches!(next_event(&events, READ_TIMEOUT), ReadOutcome::Closed),
         "the worker must close stdout after stdin EOF"
     );
+}
+
+/// A real file transcription needs a real key: the worker calls the gateway.
+/// Bounded by a generous timeout, because a batch request for a 1 s clip still
+/// includes provider round-trips.
+const FILE_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Path of the checked-in fixture used by the file smoke test.
+fn file_fixture() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("tests")
+        .join("test-record.wav")
+}
+
+#[test]
+fn live_worker_transcribes_a_local_file() {
+    // This test talks to the gateway and needs ffmpeg, so it only runs when
+    // the developer opted in by exporting the key. It never scrubs the
+    // environment: `ENV_LOCK` only keeps the sibling smoke tests from doing so
+    // while this one runs.
+    let lock = ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let Some(api_key) = std::env::var("AI_GATEWAY_API_KEY")
+        .ok()
+        .filter(|key| !key.trim().is_empty())
+    else {
+        eprintln!("skipping live file transcription: AI_GATEWAY_API_KEY is not set");
+        return;
+    };
+    drop(lock);
+
+    let Some(script) = smoke_target() else {
+        return;
+    };
+    if !ffmpeg_is_available() {
+        eprintln!("skipping live file transcription: ffmpeg/ffprobe are not on PATH");
+        return;
+    }
+    let media = file_fixture();
+    if !media.is_file() {
+        eprintln!(
+            "skipping live file transcription: fixture {} is missing",
+            media.display()
+        );
+        return;
+    }
+
+    let mut worker = BunSubprocess::spawn(&script).expect("spawns the Bun worker");
+    let events = worker.events();
+    assert_eq!(expect_event(&events), SttEvent::Ready);
+
+    worker
+        .send(&SttCommand::TranscribeFile {
+            session_id: "smoke-file".to_string(),
+            provider: "vercel-ai-gateway".to_string(),
+            model: "openai/gpt-4o-transcribe".to_string(),
+            path: media.to_string_lossy().into_owned(),
+            api_key: Some(SecretString::new(api_key)),
+        })
+        .expect("sends a file transcription request");
+
+    let mut committed = String::new();
+    let mut saw_started = false;
+    let mut saw_progress = false;
+    let full_text = loop {
+        match next_event(&events, FILE_TIMEOUT) {
+            ReadOutcome::Event(SttEvent::Started { session_id }) => {
+                assert_eq!(session_id, "smoke-file");
+                saw_started = true;
+            }
+            ReadOutcome::Event(SttEvent::Committed { text, .. }) => {
+                if !committed.is_empty() {
+                    committed.push(' ');
+                }
+                committed.push_str(&text);
+            }
+            ReadOutcome::Event(SttEvent::Progress {
+                processed_seconds,
+                total_seconds,
+                ..
+            }) => {
+                saw_progress = true;
+                assert!(processed_seconds >= 0.0);
+                assert!(
+                    total_seconds.is_none_or(|total| total > 0.0),
+                    "ffprobe reported a non-positive duration"
+                );
+            }
+            ReadOutcome::Event(SttEvent::Stopped { full_text, .. }) => break full_text,
+            ReadOutcome::Event(SttEvent::Error { code, message, .. }) => {
+                panic!("file transcription failed: {code}: {message}");
+            }
+            other => panic!("unexpected event while transcribing a file: {other:?}"),
+        }
+    };
+
+    assert!(saw_started, "the file session must emit started");
+    assert!(saw_progress, "the file session must report progress");
+    assert!(
+        !committed.trim().is_empty(),
+        "expected committed text for a speech fixture"
+    );
+    assert!(
+        !full_text.trim().is_empty(),
+        "the stop event must carry the merged transcript"
+    );
+
+    drop(worker);
 }
