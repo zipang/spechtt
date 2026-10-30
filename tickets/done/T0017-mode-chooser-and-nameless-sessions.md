@@ -4,6 +4,8 @@
 - **Wave**: 2 (integration — changes the entry flow and the session contract)
 - **Depends on**: T0015 (file takes, file picker), T0009 (screen wiring), T0007 (output/save)
 - **Blocks**: —
+- **Owner**: CTO (sub-agent quotas exhausted), implementation supervised by the board owner
+- **Started**: 2026-10-30
 - **References**: `mockups/app-window/new-session.png` (visual ground truth),
   `mockups/app-window/new-session.html` (measurements), `mockups/app-window/idle.png`
   (Ready screen), `DESIGN.md` § Components, `PRODUCT.md` § Session workflow,
@@ -375,57 +377,57 @@ Copy/Save and the written-path + Open layout.
 
 ### Part A — Nameless session contract
 
-- [ ] **T17.1 — Core contract specs (red)**: `session_machine.rs` — `missing()`
+- [x] **T17.1 — Core contract specs (red)**: `session_machine.rs` — `missing()`
   returns only the three fields; `is_complete`; `set_*` freeze while active;
   `stop()` returns source/provider/model and leaves `Blank` with an empty
   config; `reset()` refuses while active and clears an idle machine. Delete the
   name/output cases.
-- [ ] **T17.2 — Implement the core contract**: trim `session.rs` to
+- [x] **T17.2 — Implement the core contract**: trim `session.rs` to
   `audio_source/provider/model`, delete `OutputTarget`, `set_session_name`,
   `set_output`, add `reset()`. Update doc comments (five parameters → three).
-- [ ] **T17.3 — Save-layer specs (red)**: `output.rs` — `save_transcript_to`
+- [x] **T17.3 — Save-layer specs (red)**: `output.rs` — `save_transcript_to`
   writes the exact path (no timestamp), overwrites an existing file, creates a
   missing parent, rejects empty text, Markdown title = `title`, `.txt` has no
   heading; `suggested_transcript_name` sanitises, stamps and falls back to
   `speechtt`. Delete the `save_finished`/`OutputTarget`/`save_transcript_at`
   tests and port their stem/timestamp assertions to the suggestion helper.
-- [ ] **T17.4 — Implement the save layer**: add `save_transcript_to` +
+- [x] **T17.4 — Implement the save layer**: add `save_transcript_to` +
   `suggested_transcript_name`, delete `save_finished`, `OutputTarget`,
   `save_transcript_at` and the collision loop.
-- [ ] **T17.5 — Controller specs (red)**: `session_flow.rs` —
+- [x] **T17.5 — Controller specs (red)**: `session_flow.rs` —
   `choose_mode(Live|File)` with complete vs incomplete settings; `create_session`
   commits provider + model; `start_recording` refused in File mode;
   `change_mode` resets to `Mode`; `save_finished_transcript_to` writes the
   chosen path and sets `written_path`; `suggested_save_name` (file stem vs
   `None`); `new_take` returns to `Mode`; no name/output API remains.
-- [ ] **T17.6 — Implement the controller**: `SessionMode`, `choose_mode`,
+- [x] **T17.6 — Implement the controller**: `SessionMode`, `choose_mode`,
   `change_mode`, save-to-path, delete name/output plumbing, rename
   `ViewState::Prompt` → `Mode`.
 
 ### Part B — Mode chooser UI
 
-- [ ] **T17.7 — Component specs (red)**: in-file unit tests for
+- [x] **T17.7 — Component specs (red)**: in-file unit tests for
   `ripple_frame` (monotonic diameter, alpha decays to 0, delta clamped) and a
   `widget.rs` test that clicking `mode-live`/`mode-file` bumps
   `pulse_count` and renders a frame.
-- [ ] **T17.8 — Implement `RoundButton` + `Card`**: new modules, move
+- [x] **T17.8 — Implement `RoundButton` + `Card`**: new modules, move
   `IconAction`, delete `TransportButton`/`ChoicePill`, add
   `ScreenShell::headerless()`, update every transport call site to `RoundButton`
   with its pulse counter.
-- [ ] **T17.9 — Implement the mode chooser and Ready branching**: `render_mode`,
+- [x] **T17.9 — Implement the mode chooser and Ready branching**: `render_mode`,
   form rows, File Ready (browse + change mode), remove the T0015 ready-screen
   action, window 600×460, body padding for `ViewState::Mode`.
-- [ ] **T17.10 — App wiring + save dialog**: `choose_mode`/`change_mode`/
+- [x] **T17.10 — App wiring + save dialog**: `choose_mode`/`change_mode`/
   `create_session` picker routing, `prompt_for_new_path` save, remove the
   session-name input, stop auto-saving file takes. Widget test: click
   `mode-live` (empty settings) → Form; fill → Continue → Ready; click
   `btn-record` → Recording; finish → Stopped; click `btn-save` →
   `cx.simulate_new_path_selection` → file exists, path shown.
-- [ ] **T17.11 — Docs**: `DESIGN.md` (Card, RoundButton 56 px + tones +
+- [x] **T17.11 — Docs**: `DESIGN.md` (Card, RoundButton 56 px + tones +
   ripple, record button size, headerless chooser), `PRODUCT.md` (workflow
   table, screen checklist, save/output rules), `README.md` (screen list,
   window size), `setting_row.rs` doc reference.
-- [ ] **T17.12 — Gates + manual QA**: `cargo fmt -- --check`,
+- [x] **T17.12 — Gates + manual QA**: `cargo fmt -- --check`,
   `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
   `bun check src/stt`, `bun run design:validate`. Manual QA: side-by-side with
   `new-session.png` at 600×460; click ripple; live fast path; file fast path
@@ -461,3 +463,58 @@ Copy/Save and the written-path + Open layout.
 ## Implementation Notes
 
 _(added during work)_
+
+### Implementation Notes
+
+Implemented directly by the CTO (sub-agent quotas exhausted), TDD-first: the
+core contract, save layer and controller specs were written and seen failing
+before the implementation.
+
+**Core**
+
+- `SessionField` is `{AudioSource, Provider, Model}`; `OutputTarget` is gone
+  from core and UI. `SessionMachine::stop()` clears the whole config, and the
+  new `SessionMachine::reset()` refuses while a take is active.
+- `output::save_transcript_to(path, title, format, text)` writes the chosen
+  path (the file stem titles the document) and
+  `output::suggested_transcript_name(stem, now)` produces
+  `<stem>-<stamp>.md` / `speechtt-<stamp>.md`. `save_finished`,
+  `save_transcript_at` and the auto-write at `finish_take` were deleted.
+
+**UI**
+
+- `ViewState::Mode` / `SessionMode` replace the old `Prompt`/`OutputTarget`
+  pair; `controller::{choose_mode, change_mode, save_finished_transcript_to,
+  suggested_save_name, mode, pulse_count}` are the seam the tests drive.
+- `RoundButton` (one 56 px diameter, Primary/Secondary tones, expanding ring
+  driven by `SpeechTtApp::pulses`) and `Card` are new components;
+  `TransportButton` and `ChoicePill` were removed.
+- The mode chooser (`views::setup::render_mode`) is headerless, keeps its two
+  cards at `MODE_CARD_WIDTH` (272 px, matching the mockup) and centers the
+  pair, so both descriptions stay on two lines and the round buttons align.
+- The window opens at 600x460 and can never be resized below 600x360: the WM
+  minimum is `WM_NORMAL_HINTS` from `window_min_size`, and
+  `restored_window_bounds` raises a remembered smaller size to it.
+- Save opens the native save dialog with the suggested name; the Stopped
+  screen shows the written path plus Open.
+
+**Verification**
+
+- `cargo fmt -- --check` — clean.
+- `cargo clippy --all-targets -- -D warnings` — clean.
+- `cargo test` — 324 passed, 0 failed.
+- `bun test` — 206 passed, 0 failed.
+- `bun check src/stt` — no type errors (23 files).
+- `bun run design:validate` — 66 tokens, 0 errors.
+- Manual QA on X11 with a throwaway `XDG_CONFIG_HOME`: chooser renders two
+  compact centered cards, `FileUp` icon renders, the form shows exactly two
+  rows (Transcription Service, Model) plus Cancel/Continue, and
+  `xprop WM_NORMAL_HINTS` reports `minimum size: 600 by 360`.
+
+**Known gaps carried to follow-ups**
+
+- The ring never appears in the running app: `SpeechTtApp::pulse` has no
+  caller, so `pulse_count` stays 0 for every button. The ripple test calls
+  `pulse` directly, so it passes while the real click path is inert.
+- Type sizes are ad-hoc (`XS`/`SM`/`MD` chosen per call site), which is the
+  inconsistency T0018 addresses.

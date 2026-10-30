@@ -26,6 +26,12 @@ NDJSON bridge. Visual fidelity is governed by `DESIGN.md` + `design-tokens.css`.
 - **`crates/speechtt-ui`** — native `gpui-kit` application. Owns: window shell,
   view model (`controller.rs`), screens (`views/`), reusable components,
   theme/token mirror, dialogs.
+
+**View rule**: each file under `crates/speechtt-ui/src/views/` exports exactly
+one screen renderer, named `render(app, cx)` and named for the screen it draws
+(`welcome.rs`, `session_setup.rs`, `ready.rs`, `recording.rs`, `paused.rs`,
+`stopped.rs`). Never add a second screen or a shared fragment to a view file —
+fragments used by more than one screen are components.
 - **`src/stt/`** — TypeScript/Bun worker. Runs as a subprocess; `stdout` is
   strictly NDJSON events, `stderr` is strictly human diagnostics.
 - **`scripts/` + `tests/` (TypeScript)** — design-system tooling only; run

@@ -100,6 +100,8 @@ Decisions, deviations, verification output.
 | [T0013](done/T0013-window-geometry-memory.md) | Remember the window size and position | Rust core + UI |
 | [T0014](done/T0014-help-model-catalogue-tab.md) | Help dialog model-catalogue tab and a single gateway provider | Bun worker + Rust core/UI |
 | [T0015](done/T0015-transcribe-local-media-file.md) | Transcribe a local audio or video file | Bun worker + Rust core/UI |
+| [T0017](done/T0017-mode-chooser-and-nameless-sessions.md) | Mode chooser and nameless sessions | Rust core/UI + design system |
+| [T0019](done/T0019-one-view-per-file.md) | One view per file under `views/` | Rust UI (refactor) |
 
 ### In Progress
 
@@ -114,4 +116,4 @@ _(none)_
 | Ticket | Title | Track | Depends on |
 |---|---|---|---|
 | [T0016](planned/T0016-dependency-bootstrap-script.md) | Dependency bootstrap for Bun and ffmpeg | Tooling (TypeScript/Bun) | — |
-| [T0017](planned/T0017-mode-chooser-and-nameless-sessions.md) | Mode chooser and nameless sessions | Rust core/UI + design system | T0015, T0009, T0007 |
+| [T0018](planned/T0018-typography-scale-and-round-button-polish.md) | Three-size typography scale and round-button polish | Rust UI + design system | T0017 |

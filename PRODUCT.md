@@ -224,32 +224,35 @@ every screen from it (plus one UI-owned result state).
 
 | State | Entered when | Screen / controls |
 |---|---|---|
-| `Blank` | at least one of the five parameters is missing | New Session prompt (`+`) → setup form |
-| `Ready` | all five parameters present | READY badge + mic circle |
-| `Recording` | `start` from `Ready` | RECORDING badge + timer + waveform + caption; **Pause + Stop**, Stop **disabled** |
+| `Blank` | the audio source, provider or model is missing | mode chooser: **Live dictation** / **From a file** cards |
+| `Ready` | all three parameters are present | READY badge; live → mic button, file → browse button + **Change mode** |
+| `Recording` | `start` from `Ready` (live) or the file picker (file) | RECORDING badge + timer (or decode progress) + waveform + caption; **Pause + Stop**, Stop **disabled** |
 | `Paused` | `pause` from `Recording` | PAUSED badge + timer + muted waveform + caption; **Resume + Stop**, Stop **enabled** |
-| *Stopped (UI)* | `stop` from `Paused` | result: memory → transcript + Copy/Save; file → written path + Open File |
+| *Stopped (UI)* | `stop` from `Paused` | transcript + **Copy** / **Save**; after Save, `TRANSCRIPT WRITTEN TO` + path + **Open File** |
 
 Rules:
-- **Five parameters are required before any recording**: audio source
-  (defaults to the system mic in the mock), provider, model, session name,
-  output mode (`Memory` or `File`). Setup changes are frozen during a take.
+- **A take has exactly three parameters**: audio source (the default
+  microphone, or the picked file's name), provider and model. There is no
+  session name and no output target. Setup changes are frozen during a take.
+- **The mode decides how the take gets its audio.** Live goes to the mic
+  Ready screen; from a file opens the native picker immediately. A file take
+  never opens the microphone, and `start_recording` is refused in file mode.
+- **A saved file names the take.** Save opens the native save dialog with a
+  suggested name — `<source-stem>-<stamp>.md` for a file take,
+  `speechtt-<stamp>.md` for dictation. The chosen file is written at exactly
+  that path and its stem titles the document. Nothing is written
+  automatically at stop.
 - **Transport controls never move between Recording and Paused**: both show
   Play/Pause + Stop in the same positions. Stop is inert while recording and
   live only while paused.
 - **Stop semantics**: the machine hands back a `FinishedSession` (source,
-  provider, model, name, output) and resets to `Blank`, keeping audio source
-  / provider / model and clearing session name + output — the next take must
-  be named. The UI keeps the finished take to show the `Stopped` screen until
-  **New take** dismisses it (machine is already `Blank` underneath).
-- **Two Stopped layouts, one per output mode**:
-  - *To memory*: transcript well + **Copy** + **Save**, no file path.
-  - *To file*: `TRANSCRIPT WRITTEN TO` + path + **Open File**; no transcript
-    well, no Copy, no Save.
-- Copy/Save/Open File handlers are stubs until the Phase 5 adapters exist
-  (clipboard, file write, editor launch).
-- File path defaults to `~/Documents/<session-name>.md` until a file picker
-  exists.
+  provider, model) and clears its whole configuration back to `Blank`; the
+  next take starts from the mode chooser. The UI keeps the finished take to
+  show the `Stopped` screen until **New take** dismisses it.
+- **Change mode** (file Ready) resets an idle machine to `Blank` and returns
+  to the chooser; it is refused while a take is active.
+- With a configured provider and model, the chooser skips the form; only a
+  stale or missing model shows the two-field setup form.
 
 ### Phase 0 — Design system foundation
 - [x] Install `design-system-tokens` skill into `.agents/skills/`.
@@ -282,7 +285,7 @@ Rules:
 > Dialogs tracked in [`tickets/planned/T0004-ui-dialogs-help-and-settings.md`](tickets/planned/T0004-ui-dialogs-help-and-settings.md).
 - [x] Workspace scaffold: workspace `Cargo.toml`, `crates/speechtt-ui`,
       `crates/speechtt-core` placeholder; `gpui-kit = "0.8"` dependency;
-      app opens a 480×280 always-on-top, draggable window
+      app opens a 600×460 always-on-top, draggable window
       (`application()` → `init(cx)` → `open_window`).
 - [x] Test: headless (`#[gpui_kit::test]`) render shows the header with
       the app title and the `?` + cog icon buttons, found by their stable
@@ -293,31 +296,33 @@ Rules:
 - [x] Test: theme contract — Rust theme values equal the CSS token values
       (cargo-test extension of the design-token contract).
 - [x] Session state machine (pure Rust in `speechtt-core`): five required
-      session parameters (audio source, provider, model, session name,
-      output target) drive `Blank ⇄ Ready`; then `Ready → Recording ⇄
+      session parameters (audio source, provider, model) drive
+      `Blank ⇄ Ready`; then `Ready → Recording ⇄
       Paused`; `Stop` returns the finished session to the caller and resets
-      to `Blank` keeping audio source/provider/model (name + output clear
-      for the next take). Setup changes freeze during a take. Invalid
+      to `Blank` clearing the whole configuration (the next take starts from
+      the mode chooser). Setup changes freeze during a take. Invalid
       transitions return an error and never mutate state.
 - [x] Test: session machine transitions (unit, no UI) — 10 cases in
       `crates/speechtt-core/tests/session_machine.rs`.
-- [x] UI wiring: `SpeechTtApp` owns a `SessionMachine`; the New Session
+- [x] UI wiring: `SpeechTtApp` owns a `SessionMachine`; the mode chooser
       form fills the parameters; clicking the main action / pause / resume /
       stop buttons transitions the state (headless click, assert the
       resulting state — no geometry, find by stable ids). 7 behavior tests in
       `crates/speechtt-ui/tests/session_flow.rs`.
-- [x] Blank state screen (inferred — no mockup frame): `NO SESSION` pill,
-      74px `+` circle labelled "New Session", hint line; opens the form.
-- [x] New Session form (inferred — no mockup frame): provider + model
-      (mock registry, dependent cycling), session title input, output
-      Memory/File segment, Cancel / Create session (inert until all five
-      parameters are set). Body view, not a dialog (480×280 has no room).
+- [x] Blank state screen: no status pill, title **Choose a mode**, subtitle,
+      and two equal cards: **Live dictation** and **From a file**, each with a
+      56 px round button and a caption (`Start` / `Browse files`), per
+      `mockups/app-window/new-session.png`.
+- [x] Setup form (shown only when the persisted model does not resolve):
+      provider + model (mock registry, dependent cycling), Cancel /
+      **Continue** (inert until both are set). Body view, not a dialog.
 - [x] Core visual components (`crates/speechtt-ui/src/components/`):
       `StatusBadge`, `ElapsedTimer`, `Waveform`, `CaptionWell`, plus the
-      reusable `TransportButton`, `IconAction`, `SettingRow` and `ChoicePill`
+      reusable `RoundButton`, `Card`, `IconAction` and `SettingRow`
       controls. Behavior is covered through `tests/session_flow.rs`.
-- [x] Idle/Ready view per `mockups/app-window/idle.png`: READY badge,
-      74px mic circle, "Press to start dictating".
+- [x] Ready view per `mockups/app-window/idle.png`: READY badge, 56 px round
+      mic button, "Press to start dictating". In file mode the same screen
+      shows a browse button, "Browse a file" and **Change mode**.
 - [x] Recording / Paused views per `mockups/app-window/*.png`: badge +
       `mm:ss` timer row, waveform (active bars / muted dots when paused),
       caption well (muted committed text + brand live words). Fed by static
@@ -328,11 +333,10 @@ Rules:
       between states. Stop is **disabled/inert while Recording** and only
       becomes live when Paused. Copy/Save appear only on the Stopped
       screen, and only for memory takes.
-- [x] Stopped screen (result), split by output mode: **file takes** show
-      only the written path + **Open File** (no transcript, no Copy/Save);
-      **memory takes** show the transcript + **Copy/Save**; both offer
-      **New take** → Blank (name + output required again). Copy/Save/Open
-      File handlers are stubs until the Phase 5 adapters exist.
+- [x] Stopped screen (result): an unsaved take shows the transcript +
+      **Copy/Save**; after Save the screen shows the written path +
+      **Open File**. Both modes behave the same, and every take offers
+      **New take** → mode chooser.
 - [ ] Settings dialog per `mockups/dialogs/settings.png` (provider select,
       model select, masked API key field, connected badge, local fallback
       note, Cancel/Save). Test: cog click opens, Cancel/Save close —

@@ -181,13 +181,18 @@ stylesheet only — they are not front-matter entries.
 ## Layout
 
 A 4px linear spacing scale with `1rem` (16px) as the base step. The floating
-panel opens at 480 x 520 px (or the size and position remembered from the last
-run) with `--rounded-lg` corners and `--space-base` internal padding. The New
-Session form uses the roomier prominent rows, so the default height shows all
-four without clipping; the body scrolls if it ever overflows. The top info strip (shortcuts + settings) is `surface-dark`; the
-transcript well is `surface-alt`; the record control sits on `surface`. The
-settings panel is a larger card (`surface-card`) that opens beside the widget,
-not inside it.
+panel opens at 600 x 460 px (or the size and position remembered from the last
+run) with `--rounded-lg` corners and `--space-base` internal padding. It can
+never be resized below 600 x 360 px: that is the smallest box that fits the
+mode chooser's two 272 px cards, the gap between them and the body inset, so
+the cards never collide with the welcome title and both descriptions stay on
+two lines. A remembered smaller geometry is
+raised to that minimum on launch. The
+width fits the mode chooser's two cards side by side; the height fits
+both the chooser and the two-row setup form. The top info strip (shortcuts +
+settings) is `surface-dark`; the transcript well is `surface-alt`; the round
+actions sit on `surface`. The settings panel is a larger card
+(`surface-card`) that opens beside the widget, not inside it.
 
 ## Elevation & Depth
 
@@ -206,14 +211,52 @@ drag indicator.
 
 ## Components
 
-### Record button
+### Round button
 
-The hero of the interface: a large circular button (~112px) on `surface`,
-filled with `brand.primary`, `rounded.full`, `elevation-md`, and a 2px
-`brand.accent` ring on hover/focus. Icon and micro-label use
-`--color-on-primary`. Recording swaps the glyph to a stop square and adds a
-slow outer pulse ring in `brand.primary` at low opacity. Paused shows a play
-glyph on `action.warning` with `--color-on-warning`.
+Rendered by `components::RoundButton` — never a raw `div` sized at the call
+site. Exactly one diameter (56 px, `rounded.full`), two tones:
+
+- `Primary`: `brand.primary` fill, `--color-on-primary` icon, hover
+  `brand.primary-active`.
+- `Secondary`: `surface` fill, 1px `brand.secondary` border, `text` icon,
+  hover `surface-alt-active` with a `brand.primary/40` border.
+
+A click expands a single 2px ring behind the button from 56 to 84 px while
+fading from 55% to 0% opacity over 400 ms (`ease-out-quint`). The ring never
+affects layout, and it is driven by the view's monotonic pulse counter so it
+restarts on every click. Inside a [`Card`] the round button is visual only —
+it has no hover, cursor or click — because the card owns the interaction.
+
+### Card
+
+Rendered by `components::Card`: `surface-alt`, `rounded-md`, `--space-lg`
+padding, `--space-md` gaps, 1px `brand.secondary` border. Cards fill their row
+by default; `Card::width` pins one to a fixed width for rows that must keep
+their intrinsic size. Interactive cards
+show a pointer cursor, a `brand.primary/50` hover border and a
+`surface-button-active` pressed fill. Cards own their click, so a whole card
+(title, description, ring, caption) is one target.
+
+### Mode chooser
+
+The `Blank` screen: no status pill, `--space-lg` inset, title **Choose a
+mode** at `--font-size-lg` semibold, subtitle at `--font-size-sm` muted, then
+two equal cards (live dictation, from a file). Both cards are pinned to
+`MODE_CARD_WIDTH` (216 px), sit `--space-base` apart and are centered as a
+pair, so extra window space grows around the pair, never inside the cards.
+Each card centres a title
+(`--font-size-md` semibold), a wrapped description (`--font-size-sm`
+muted), a round button and an uppercase-free `--font-size-xs` medium caption
+(`Start`, `Browse files`). Captions align because the cards are the same
+height.
+
+### Record / transport controls
+
+The round button is the hero of the recording screens at the same 56 px size
+as everywhere else: `Primary` with a mic glyph on Ready, a pause glyph while
+recording, a play glyph on Paused and a stop square (small square
+`IconAction`) beside them. Paused's Resume stays `Primary`; colour alone
+never distinguishes the states — the status pill and waveform do.
 
 ### Waveform
 
@@ -243,8 +286,8 @@ dot plus an uppercase `mono` label at `--font-size-xs`,
 Rendered by `components::ActionButton`, never a raw `Button` with a size set
 at the call site. One medium size everywhere: `--font-size-md`, 32px high,
 `--space-sm`/`--space-md` horizontal padding. `Primary` marks the single
-committing action in a group (Save, Create, Got it); `Secondary` marks the
-dismissing or alternative action (Cancel, Back). No other tones are needed.
+committing action in a group (Save, Continue, Got it); `Secondary` marks the
+dismissing or alternative action (Cancel, Back, Change mode). No other tones are needed.
 
 ### Icon buttons
 
@@ -270,7 +313,8 @@ uppercase `--font-size-xs`; values in `base` `--font-size-sm`.
 
 ## DO's and DON'Ts
 
-- Do let the orange record button be the only large saturated shape on screen.
+- Do let the filled primary round button be the only saturated shape on a
+  screen.
 - Do signal Recording vs Paused with dot + label + waveform shape, not color alone.
 - Do use `--color-on-*` for anything drawn on a brand or action background.
 - Do keep shortcut reminders visible in the top strip while recording.
