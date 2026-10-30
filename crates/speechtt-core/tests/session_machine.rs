@@ -1,23 +1,23 @@
 //! Session state machine contract (TDD red phase).
 //!
 //! Rules locked in with the product owner:
-//! - Five required session parameters: audio source, provider, model,
-//!   session name, output target. All must be present for `Ready`.
+//! - Three required session parameters: audio source, provider, model. All must
+//!   be present for `Ready`. There is no session name and no output target: the
+//!   file the user saves gives the take its name.
 //! - Setup changes are frozen while Recording/Paused.
-//! - Stop returns the finished session to the caller, then resets to
-//!   `Blank`, keeping audio source / provider / model, clearing session
-//!   name and output (the next take requires naming again).
+//! - Stop returns the finished session to the caller, then clears the whole
+//!   configuration and returns to `Blank` (the next take starts from the mode
+//!   chooser, which re-derives everything).
+//! - `reset()` backs "change mode": idle only, clears the configuration.
 
 use speechtt_core::session::{
-    FinishedSession, OutputTarget, SessionError, SessionField, SessionMachine, SessionState,
+    FinishedSession, SessionError, SessionField, SessionMachine, SessionState,
 };
 
 fn full_config(machine: &mut SessionMachine) {
     machine.set_audio_source("Built-in Microphone").unwrap();
     machine.set_provider("mistral").unwrap();
     machine.set_model("voxtral-mini-latest").unwrap();
-    machine.set_session_name("meeting-notes").unwrap();
-    machine.set_output(OutputTarget::Memory).unwrap();
 }
 
 #[test]
@@ -31,8 +31,6 @@ fn starts_blank_with_nothing_configured() {
             SessionField::AudioSource,
             SessionField::Provider,
             SessionField::Model,
-            SessionField::SessionName,
-            SessionField::Output,
         ]
     );
 }
@@ -43,31 +41,26 @@ fn each_parameter_alone_leaves_the_machine_blank() {
 
     machine.set_audio_source("Built-in Microphone").unwrap();
     assert_eq!(machine.state(), SessionState::Blank);
-    assert_eq!(machine.missing().len(), 4);
+    assert_eq!(machine.missing().len(), 2);
 
     machine.set_provider("mistral").unwrap();
     assert_eq!(machine.state(), SessionState::Blank);
+    assert_eq!(machine.missing().len(), 1);
 
     machine.set_model("voxtral-mini-latest").unwrap();
-    assert_eq!(machine.state(), SessionState::Blank);
-
-    machine.set_session_name("meeting-notes").unwrap();
-    assert_eq!(machine.state(), SessionState::Blank);
-
-    machine.set_output(OutputTarget::Memory).unwrap();
     assert_eq!(machine.state(), SessionState::Ready);
     assert!(machine.missing().is_empty());
 }
 
 #[test]
-fn an_empty_session_name_does_not_count_as_set() {
+fn whitespace_only_values_do_not_count_as_set() {
     let mut machine = SessionMachine::new();
     full_config(&mut machine);
     assert_eq!(machine.state(), SessionState::Ready);
 
-    machine.set_session_name("   ").unwrap();
+    machine.set_provider("   ").unwrap();
     assert_eq!(machine.state(), SessionState::Blank);
-    assert_eq!(machine.missing(), vec![SessionField::SessionName]);
+    assert_eq!(machine.missing(), vec![SessionField::Provider]);
 }
 
 #[test]
@@ -91,12 +84,7 @@ fn start_is_rejected_while_blank_and_reports_missing_fields() {
         SessionError::NotReady { missing } => {
             assert_eq!(
                 missing,
-                vec![
-                    SessionField::AudioSource,
-                    SessionField::Model,
-                    SessionField::SessionName,
-                    SessionField::Output,
-                ]
+                vec![SessionField::AudioSource, SessionField::Model]
             );
         }
         other => panic!("expected NotReady, got {other:?}"),
@@ -157,10 +145,6 @@ fn setup_changes_are_frozen_while_recording_or_paused() {
         Err(SessionError::Frozen { .. })
     ));
     assert!(matches!(
-        machine.set_output(OutputTarget::File("/tmp/take.md".into())),
-        Err(SessionError::Frozen { .. })
-    ));
-    assert!(matches!(
         machine.clear(SessionField::Model),
         Err(SessionError::Frozen { .. })
     ));
@@ -169,50 +153,80 @@ fn setup_changes_are_frozen_while_recording_or_paused() {
 
     machine.pause().unwrap();
     assert!(matches!(
-        machine.set_session_name("renamed"),
+        machine.set_model("whisper"),
         Err(SessionError::Frozen { .. })
+    ));
+    assert!(matches!(
+        machine.reset(),
+        Err(SessionError::InvalidTransition { .. })
     ));
 }
 
 #[test]
-fn stopping_returns_the_finished_session_and_resets_to_blank() {
+fn stopping_returns_the_finished_session_and_clears_the_configuration() {
     let mut machine = SessionMachine::new();
     full_config(&mut machine);
-    machine
-        .set_output(OutputTarget::File("/tmp/meeting-notes.md".into()))
-        .unwrap();
     machine.start().unwrap();
     machine.pause().unwrap();
 
     let finished: FinishedSession = machine.stop().unwrap();
 
-    // The caller receives everything it needs to save / paste / label.
+    // The caller receives everything it needs to save / paste the take.
     assert_eq!(finished.audio_source, "Built-in Microphone");
     assert_eq!(finished.provider, "mistral");
     assert_eq!(finished.model, "voxtral-mini-latest");
-    assert_eq!(finished.session_name, "meeting-notes");
-    assert_eq!(
-        finished.output,
-        OutputTarget::File("/tmp/meeting-notes.md".into())
-    );
 
-    // Next take: identity is remembered, name and output are not.
+    // Next take starts from the mode chooser: nothing is remembered.
     assert_eq!(machine.state(), SessionState::Blank);
+    assert_eq!(machine.config().audio_source, None);
+    assert_eq!(machine.config().provider, None);
+    assert_eq!(machine.config().model, None);
     assert_eq!(
-        machine.config().audio_source.as_deref(),
-        Some("Built-in Microphone")
+        machine.missing(),
+        vec![
+            SessionField::AudioSource,
+            SessionField::Provider,
+            SessionField::Model,
+        ]
     );
-    assert_eq!(machine.config().provider.as_deref(), Some("mistral"));
+}
+
+#[test]
+fn reset_clears_an_idle_machine_and_refuses_while_active() {
+    let mut machine = SessionMachine::new();
+    full_config(&mut machine);
+    assert_eq!(machine.state(), SessionState::Ready);
+
+    machine.reset().unwrap();
+    assert_eq!(machine.state(), SessionState::Blank);
+    assert_eq!(machine.config().provider, None);
+
+    // Resetting a blank machine is a no-op, not an error.
+    machine.reset().unwrap();
+    assert_eq!(machine.state(), SessionState::Blank);
+
+    full_config(&mut machine);
+    machine.start().unwrap();
+    assert!(matches!(
+        machine.reset(),
+        Err(SessionError::InvalidTransition {
+            from: SessionState::Recording
+        })
+    ));
+    // The refusal left the take untouched.
+    assert_eq!(machine.state(), SessionState::Recording);
     assert_eq!(
         machine.config().model.as_deref(),
         Some("voxtral-mini-latest")
     );
-    assert_eq!(machine.config().session_name, None);
-    assert_eq!(machine.config().output, None);
-    assert_eq!(
-        machine.missing(),
-        vec![SessionField::SessionName, SessionField::Output]
-    );
+
+    machine.pause().unwrap();
+    assert!(matches!(
+        machine.reset(),
+        Err(SessionError::InvalidTransition {
+            from: SessionState::Paused
+        })
+    ));
 }
 
 #[test]
@@ -249,12 +263,11 @@ fn full_happy_path_blank_to_ready_to_recording_to_blank_to_ready() {
     assert_eq!(machine.state(), SessionState::Recording);
 
     let finished = machine.stop().unwrap();
-    assert_eq!(finished.session_name, "meeting-notes");
+    assert_eq!(finished.provider, "mistral");
     assert_eq!(machine.state(), SessionState::Blank);
+    assert_eq!(machine.missing().len(), 3);
 
-    // Retake needs only name + output: provider/model/source persisted.
-    machine.set_session_name("meeting-notes-2").unwrap();
-    assert_eq!(machine.state(), SessionState::Blank);
-    machine.set_output(OutputTarget::Memory).unwrap();
+    // The retake re-derives the three parameters from scratch.
+    full_config(&mut machine);
     assert_eq!(machine.state(), SessionState::Ready);
 }

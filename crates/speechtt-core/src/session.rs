@@ -1,12 +1,11 @@
 //! Session state machine: nothing records until the session is fully
 //! configured.
 //!
-//! A take needs five parameters: audio source, AI provider, model, session
-//! name, and output target. [`SessionMachine`] owns that configuration and
-//! derives its state from it:
+//! A take needs three parameters: audio source, AI provider, and model.
+//! [`SessionMachine`] owns that configuration and derives its state from it:
 //!
 //! ```text
-//!        configure all five            start                pause
+//!        configure all three           start                pause
 //! Blank ───────────────────▶ Ready ──────────▶ Recording ⇄──────────▶ Paused
 //!   ▲                          ▲                   │  ▲               │
 //!   │  remove a parameter      │   stop            │  └── resume ─────┘
@@ -16,9 +15,10 @@
 //! - Setup changes are allowed only while `Blank`/`Ready`; a take freezes
 //!   the configuration.
 //! - `stop` returns the finished session to the caller (which owns the
-//!   transcript and the save/paste/copy actions), then resets to `Blank`
-//!   keeping the audio source, provider and model, and clearing the session
-//!   name and output target so the next take is named explicitly.
+//!   transcript and the save/paste/copy actions), then clears the whole
+//!   configuration and returns to `Blank`. The next take starts from the mode
+//!   chooser, which re-derives the mode, provider and model.
+//! - `reset` clears an idle machine; it backs the UI's "change mode" action.
 
 /// Transport state. `Blank` and `Ready` are derived from configuration
 /// completeness; `Recording` and `Paused` are explicit.
@@ -41,35 +41,22 @@ impl SessionState {
     }
 }
 
-/// The five parameters a take requires.
+/// The three parameters a take requires.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SessionField {
     AudioSource,
     Provider,
     Model,
-    SessionName,
-    Output,
 }
 
-/// Where the finished transcript goes by default.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum OutputTarget {
-    /// Kept in the app only (copy/paste flows).
-    Memory,
-    /// Written to the given path.
-    File(String),
-}
-
-/// Session configuration. `None` means "not chosen yet"; `set_session_name`
-/// rejects whitespace-only names, storing `None` instead.
+/// Session configuration. `None` means "not chosen yet"; the setters reject
+/// whitespace-only values, storing `None` instead.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct SessionConfig {
     pub audio_source: Option<String>,
     pub provider: Option<String>,
     pub model: Option<String>,
-    pub session_name: Option<String>,
-    pub output: Option<OutputTarget>,
 }
 
 impl SessionConfig {
@@ -86,12 +73,6 @@ impl SessionConfig {
         if self.model.is_none() {
             missing.push(SessionField::Model);
         }
-        if self.session_name.is_none() {
-            missing.push(SessionField::SessionName);
-        }
-        if self.output.is_none() {
-            missing.push(SessionField::Output);
-        }
         missing
     }
 
@@ -103,15 +84,14 @@ impl SessionConfig {
 }
 
 /// The take handed back by [`SessionMachine::stop`]. The caller owns the
-/// transcript; this carries the identity needed to label, save or paste it.
+/// transcript; this carries the identity needed to label or paste it. A saved
+/// file names the take — the machine never does.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct FinishedSession {
     pub audio_source: String,
     pub provider: String,
     pub model: String,
-    pub session_name: String,
-    pub output: OutputTarget,
 }
 
 /// Why an action was refused. Refusals never mutate the machine.
@@ -183,21 +163,6 @@ impl SessionMachine {
         Ok(())
     }
 
-    pub fn set_session_name(&mut self, value: impl Into<String>) -> Result<(), SessionError> {
-        let value = value.into();
-        self.guard_idle()?;
-        self.config.session_name = non_empty(value);
-        self.refresh();
-        Ok(())
-    }
-
-    pub fn set_output(&mut self, value: OutputTarget) -> Result<(), SessionError> {
-        self.guard_idle()?;
-        self.config.output = Some(value);
-        self.refresh();
-        Ok(())
-    }
-
     /// Unset one parameter (settings "clear" action).
     pub fn clear(&mut self, field: SessionField) -> Result<(), SessionError> {
         self.guard_idle()?;
@@ -205,8 +170,6 @@ impl SessionMachine {
             SessionField::AudioSource => self.config.audio_source = None,
             SessionField::Provider => self.config.provider = None,
             SessionField::Model => self.config.model = None,
-            SessionField::SessionName => self.config.session_name = None,
-            SessionField::Output => self.config.output = None,
         }
         self.refresh();
         Ok(())
@@ -247,7 +210,8 @@ impl SessionMachine {
     }
 
     /// Ends the take (from Recording or Paused), hands the finished session
-    /// to the caller, and resets to `Blank` keeping source/provider/model.
+    /// to the caller, then clears the whole configuration and returns to
+    /// `Blank`.
     pub fn stop(&mut self) -> Result<FinishedSession, SessionError> {
         if !self.state.is_active() {
             return Err(SessionError::InvalidTransition { from: self.state });
@@ -258,15 +222,23 @@ impl SessionMachine {
             audio_source: config.audio_source.clone().unwrap_or_default(),
             provider: config.provider.clone().unwrap_or_default(),
             model: config.model.clone().unwrap_or_default(),
-            session_name: config.session_name.clone().unwrap_or_default(),
-            output: config.output.clone().unwrap_or(OutputTarget::Memory),
         };
 
-        // Keep the take's identity; require a name and output next time.
-        self.config.session_name = None;
-        self.config.output = None;
+        // The next take starts from the mode chooser and re-derives everything.
+        self.config = SessionConfig::default();
         self.state = SessionState::Blank;
         Ok(finished)
+    }
+
+    /// Clears the configuration and returns to `Blank`. Refuses while a take is
+    /// active (use `stop` for that). Backs the UI's "change mode" action.
+    pub fn reset(&mut self) -> Result<(), SessionError> {
+        if self.state.is_active() {
+            return Err(SessionError::InvalidTransition { from: self.state });
+        }
+        self.config = SessionConfig::default();
+        self.state = SessionState::Blank;
+        Ok(())
     }
 
     fn guard_idle(&self) -> Result<(), SessionError> {

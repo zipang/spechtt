@@ -534,8 +534,6 @@ pub mod file {
     use std::process::{Command, Stdio};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use crate::session::{FinishedSession, OutputTarget};
-
     use super::OutputError;
 
     /// Session name length cap for the generated file stem.
@@ -544,11 +542,8 @@ pub mod file {
     /// Prefix used when the session name sanitises to nothing.
     const FALLBACK_STEM: &str = "speechtt";
 
-    /// Heading used when the session name is blank.
+    /// Heading used when the title is blank.
     const FALLBACK_TITLE: &str = "SpeechTT";
-
-    /// Highest numeric suffix tried before giving up on a free filename.
-    const MAX_COLLISION_ATTEMPTS: usize = 999;
 
     /// On-disk transcript format.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -637,103 +632,52 @@ pub mod file {
         }
     }
 
-    /// Saves `text` as `<sanitised-session-name>-<timestamp>.<ext>` in
-    /// `directory`, creating the directory if needed.
+    /// Writes `text` to exactly `path`, replacing whatever is there.
+    ///
+    /// The native save dialog already let the user confirm the destination
+    /// (including replacing an existing file), so no timestamp and no
+    /// collision suffix are invented here. `title` heads a Markdown document.
+    /// Missing parent directories are created.
     ///
     /// # Errors
     ///
-    /// [`OutputError::EmptyTranscript`] for blank text, and
-    /// [`OutputError::Write`] when the file cannot be created.
-    pub fn save_transcript(
-        directory: &Path,
-        session_name: &str,
+    /// [`OutputError::EmptyTranscript`] for blank text and [`OutputError::Write`]
+    /// when the file cannot be written.
+    pub fn save_transcript_to(
+        path: &Path,
+        title: &str,
         format: TranscriptFormat,
         text: &str,
-    ) -> Result<SavedFile, OutputError> {
-        save_transcript_at(directory, session_name, format, text, SystemTime::now())
-    }
-
-    /// [`save_transcript`] with an injected clock, for deterministic names.
-    ///
-    /// # Errors
-    ///
-    /// See [`save_transcript`].
-    pub fn save_transcript_at(
-        directory: &Path,
-        session_name: &str,
-        format: TranscriptFormat,
-        text: &str,
-        now: SystemTime,
     ) -> Result<SavedFile, OutputError> {
         let body = text.trim();
         if body.is_empty() {
             return Err(OutputError::EmptyTranscript);
         }
 
-        let stem = file_stem(session_name, now);
-        let contents = render(session_name, format, body);
-
-        fs::create_dir_all(directory).map_err(|error| OutputError::Write(error.to_string()))?;
-
-        for attempt in 1..=MAX_COLLISION_ATTEMPTS {
-            let file_name = if attempt == 1 {
-                format!("{stem}.{}", format.extension())
-            } else {
-                format!("{stem}-{attempt}.{}", format.extension())
-            };
-            let target = directory.join(file_name);
-            if target.exists() {
-                continue;
-            }
-            match write_atomic(&target, contents.as_bytes()) {
-                Ok(bytes_written) => {
-                    return Ok(SavedFile {
-                        path: target,
-                        bytes_written,
-                    });
-                }
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-                Err(error) => return Err(OutputError::Write(error.to_string())),
-            }
-        }
-
-        Err(OutputError::Write(format!(
-            "no free filename after {MAX_COLLISION_ATTEMPTS} attempts"
-        )))
-    }
-
-    /// Saves a finished session according to its [`OutputTarget`].
-    ///
-    /// `OutputTarget::File` supplies the directory and the format extension;
-    /// `OutputTarget::Memory` has no directory and is rejected.
-    ///
-    /// # Errors
-    ///
-    /// [`OutputError::UnsupportedFormat`] when the target extension is not
-    /// `.md`/`.txt`, plus the errors from [`save_transcript`].
-    pub fn save_for_session(
-        session: &FinishedSession,
-        text: &str,
-    ) -> Result<SavedFile, OutputError> {
-        let OutputTarget::File(target) = &session.output else {
-            return Err(OutputError::Write(
-                "session output target is memory, not a file".to_owned(),
-            ));
-        };
-
-        let target = Path::new(target);
-        let extension = target
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .unwrap_or_default();
-        let format = TranscriptFormat::from_extension(extension)
-            .ok_or_else(|| OutputError::UnsupportedFormat(extension.to_owned()))?;
-        let directory = target
+        let contents = render(title, format, body);
+        if let Some(parent) = path
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
-            .unwrap_or_else(|| Path::new("."));
+        {
+            fs::create_dir_all(parent).map_err(|error| OutputError::Write(error.to_string()))?;
+        }
 
-        save_transcript(directory, &session.session_name, format, text)
+        let bytes_written = write_replacing(path, contents.as_bytes())
+            .map_err(|error| OutputError::Write(error.to_string()))?;
+
+        Ok(SavedFile {
+            path: path.to_path_buf(),
+            bytes_written,
+        })
+    }
+
+    /// Suggested file name for the native save dialog:
+    /// `<sanitised-stem>-<YYYYMMDD-HHMMSS>.md`.
+    ///
+    /// A stem that sanitises to nothing falls back to `speechtt`.
+    #[must_use]
+    pub fn suggested_transcript_name(stem: &str, now: SystemTime) -> String {
+        format!("{}.md", file_stem(stem, now))
     }
 
     /// `<stem>-<YYYYMMDD-HHMMSS>`, falling back to `speechtt-…`.
@@ -814,21 +758,16 @@ pub mod file {
 
     /// Markdown gets a heading and a blank line; both formats get exactly one
     /// trailing newline.
-    fn render(session_name: &str, format: TranscriptFormat, body: &str) -> String {
+    fn render(title: &str, format: TranscriptFormat, body: &str) -> String {
         match format {
-            TranscriptFormat::Markdown => {
-                format!("# {}\n\n{body}\n", display_title(session_name))
-            }
+            TranscriptFormat::Markdown => format!("# {}\n\n{body}\n", display_title(title)),
             TranscriptFormat::Text => format!("{body}\n"),
         }
     }
 
-    /// Session name as a single-line heading, or the product name if blank.
-    fn display_title(session_name: &str) -> String {
-        let title = session_name
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ");
+    /// Title as a single-line heading, or the product name if blank.
+    fn display_title(title: &str) -> String {
+        let title = title.split_whitespace().collect::<Vec<_>>().join(" ");
         if title.is_empty() {
             FALLBACK_TITLE.to_owned()
         } else {
@@ -836,12 +775,9 @@ pub mod file {
         }
     }
 
-    /// Writes `contents` to `<target>.tmp`, syncs it, then renames it.
-    ///
-    /// The rename never replaces a file that appeared concurrently: the temp
-    /// file is removed and `AlreadyExists` is returned so the caller can pick
-    /// the next suffix.
-    fn write_atomic(target: &Path, contents: &[u8]) -> io::Result<usize> {
+    /// Writes `contents` through a sibling temp file, then moves it into place,
+    /// replacing `target` when it exists.
+    fn write_replacing(target: &Path, contents: &[u8]) -> io::Result<usize> {
         let temporary = temporary_path(target);
         let mut file = fs::File::create(&temporary)?;
         let written = file.write_all(contents).and_then(|()| file.sync_all());
@@ -850,12 +786,13 @@ pub mod file {
             let _ = fs::remove_file(&temporary);
             return Err(error);
         }
-        if target.exists() {
+        // `rename` replaces on Unix but fails on Windows; removing first keeps
+        // the dialog's "Replace" working on every platform.
+        if target.exists()
+            && let Err(error) = fs::remove_file(target)
+        {
             let _ = fs::remove_file(&temporary);
-            return Err(io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "target appeared while writing",
-            ));
+            return Err(error);
         }
         if let Err(error) = fs::rename(&temporary, target) {
             let _ = fs::remove_file(&temporary);
@@ -888,16 +825,6 @@ pub mod file {
 
         fn fixed_now() -> SystemTime {
             UNIX_EPOCH + Duration::from_secs(FIXED_SECONDS)
-        }
-
-        fn session(name: &str, output: OutputTarget) -> FinishedSession {
-            FinishedSession {
-                audio_source: "mic".to_owned(),
-                provider: "vercel".to_owned(),
-                model: "whisper".to_owned(),
-                session_name: name.to_owned(),
-                output,
-            }
         }
 
         /// Unique directory under the system temp dir, removed on drop.
@@ -941,40 +868,20 @@ pub mod file {
             names
         }
 
-        /// True when `name` is `<stem>-<YYYYMMDD-HHMMSS>.<ext>`.
-        fn is_timestamped(name: &str, stem: &str, extension: &str) -> bool {
-            let Some(rest) = name
-                .strip_prefix(stem)
-                .and_then(|rest| rest.strip_prefix('-'))
-                .and_then(|rest| rest.strip_suffix(&format!(".{extension}")))
-            else {
-                return false;
-            };
-            rest.len() == 15
-                && rest.as_bytes().get(8) == Some(&b'-')
-                && rest
-                    .chars()
-                    .enumerate()
-                    .all(|(index, character)| index == 8 || character.is_ascii_digit())
-        }
-
         #[test]
         fn markdown_has_heading_blank_line_and_one_trailing_newline() {
             let directory = TempDir::new("markdown");
+            let target = directory.path().join("my-talk.md");
 
-            let saved = save_transcript_at(
-                directory.path(),
+            let saved = save_transcript_to(
+                &target,
                 "My Talk",
                 TranscriptFormat::Markdown,
                 "  hello\nworld\n\n",
-                fixed_now(),
             )
             .expect("markdown is saved");
 
-            assert_eq!(
-                saved.path,
-                directory.path().join(format!("my-talk-{FIXED_STAMP}.md"))
-            );
+            assert_eq!(saved.path, target);
             let contents = fs::read_to_string(&saved.path).expect("saved file is readable");
             assert_eq!(contents, "# My Talk\n\nhello\nworld\n");
             assert_eq!(saved.bytes_written, contents.len());
@@ -983,35 +890,113 @@ pub mod file {
         #[test]
         fn text_format_is_the_trimmed_body_only() {
             let directory = TempDir::new("text");
+            let target = directory.path().join("notes.txt");
 
-            let saved = save_transcript_at(
-                directory.path(),
+            let saved = save_transcript_to(
+                &target,
                 "My Talk",
                 TranscriptFormat::Text,
                 "\n  hello\nworld  \n",
-                fixed_now(),
             )
             .expect("text is saved");
 
+            assert_eq!(saved.path, target);
             let contents = fs::read_to_string(&saved.path).expect("saved file is readable");
             assert_eq!(contents, "hello\nworld\n");
-            assert!(saved.path.ends_with(format!("my-talk-{FIXED_STAMP}.txt")));
         }
 
         #[test]
         fn empty_transcript_is_rejected_and_nothing_is_written() {
             let directory = TempDir::new("empty");
+            let target = directory.path().join("notes.md");
 
-            let result = save_transcript_at(
-                directory.path(),
-                "My Talk",
-                TranscriptFormat::Markdown,
-                " \n\t ",
-                fixed_now(),
-            );
+            let result = save_transcript_to(&target, "Notes", TranscriptFormat::Markdown, " \n\t ");
 
             assert!(matches!(result, Err(OutputError::EmptyTranscript)));
+            assert!(!target.exists());
             assert!(file_names(directory.path()).is_empty());
+        }
+
+        #[test]
+        fn the_exact_path_is_written_without_timestamps_or_suffixes() {
+            let directory = TempDir::new("exact");
+            let target = directory.path().join("weekly sync.md");
+
+            let first =
+                save_transcript_to(&target, "Weekly Sync", TranscriptFormat::Markdown, "one")
+                    .expect("first save");
+            let second =
+                save_transcript_to(&target, "Weekly Sync", TranscriptFormat::Markdown, "two")
+                    .expect("second save");
+
+            assert_eq!(first.path, target);
+            assert_eq!(second.path, target);
+            assert_eq!(file_names(directory.path()), vec!["weekly sync.md"]);
+            assert_eq!(
+                fs::read_to_string(&target).expect("saved file"),
+                "# Weekly Sync\n\ntwo\n"
+            );
+        }
+
+        #[test]
+        fn an_existing_file_is_replaced() {
+            let directory = TempDir::new("replace");
+            let target = directory.path().join("notes.md");
+            fs::write(&target, "original").expect("fixture is written");
+
+            let saved = save_transcript_to(&target, "Notes", TranscriptFormat::Markdown, "hello")
+                .expect("replace succeeds");
+
+            assert_eq!(saved.path, target);
+            assert_eq!(
+                fs::read_to_string(&target).expect("saved file"),
+                "# Notes\n\nhello\n"
+            );
+            assert_eq!(file_names(directory.path()), vec!["notes.md"]);
+        }
+
+        #[test]
+        fn parent_directories_are_created() {
+            let directory = TempDir::new("parents");
+            let target = directory
+                .path()
+                .join("a")
+                .join("b")
+                .join("c")
+                .join("deep.txt");
+
+            let saved = save_transcript_to(&target, "Deep", TranscriptFormat::Text, "hello")
+                .expect("nested save succeeds");
+
+            assert_eq!(saved.path, target);
+            assert!(target.exists());
+        }
+
+        #[test]
+        fn temp_files_are_removed_after_success() {
+            let directory = TempDir::new("tmp-cleanup");
+            let target = directory.path().join("clean.txt");
+
+            save_transcript_to(&target, "Clean", TranscriptFormat::Text, "hello")
+                .expect("save succeeds");
+
+            assert_eq!(file_names(directory.path()), vec!["clean.txt"]);
+        }
+
+        #[test]
+        fn write_failure_keeps_the_previous_file_and_leaves_no_artefacts() {
+            let directory = TempDir::new("write-failure");
+            let target = directory.path().join("notes.md");
+            fs::write(&target, "original").expect("fixture is written");
+            // Occupy the temp path with a directory so `File::create` fails.
+            let blocker = directory.path().join("notes.md.tmp");
+            fs::create_dir_all(&blocker).expect("blocking directory is created");
+
+            let result = save_transcript_to(&target, "Notes", TranscriptFormat::Markdown, "hello");
+
+            assert!(matches!(result, Err(OutputError::Write(_))));
+            assert_eq!(fs::read_to_string(&target).expect("fixture"), "original");
+            assert!(blocker.exists(), "the blocker is not ours to remove");
         }
 
         #[test]
@@ -1070,304 +1055,103 @@ pub mod file {
         }
 
         #[test]
-        fn empty_session_name_uses_the_fallback_stem() {
-            let directory = TempDir::new("fallback");
-
-            let saved = save_transcript_at(
-                directory.path(),
-                "  ",
-                TranscriptFormat::Markdown,
-                "hello",
-                fixed_now(),
-            )
-            .expect("save succeeds with the fallback name");
-
+        fn suggested_name_uses_the_stem_and_timestamp() {
             assert_eq!(
-                saved.path,
-                directory.path().join(format!("speechtt-{FIXED_STAMP}.md"))
+                suggested_transcript_name("Weekly  Sync", fixed_now()),
+                format!("weekly-sync-{FIXED_STAMP}.md")
             );
-        }
-
-        #[test]
-        fn traversal_only_session_name_uses_the_fallback_stem() {
-            let directory = TempDir::new("traversal");
-
-            let saved = save_transcript_at(
-                directory.path(),
-                "../../",
-                TranscriptFormat::Markdown,
-                "hello",
-                fixed_now(),
-            )
-            .expect("save succeeds with the fallback name");
-
-            assert_eq!(saved.path.parent(), Some(directory.path()));
-            assert!(
-                saved
-                    .path
-                    .file_name()
-                    .expect("file name")
-                    .to_string_lossy()
-                    .starts_with("speechtt-")
-            );
-        }
-
-        #[test]
-        fn collisions_append_a_numeric_suffix() {
-            let directory = TempDir::new("collisions");
-
-            let first = save_transcript_at(
-                directory.path(),
-                "Rust",
-                TranscriptFormat::Markdown,
-                "one",
-                fixed_now(),
-            )
-            .expect("first save");
-            let second = save_transcript_at(
-                directory.path(),
-                "Rust",
-                TranscriptFormat::Markdown,
-                "two",
-                fixed_now(),
-            )
-            .expect("second save");
-            let third = save_transcript_at(
-                directory.path(),
-                "Rust",
-                TranscriptFormat::Markdown,
-                "three",
-                fixed_now(),
-            )
-            .expect("third save");
-
-            assert!(first.path.ends_with(format!("rust-{FIXED_STAMP}.md")));
-            assert!(second.path.ends_with(format!("rust-{FIXED_STAMP}-2.md")));
-            assert!(third.path.ends_with(format!("rust-{FIXED_STAMP}-3.md")));
             assert_eq!(
-                fs::read_to_string(&first.path).expect("first file"),
-                "# Rust\n\none\n"
+                suggested_transcript_name("meeting", fixed_now()),
+                format!("meeting-{FIXED_STAMP}.md")
             );
         }
 
         #[test]
-        fn existing_files_are_never_overwritten() {
-            let directory = TempDir::new("overwrite");
-            let existing = directory.path().join(format!("rust-{FIXED_STAMP}.md"));
-            fs::write(&existing, "original").expect("fixture is written");
+        fn suggested_name_falls_back_when_the_stem_sanitises_to_nothing() {
+            for stem in ["  ", "../../", "..", ".", "\0"] {
+                assert_eq!(
+                    suggested_transcript_name(stem, fixed_now()),
+                    format!("speechtt-{FIXED_STAMP}.md"),
+                    "stem {stem:?}"
+                );
+            }
+        }
 
-            let saved = save_transcript_at(
-                directory.path(),
-                "Rust",
-                TranscriptFormat::Markdown,
-                "hello",
-                fixed_now(),
-            )
-            .expect("save succeeds");
+        #[test]
+        fn suggested_name_strips_path_separators_and_traversal() {
+            let name = suggested_transcript_name("Notes/../../etc/passwd", fixed_now());
 
-            assert_eq!(fs::read_to_string(&existing).expect("fixture"), "original");
-            assert!(saved.path.ends_with(format!("rust-{FIXED_STAMP}-2.md")));
+            assert!(!name.contains('/'), "name must not contain a separator");
+            assert!(!name.contains('\\'), "name must not contain a separator");
+            assert!(!name.starts_with('.'), "name must not start with a dot");
+            assert!(name.starts_with("notes"), "unexpected name {name}");
+            assert!(name.ends_with(&format!("-{FIXED_STAMP}.md")));
+        }
+
+        #[test]
+        fn suggested_name_keeps_ascii_from_unicode_stems() {
             assert_eq!(
-                fs::read_to_string(&saved.path).expect("saved file"),
-                "# Rust\n\nhello\n"
+                suggested_transcript_name("Café Notes", fixed_now()),
+                format!("caf-notes-{FIXED_STAMP}.md")
             );
         }
 
         #[test]
-        fn write_failure_keeps_the_previous_file_and_leaves_no_artefacts() {
-            let directory = TempDir::new("write-failure");
-            let base = directory.path().join(format!("rust-{FIXED_STAMP}.md"));
-            fs::write(&base, "original").expect("fixture is written");
-            // Occupy the temp path of the next candidate with a directory so
-            // `File::create` fails after the collision check passed.
-            fs::create_dir_all(
-                directory
-                    .path()
-                    .join(format!("rust-{FIXED_STAMP}-2.md.tmp")),
-            )
-            .expect("blocking directory is created");
+        fn suggested_name_caps_the_stem_length() {
+            let name = suggested_transcript_name(&"a".repeat(100), fixed_now());
 
-            let result = save_transcript_at(
-                directory.path(),
-                "Rust",
-                TranscriptFormat::Markdown,
-                "hello",
-                fixed_now(),
-            );
-
-            assert!(matches!(result, Err(OutputError::Write(_))));
-            assert_eq!(fs::read_to_string(&base).expect("fixture"), "original");
-            assert!(
-                !directory
-                    .path()
-                    .join(format!("rust-{FIXED_STAMP}-2.md"))
-                    .exists()
-            );
-        }
-
-        #[test]
-        fn parent_directories_are_created() {
-            let directory = TempDir::new("parents");
-            let nested = directory.path().join("a").join("b").join("c");
-
-            let saved = save_transcript_at(
-                &nested,
-                "Deep",
-                TranscriptFormat::Text,
-                "hello",
-                fixed_now(),
-            )
-            .expect("nested save succeeds");
-
-            assert!(saved.path.starts_with(&nested));
-            assert!(saved.path.exists());
-        }
-
-        #[test]
-        fn temp_files_are_removed_after_success() {
-            let directory = TempDir::new("tmp-cleanup");
-
-            save_transcript_at(
-                directory.path(),
-                "Clean",
-                TranscriptFormat::Text,
-                "hello",
-                fixed_now(),
-            )
-            .expect("save succeeds");
-
-            assert_eq!(
-                file_names(directory.path()),
-                vec![format!("clean-{FIXED_STAMP}.txt")]
-            );
+            assert_eq!(name, format!("{}-{FIXED_STAMP}.md", "a".repeat(64)));
         }
 
         #[test]
         fn timestamps_are_utc_zero_padded_and_handle_leap_days() {
             let leap_day = UNIX_EPOCH + Duration::from_secs(1_709_164_800);
-            let directory = TempDir::new("leap-day");
 
-            let saved = save_transcript_at(
-                directory.path(),
-                "Leap",
-                TranscriptFormat::Text,
-                "hello",
-                leap_day,
-            )
-            .expect("save succeeds");
-
-            assert!(saved.path.ends_with("leap-20240229-000000.txt"));
+            assert_eq!(
+                suggested_transcript_name("Leap", leap_day),
+                "leap-20240229-000000.md"
+            );
         }
 
         #[test]
         fn epoch_timestamp_is_formatted() {
-            let directory = TempDir::new("epoch");
+            assert_eq!(
+                suggested_transcript_name("Epoch", UNIX_EPOCH),
+                "epoch-19700101-000000.md"
+            );
+        }
 
-            let saved = save_transcript_at(
-                directory.path(),
-                "Epoch",
-                TranscriptFormat::Text,
+        #[test]
+        fn blank_title_falls_back_to_the_product_name() {
+            let directory = TempDir::new("blank-title");
+            let target = directory.path().join("blank.md");
+
+            save_transcript_to(&target, "   ", TranscriptFormat::Markdown, "hello")
+                .expect("save succeeds");
+
+            assert_eq!(
+                fs::read_to_string(&target).expect("saved file"),
+                "# SpeechTT\n\nhello\n"
+            );
+        }
+
+        #[test]
+        fn markdown_title_is_collapsed_to_one_line() {
+            let directory = TempDir::new("one-line-title");
+            let target = directory.path().join("notes.md");
+
+            save_transcript_to(
+                &target,
+                "Weekly\n  Sync",
+                TranscriptFormat::Markdown,
                 "hello",
-                UNIX_EPOCH,
             )
             .expect("save succeeds");
 
-            assert!(saved.path.ends_with("epoch-19700101-000000.txt"));
-        }
-
-        #[test]
-        fn save_transcript_uses_the_current_time() {
-            let directory = TempDir::new("now");
-
-            let saved = save_transcript(directory.path(), "Fresh", TranscriptFormat::Text, "hello")
-                .expect("save succeeds");
-
-            let name = saved
-                .path
-                .file_name()
-                .expect("file name")
-                .to_string_lossy()
-                .into_owned();
-            assert!(
-                is_timestamped(&name, "fresh", "txt"),
-                "unexpected name {name}"
-            );
-        }
-
-        #[test]
-        fn save_for_session_uses_the_file_target() {
-            let directory = TempDir::new("session");
-            let target = directory.path().join("nested").join("notes.md");
-            let finished = session(
-                "Weekly  Sync",
-                OutputTarget::File(target.to_string_lossy().into_owned()),
-            );
-
-            let saved = save_for_session(&finished, "  agenda  ").expect("save succeeds");
-
-            assert_eq!(saved.path.parent(), Some(target.parent().expect("parent")));
-            let name = saved
-                .path
-                .file_name()
-                .expect("file name")
-                .to_string_lossy()
-                .into_owned();
-            assert!(
-                is_timestamped(&name, "weekly-sync", "md"),
-                "unexpected {name}"
-            );
             assert_eq!(
-                fs::read_to_string(&saved.path).expect("saved file"),
-                "# Weekly Sync\n\nagenda\n"
+                fs::read_to_string(&target).expect("saved file"),
+                "# Weekly Sync\n\nhello\n"
             );
-        }
-
-        #[test]
-        fn save_for_session_supports_text_targets() {
-            let directory = TempDir::new("session-text");
-            let target = directory.path().join("notes.txt");
-            let finished = session(
-                "Notes",
-                OutputTarget::File(target.to_string_lossy().into_owned()),
-            );
-
-            let saved = save_for_session(&finished, "hello").expect("save succeeds");
-
-            let name = saved
-                .path
-                .file_name()
-                .expect("file name")
-                .to_string_lossy()
-                .into_owned();
-            assert!(is_timestamped(&name, "notes", "txt"), "unexpected {name}");
-            assert_eq!(
-                fs::read_to_string(&saved.path).expect("saved file"),
-                "hello\n"
-            );
-        }
-
-        #[test]
-        fn save_for_session_rejects_unknown_extensions() {
-            let directory = TempDir::new("session-pdf");
-            let target = directory.path().join("notes.pdf");
-            let finished = session(
-                "Notes",
-                OutputTarget::File(target.to_string_lossy().into_owned()),
-            );
-
-            let result = save_for_session(&finished, "hello");
-
-            assert!(matches!(result, Err(OutputError::UnsupportedFormat(_))));
-            assert!(file_names(directory.path()).is_empty());
-        }
-
-        #[test]
-        fn save_for_session_rejects_memory_targets() {
-            let finished = session("Notes", OutputTarget::Memory);
-
-            let result = save_for_session(&finished, "hello");
-
-            assert!(matches!(result, Err(OutputError::Write(_))));
         }
 
         #[test]
@@ -1403,25 +1187,6 @@ pub mod file {
             }
             assert_eq!(TranscriptFormat::Markdown.extension(), "md");
             assert_eq!(TranscriptFormat::Text.extension(), "txt");
-        }
-
-        #[test]
-        fn markdown_title_falls_back_when_the_session_name_is_blank() {
-            let directory = TempDir::new("blank-title");
-
-            let saved = save_transcript_at(
-                directory.path(),
-                "   ",
-                TranscriptFormat::Markdown,
-                "hello",
-                fixed_now(),
-            )
-            .expect("save succeeds");
-
-            assert_eq!(
-                fs::read_to_string(&saved.path).expect("saved file"),
-                "# SpeechTT\n\nhello\n"
-            );
         }
 
         struct MockOpener {
