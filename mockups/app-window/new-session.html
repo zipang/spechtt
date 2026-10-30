@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="fr"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<style>
+    @layer base {
+      html, body { margin: 0; padding: 0; }
+      body { overscroll-behavior: none; }
+    }
+  </style>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "surface": "#17171b",
+            "surface-alt": "#202027",
+            "surface-border": "#2a2a32",
+            "primary": "#ea5514",
+            "primary-hover": "#d94b0e",
+            "text-base": "#f2efeb",
+            "text-muted": "#9c9aa3",
+          },
+          fontFamily: {
+            sans: ["Inter", "sans-serif"],
+          },
+        },
+      },
+    };
+  </script>
+</head>
+<body class="bg-[#0e0e11] font-sans text-text-base min-h-screen flex items-center justify-center p-4 antialiased selection:bg-primary selection:text-white">
+<!-- Compact Native Floating Widget -->
+<div class="max-w-[94vw] bg-surface rounded-2xl border border-surface-border shadow-[0_16px_40px_rgba(0,0,0,0.65)] overflow-hidden flex flex-col transition-all w-[600px]">
+<!-- Minimalist Title Bar (Native Rust App style) -->
+<header class="h-11 px-4 flex items-center justify-between border-b border-surface-border select-none bg-surface/90 backdrop-blur-sm">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-primary inline-block"></span>
+<span class="text-sm font-semibold tracking-tight text-text-base">SpeechTT</span>
+</div>
+<div class="flex items-center gap-1 -mr-1">
+<button aria-label="Réduire" class="w-7 h-7 flex items-center justify-center rounded-md text-text-muted hover:text-text-base hover:bg-surface-alt transition-colors" type="button">
+<span class="material-symbols-outlined text-[16px]">remove</span>
+</button>
+<button aria-label="Fermer" class="w-7 h-7 flex items-center justify-center rounded-md text-text-muted hover:text-[#ff6b6b] hover:bg-surface-alt transition-colors" type="button">
+<span class="material-symbols-outlined text-[16px]">close</span>
+</button>
+</div>
+</header>
+<!-- Main Content Container with 2-Column Grid -->
+<main class="flex flex-col gap-4 p-5">
+<!-- Clean Minimal Header -->
+<div class="flex items-center justify-between px-0.5">
+<div>
+<h1 class="text-base font-semibold text-text-base tracking-tight">Choisir un mode</h1>
+<p class="text-xs text-text-muted mt-0.5">Sélectionnez la méthode de transcription</p>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-4 mt-1">
+<!-- Mode 1 : Dictée en direct -->
+<div class="group relative bg-surface-alt rounded-xl border border-surface-border hover:border-primary/50 transition-all duration-200 p-5 flex flex-col items-center text-center justify-between gap-4">
+<div class="flex flex-col items-center gap-3">
+<div>
+<h2 class="text-sm font-semibold text-text-base tracking-tight">Dictée en direct</h2>
+<p class="text-xs text-text-muted mt-1 leading-relaxed">Enregistrer et transcrire au micro en temps réel</p>
+</div>
+</div>
+<div class="pt-2 flex flex-col items-center gap-2 w-full">
+<button aria-label="Démarrer la dictée en direct" class="w-14 h-14 rounded-full bg-primary hover:bg-primary-hover active:scale-95 text-white flex items-center justify-center shadow-lg hover:shadow-primary/20 transition-all cursor-pointer group-hover:ring-4 group-hover:ring-primary/20" type="button">
+<span class="material-symbols-outlined text-[26px]">mic</span>
+</button>
+<span class="text-[11px] font-medium text-text-muted tracking-tight">Démarrer</span>
+</div>
+</div>
+<!-- Mode 2 : Depuis un fichier -->
+<div class="group relative bg-surface-alt rounded-xl border border-surface-border hover:border-text-muted/40 transition-all duration-200 p-5 flex flex-col items-center text-center justify-between gap-4" id="drop-zone">
+<div class="flex flex-col items-center gap-3">
+<div>
+<h2 class="text-sm font-semibold text-text-base tracking-tight">Depuis un fichier</h2>
+<p class="text-xs text-text-muted mt-1 leading-relaxed">Importer un enregistrement audio ou vidéo</p>
+</div>
+</div>
+<div class="pt-2 flex flex-col items-center gap-2 w-full">
+<label aria-label="Parcourir ou déposer un fichier" class="w-14 h-14 rounded-full bg-surface hover:bg-[#262630] border border-surface-border hover:border-primary/40 active:scale-95 text-text-base hover:text-white flex items-center justify-center shadow-md transition-all cursor-pointer group-hover:ring-4 group-hover:ring-white/5">
+<input accept="audio/*,video/*" class="hidden" type="file"/>
+<span class="material-symbols-outlined text-[26px] text-text-base">upload_file</span>
+</label>
+<span class="text-[11px] font-medium text-text-muted tracking-tight">Parcourir ou déposer</span>
+</div>
+</div>
+</div>
+</main>
+</div>
+<script>
+    // Smooth drag & drop UX on the file card
+    const dropZone = document.getElementById('drop-zone');
+    if (dropZone) {
+      ['dragenter', 'dragover'].forEach(name => {
+        dropZone.addEventListener(name, (e) => {
+          e.preventDefault();
+          dropZone.classList.add('border-primary', 'bg-surface');
+        });
+      });
+      ['dragleave', 'drop'].forEach(name => {
+        dropZone.addEventListener(name, (e) => {
+          e.preventDefault();
+          dropZone.classList.remove('border-primary', 'bg-surface');
+        });
+      });
+    }
+  </script>
+</body></html>
