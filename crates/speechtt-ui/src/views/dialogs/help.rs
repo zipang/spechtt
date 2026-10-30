@@ -185,13 +185,7 @@ fn models(
                 .min_h_0()
                 .w_full()
                 .overflow_y_scrollbar()
-                .child(
-                    v_flex()
-                        .w_full()
-                        .gap_2()
-                        .child(header)
-                        .child(body),
-                ),
+                .child(v_flex().w_full().gap_2().child(header).child(body)),
         )
         .into_any_element()
 }
