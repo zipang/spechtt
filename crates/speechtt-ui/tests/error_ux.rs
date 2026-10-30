@@ -157,7 +157,7 @@ fn output_errors_map_to_their_action_variants() {
     ));
     assert!(matches!(
         AppError::from_output(OutputError::EmptyTranscript),
-        AppError::ProtocolError(_)
+        AppError::SaveFailed(_)
     ));
     assert!(matches!(
         AppError::from_output(OutputError::OpenFile("missing".into())),

@@ -120,11 +120,16 @@ impl ShortcutListener for NoopListener {
 }
 
 fn test_services() -> AppServices {
-    let (_sender, events) = speechtt_core::async_channel::unbounded();
+    let (sender, events) = speechtt_core::async_channel::unbounded();
     // Keep the event stream open for the window's lifetime: a closed stream
     // would surface `BackendUnavailable` in every headless render test.
-    std::mem::forget(_sender);
+    std::mem::forget(sender);
 
+    services_with_events(events)
+}
+
+/// Injected services whose backend event stream is owned by the caller.
+fn services_with_events(events: speechtt_core::backend::SttEventReceiver) -> AppServices {
     AppServices {
         audio: Box::new(SilentAudio),
         analyzer: SpectrumAnalyzer::new(SAMPLE_RATE),
@@ -219,6 +224,34 @@ pub fn open_speechtt_window(
         view.update(cx, |app, cx| app.apply_capabilities(test_catalogue(), cx));
         view
     })
+}
+
+/// Opens the widget window with a backend event stream the test drives.
+///
+/// Lets a headless test feed a transcript before finishing the take, so the
+/// stopped screen has real text to save.
+pub fn open_speechtt_window_with_events(
+    cx: &mut TestAppContext,
+) -> (
+    WindowHandle<Root>,
+    Entity<speechtt_ui::app::SpeechTtApp>,
+    speechtt_core::async_channel::Sender<
+        Result<speechtt_core::protocol::SttEvent, speechtt_core::backend::BackendError>,
+    >,
+) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        speechtt_ui::theme::apply(cx);
+    });
+    let (sender, events) = speechtt_core::async_channel::unbounded();
+    let (window, view) = open_window(cx, None, |window, cx| {
+        window.set_window_title(speechtt_ui::app::APP_TITLE);
+        let view =
+            cx.new(|cx| SpeechTtApp::with_services(services_with_events(events), window, cx));
+        view.update(cx, |app, cx| app.apply_capabilities(test_catalogue(), cx));
+        view
+    });
+    (window, view, sender)
 }
 
 /// Opens the real SpeechTT widget window at an explicit size, for adaptive

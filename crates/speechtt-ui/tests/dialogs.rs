@@ -182,11 +182,9 @@ fn cancel_discards_the_draft() {
 fn opening_a_dialog_does_not_disturb_the_recording_session() {
     let mut controller = SessionController::new();
     install_catalogue(&mut controller);
-    controller.open_form();
+    controller.choose_mode(speechtt_ui::controller::SessionMode::Live);
     controller.cycle_provider();
     controller.cycle_model();
-    controller.set_draft_output(speechtt_core::session::OutputTarget::Memory);
-    controller.set_draft_name("standup");
     assert!(controller.create_session());
     assert!(controller.start_recording());
 

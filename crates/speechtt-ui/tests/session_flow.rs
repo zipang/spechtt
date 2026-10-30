@@ -5,9 +5,13 @@
 //! free to be redesigned (elements moved, merged, replaced) without breaking
 //! the workflow contract. Rendering is covered only by the smoke test in
 //! `tests/widget.rs`.
+//!
+//! The session contract is nameless: a take is a mode (live or file), a
+//! provider and a model. The file the user saves names it.
 
-use speechtt_core::session::{OutputTarget, SessionField, SessionState};
-use speechtt_ui::controller::{SessionController, ViewState};
+use speechtt_core::session::{SessionField, SessionState};
+use speechtt_core::settings::Settings;
+use speechtt_ui::controller::{SessionController, SessionMode, ViewState};
 
 use std::sync::{Arc, Mutex};
 
@@ -36,10 +40,16 @@ impl SttSessionSink for RecordingSink {
     }
 }
 
+/// A controller with the worker's catalogue installed.
+fn catalogued() -> SessionController {
+    let mut controller = SessionController::new();
+    controller.set_capabilities(catalogue());
+    controller
+}
+
 /// A ready-to-record controller wired to a recording sink.
 fn duplex_controller() -> (SessionController, RecordingSink) {
-    let mut controller = complete_draft(OutputTarget::Memory);
-    assert!(controller.create_session());
+    let mut controller = ready_live();
     let sink = RecordingSink::default();
     controller.set_sink(Box::new(sink.clone()));
     (controller, sink)
@@ -71,111 +81,138 @@ fn catalogue() -> Vec<ProviderCapability> {
     }]
 }
 
-fn install_catalogue(controller: &mut SessionController) {
-    controller.set_capabilities(catalogue());
+/// Settings that resolve against [`catalogue`].
+fn configured_settings(model: &str) -> Settings {
+    Settings {
+        provider: "vercel-ai-gateway".to_string(),
+        model: model.to_string(),
+        ..Settings::default()
+    }
 }
 
-/// A controller whose draft is complete except for `create_session`.
-fn complete_draft(output: OutputTarget) -> SessionController {
-    let mut controller = SessionController::new();
-    install_catalogue(&mut controller);
-    controller.open_form();
+/// A controller in Live mode, past the form and `Ready`.
+fn ready_live() -> SessionController {
+    let mut controller = catalogued();
+    assert!(
+        !controller.choose_mode(SessionMode::Live),
+        "no settings yet: the form is required"
+    );
     controller.cycle_provider();
     controller.cycle_model();
-    controller.set_draft_output(output);
-    controller.set_draft_name("meeting notes");
+    assert!(controller.create_session());
     controller
 }
 
+/// A controller in File mode, past the form and `Ready`.
+fn ready_file() -> SessionController {
+    let mut controller = catalogued();
+    assert!(!controller.choose_mode(SessionMode::File));
+    controller.cycle_provider();
+    controller.cycle_model();
+    assert!(controller.create_session());
+    controller
+}
+
+// ----- Mode chooser ---------------------------------------------------
+
 #[test]
-fn blank_state_shows_the_new_session_prompt() {
+fn blank_state_shows_the_mode_chooser() {
     let controller = SessionController::new();
 
-    assert_eq!(controller.view_state(), ViewState::Prompt);
+    assert_eq!(controller.view_state(), ViewState::Mode);
     assert_eq!(controller.session_state(), SessionState::Blank);
+    assert_eq!(controller.mode(), SessionMode::Live);
+    // The default microphone is assumed; only the service and model are left.
     assert_eq!(
         controller.session_missing(),
-        vec![
-            SessionField::Provider,
-            SessionField::Model,
-            SessionField::SessionName,
-            SessionField::Output,
-        ]
+        vec![SessionField::Provider, SessionField::Model]
     );
 }
 
 #[test]
-fn opening_the_form_switches_the_view_and_starts_an_empty_draft() {
-    let mut controller = SessionController::new();
-    install_catalogue(&mut controller);
-    controller.open_form();
+fn choosing_a_mode_without_settings_opens_the_two_field_form() {
+    let mut controller = catalogued();
 
+    assert!(!controller.choose_mode(SessionMode::Live));
     assert_eq!(controller.view_state(), ViewState::Form);
+    assert_eq!(controller.mode(), SessionMode::Live);
     assert!(!controller.is_draft_complete());
-    assert_eq!(controller.session_state(), SessionState::Blank);
+
+    assert!(!controller.choose_mode(SessionMode::File));
+    assert_eq!(controller.view_state(), ViewState::Form);
+    assert_eq!(controller.mode(), SessionMode::File);
 }
 
 #[test]
-fn cancelling_the_form_returns_to_the_prompt_and_discards_the_draft() {
-    let mut controller = SessionController::new();
-    install_catalogue(&mut controller);
-    controller.open_form();
-    controller.cycle_provider();
-    controller.set_draft_name("discarded");
-    assert!(controller.has_provider());
+fn choosing_live_with_configured_settings_goes_straight_to_ready() {
+    let mut controller = catalogued();
+    controller.apply_settings(configured_settings("openai/gpt-4o-transcribe"));
 
-    controller.cancel_form();
-
-    assert_eq!(controller.view_state(), ViewState::Prompt);
-    assert!(!controller.has_provider());
-    assert_eq!(controller.session_state(), SessionState::Blank);
-}
-
-#[test]
-fn create_is_inert_until_every_required_field_is_set() {
-    let mut controller = SessionController::new();
-    install_catalogue(&mut controller);
-    controller.open_form();
-
-    // Nothing chosen yet.
-    assert!(!controller.create_session());
-    assert_eq!(controller.view_state(), ViewState::Form);
-
-    // Partial setup (provider only) is still not enough.
-    controller.cycle_provider();
-    assert!(!controller.create_session());
-    assert_eq!(controller.view_state(), ViewState::Form);
-
-    // Everything but a name.
-    controller.cycle_model();
-    controller.set_draft_output(OutputTarget::Memory);
-    assert!(!controller.create_session());
-    assert_eq!(controller.view_state(), ViewState::Form);
-
-    // Whitespace is not a name.
-    controller.set_draft_name("   ");
-    assert!(!controller.is_draft_complete());
-    assert!(!controller.create_session());
-    assert_eq!(controller.view_state(), ViewState::Form);
-}
-
-#[test]
-fn completing_the_form_moves_the_machine_to_ready() {
-    let mut controller = complete_draft(OutputTarget::Memory);
-
-    assert!(controller.is_draft_complete());
-    assert!(controller.create_session());
+    assert!(controller.choose_mode(SessionMode::Live));
 
     assert_eq!(controller.view_state(), ViewState::Ready);
+    assert_eq!(controller.mode(), SessionMode::Live);
     assert_eq!(controller.session_state(), SessionState::Ready);
     assert!(controller.session_missing().is_empty());
 }
 
 #[test]
+fn choosing_file_with_configured_settings_goes_straight_to_ready() {
+    let mut controller = catalogued();
+    controller.apply_settings(configured_settings("openai/gpt-4o-transcribe"));
+
+    assert!(controller.choose_mode(SessionMode::File));
+
+    assert_eq!(controller.view_state(), ViewState::Ready);
+    assert_eq!(controller.mode(), SessionMode::File);
+}
+
+#[test]
+fn a_stale_configured_model_falls_back_to_the_form() {
+    let mut controller = catalogued();
+    controller.apply_settings(configured_settings("retired/model"));
+
+    assert!(!controller.choose_mode(SessionMode::Live));
+
+    assert_eq!(controller.view_state(), ViewState::Form);
+    assert!(!controller.is_draft_complete());
+}
+
+#[test]
+fn create_session_commits_provider_and_model_and_keeps_the_mode() {
+    let controller = ready_file();
+
+    assert!(!controller.is_draft_complete(), "the draft is consumed");
+    assert_eq!(controller.view_state(), ViewState::Ready);
+    assert_eq!(controller.mode(), SessionMode::File);
+    assert_eq!(controller.session_state(), SessionState::Ready);
+    assert!(controller.session_missing().is_empty());
+}
+
+#[test]
+fn create_is_inert_until_the_two_fields_are_set() {
+    let mut controller = catalogued();
+    controller.choose_mode(SessionMode::Live);
+
+    // Nothing chosen yet.
+    assert!(!controller.create_session());
+    assert_eq!(controller.view_state(), ViewState::Form);
+
+    // Provider only is not enough.
+    controller.cycle_provider();
+    assert!(!controller.create_session());
+    assert_eq!(controller.view_state(), ViewState::Form);
+
+    // Model completes the form.
+    controller.cycle_model();
+    assert!(controller.create_session());
+    assert_eq!(controller.view_state(), ViewState::Ready);
+}
+
+#[test]
 fn changing_the_provider_resets_the_dependent_model_choice() {
-    let mut controller = SessionController::new();
-    install_catalogue(&mut controller);
-    controller.open_form();
+    let mut controller = catalogued();
+    controller.choose_mode(SessionMode::Live);
     controller.cycle_provider();
     controller.cycle_model();
     assert!(controller.has_model());
@@ -187,9 +224,63 @@ fn changing_the_provider_resets_the_dependent_model_choice() {
 }
 
 #[test]
-fn recording_pauses_resumes_and_finishes_a_memory_take() {
-    let mut controller = complete_draft(OutputTarget::Memory);
-    assert!(controller.create_session());
+fn cancelling_the_form_returns_to_the_mode_chooser_and_discards_the_draft() {
+    let mut controller = catalogued();
+    controller.choose_mode(SessionMode::File);
+    controller.cycle_provider();
+    assert!(controller.has_provider());
+
+    controller.cancel_form();
+
+    assert_eq!(controller.view_state(), ViewState::Mode);
+    assert!(!controller.has_provider());
+    assert_eq!(controller.session_state(), SessionState::Blank);
+}
+
+#[test]
+fn change_mode_clears_the_machine_and_returns_to_the_chooser() {
+    let mut controller = ready_live();
+    assert_eq!(controller.session_state(), SessionState::Ready);
+
+    assert!(controller.change_mode());
+
+    assert_eq!(controller.view_state(), ViewState::Mode);
+    assert_eq!(controller.session_state(), SessionState::Blank);
+    assert_eq!(
+        controller.session_missing(),
+        vec![
+            SessionField::AudioSource,
+            SessionField::Provider,
+            SessionField::Model
+        ]
+    );
+}
+
+#[test]
+fn change_mode_is_inert_while_a_take_is_active() {
+    let mut controller = ready_live();
+    assert!(controller.start_recording());
+
+    assert!(!controller.change_mode());
+
+    assert_eq!(controller.view_state(), ViewState::Recording);
+    assert_eq!(controller.session_state(), SessionState::Recording);
+}
+
+// ----- Transport ------------------------------------------------------
+
+#[test]
+fn start_recording_is_refused_in_file_mode() {
+    let mut controller = ready_file();
+
+    assert!(!controller.start_recording());
+    assert_eq!(controller.view_state(), ViewState::Ready);
+    assert_eq!(controller.session_state(), SessionState::Ready);
+}
+
+#[test]
+fn recording_pauses_resumes_and_finishes_a_take() {
+    let mut controller = ready_live();
 
     assert!(controller.start_recording());
     assert_eq!(controller.view_state(), ViewState::Recording);
@@ -210,8 +301,9 @@ fn recording_pauses_resumes_and_finishes_a_memory_take() {
     let take = controller
         .finished_take()
         .expect("a finished take is shown");
-    assert_eq!(take.session().session_name, "meeting notes");
-    assert_eq!(take.session().output, OutputTarget::Memory);
+    assert_eq!(take.session().provider, "vercel-ai-gateway");
+    assert_eq!(take.session().model, "openai/gpt-4o-transcribe");
+    assert!(!take.session().audio_source.is_empty());
     assert!(!take.committed().is_empty());
     assert!(!take.live().is_empty());
 }
@@ -224,79 +316,32 @@ fn transport_actions_are_refused_in_the_wrong_view_state() {
     assert!(!controller.resume_recording());
     assert!(!controller.finish_take());
 
-    let mut ready = complete_draft(OutputTarget::Memory);
-    ready.create_session();
+    let mut ready = ready_live();
     assert!(!ready.pause_recording());
     assert!(!ready.resume_recording());
     assert!(!ready.finish_take());
 }
 
 #[test]
-fn a_file_take_records_the_default_path_for_its_name() {
-    let mut controller = complete_draft(OutputTarget::File(String::new()));
-    assert!(controller.create_session());
-
-    controller.start_recording();
-    controller.pause_recording();
-    assert!(controller.finish_take());
-
-    let take = controller
-        .finished_take()
-        .expect("a finished take is shown");
-    assert_eq!(
-        take.session().output,
-        OutputTarget::File("~/Documents/meeting notes.md".into())
-    );
-}
-
-#[test]
-fn completeness_can_be_checked_against_the_live_input_name() {
-    let mut controller = SessionController::new();
-    install_catalogue(&mut controller);
-    controller.open_form();
-    controller.cycle_provider();
-    controller.cycle_model();
-    controller.set_draft_output(OutputTarget::Memory);
-
-    // The view reads the editable input directly, so the controller must be
-    // able to judge a name it has not received a change event for yet.
-    assert!(!controller.is_draft_complete_with_name("   "));
-    assert!(controller.is_draft_complete_with_name("standup"));
-    assert!(!controller.is_draft_complete());
-}
-
-#[test]
-fn a_new_take_returns_to_the_prompt_and_requires_a_name_and_output() {
-    let mut controller = complete_draft(OutputTarget::Memory);
-    controller.create_session();
+fn a_new_take_returns_to_the_mode_chooser() {
+    let mut controller = ready_live();
     controller.start_recording();
     controller.pause_recording();
     controller.finish_take();
 
     controller.new_take();
 
-    assert_eq!(controller.view_state(), ViewState::Prompt);
+    assert_eq!(controller.view_state(), ViewState::Mode);
     assert!(controller.finished_take().is_none());
     assert_eq!(controller.session_state(), SessionState::Blank);
-    // Source, provider and model persist; the next take must be named.
     assert_eq!(
         controller.session_missing(),
-        vec![SessionField::SessionName, SessionField::Output]
+        vec![
+            SessionField::AudioSource,
+            SessionField::Provider,
+            SessionField::Model
+        ]
     );
-}
-
-#[test]
-fn setup_changes_are_frozen_while_a_take_is_active() {
-    let mut controller = complete_draft(OutputTarget::Memory);
-    controller.create_session();
-    controller.start_recording();
-
-    // The form is unreachable from the transport screens; the controller's
-    // draft is independent of the frozen machine configuration.
-    controller.cycle_provider();
-    controller.set_draft_name("renamed");
-    assert_eq!(controller.view_state(), ViewState::Recording);
-    assert_eq!(controller.session_missing(), Vec::<SessionField>::new());
 }
 
 #[test]
@@ -435,11 +480,9 @@ fn backend_errors_are_surfaced_and_cleared_by_the_next_take() {
     assert!(controller.pause_recording());
     assert!(controller.finish_take());
     controller.new_take();
-    controller.open_form();
+    controller.choose_mode(SessionMode::Live);
     controller.cycle_provider();
     controller.cycle_model();
-    controller.set_draft_output(OutputTarget::Memory);
-    controller.set_draft_name("second take");
     assert!(controller.create_session());
     assert!(controller.start_recording());
 
@@ -458,11 +501,9 @@ fn stale_events_from_a_finished_take_are_ignored() {
     assert!(controller.finish_take());
 
     controller.new_take();
-    controller.open_form();
+    controller.choose_mode(SessionMode::Live);
     controller.cycle_provider();
     controller.cycle_model();
-    controller.set_draft_output(OutputTarget::Memory);
-    controller.set_draft_name("second take");
     assert!(controller.create_session());
     assert!(controller.start_recording());
     assert_eq!(controller.session_label(), "take-2");
@@ -495,18 +536,16 @@ fn the_elapsed_clock_resets_when_a_new_take_starts() {
     assert!(controller.finish_take());
 
     controller.new_take();
-    controller.open_form();
+    controller.choose_mode(SessionMode::Live);
     controller.cycle_provider();
     controller.cycle_model();
-    controller.set_draft_output(OutputTarget::Memory);
-    controller.set_draft_name("next take");
     assert!(controller.create_session());
     assert!(controller.start_recording());
 
     assert_eq!(controller.elapsed_seconds(), 0);
 }
 
-// ----- File transcription (T0015) ------------------------------------
+// ----- File transcription --------------------------------------------
 
 use speechtt_ui::controller::AppError;
 
@@ -530,13 +569,11 @@ impl Drop for TempFile {
     }
 }
 
-fn file_controller() -> (SessionController, RecordingSink) {
-    duplex_controller()
-}
-
 #[test]
 fn file_session_rejects_a_missing_path() {
-    let (mut controller, sink) = file_controller();
+    let mut controller = ready_file();
+    let sink = RecordingSink::default();
+    controller.set_sink(Box::new(sink.clone()));
     let missing = std::env::temp_dir().join("speechtt-definitely-missing-42.mp4");
 
     let result = controller.start_file_session(&missing);
@@ -548,7 +585,9 @@ fn file_session_rejects_a_missing_path() {
 
 #[test]
 fn file_session_rejects_a_directory() {
-    let (mut controller, sink) = file_controller();
+    let mut controller = ready_file();
+    let sink = RecordingSink::default();
+    controller.set_sink(Box::new(sink.clone()));
     let directory = std::env::temp_dir();
 
     let result = controller.start_file_session(&directory);
@@ -560,7 +599,7 @@ fn file_session_rejects_a_directory() {
 
 #[test]
 fn file_session_rejects_an_empty_or_nul_path() {
-    let (mut controller, _sink) = file_controller();
+    let mut controller = ready_file();
 
     assert_eq!(
         controller.start_file_session(std::path::Path::new("")),
@@ -575,7 +614,9 @@ fn file_session_rejects_an_empty_or_nul_path() {
 #[test]
 fn file_session_sends_a_transcribe_file_command_and_enters_recording() {
     let file = TempFile::new("meeting-2026-10-29.mp4");
-    let (mut controller, sink) = file_controller();
+    let mut controller = ready_file();
+    let sink = RecordingSink::default();
+    controller.set_sink(Box::new(sink.clone()));
 
     controller.start_file_session(&file.path).expect("starts");
 
@@ -599,7 +640,7 @@ fn file_session_sends_a_transcribe_file_command_and_enters_recording() {
 #[test]
 fn file_session_adopts_the_file_name_as_its_audio_source() {
     let file = TempFile::new("standup-notes.m4a");
-    let (mut controller, _sink) = file_controller();
+    let mut controller = ready_file();
 
     controller.start_file_session(&file.path).expect("starts");
 
@@ -613,19 +654,11 @@ fn file_session_adopts_the_file_name_as_its_audio_source() {
 }
 
 #[test]
-fn file_session_keeps_an_existing_session_name() {
-    let file = TempFile::new("keeps-name.mkv");
-    let (mut controller, _sink) = file_controller();
-
-    controller.start_file_session(&file.path).expect("starts");
-
-    assert_eq!(controller.session_name(), Some("meeting notes"));
-}
-
-#[test]
 fn file_session_never_sends_audio_even_if_the_capture_pushes() {
     let file = TempFile::new("no-audio.wav");
-    let (mut controller, sink) = file_controller();
+    let mut controller = ready_file();
+    let sink = RecordingSink::default();
+    controller.set_sink(Box::new(sink.clone()));
     controller.start_file_session(&file.path).expect("starts");
     sink.take();
 
@@ -637,7 +670,9 @@ fn file_session_never_sends_audio_even_if_the_capture_pushes() {
 #[test]
 fn file_session_reports_progress_as_the_decoded_position() {
     let file = TempFile::new("progress.mp3");
-    let (mut controller, sink) = file_controller();
+    let mut controller = ready_file();
+    let sink = RecordingSink::default();
+    controller.set_sink(Box::new(sink.clone()));
     controller.start_file_session(&file.path).expect("starts");
     sink.take();
 
@@ -656,7 +691,7 @@ fn file_session_reports_progress_as_the_decoded_position() {
 #[test]
 fn file_progress_ignores_a_stale_take() {
     let file = TempFile::new("stale.wav");
-    let (mut controller, _sink) = file_controller();
+    let mut controller = ready_file();
     controller.start_file_session(&file.path).expect("starts");
 
     controller.handle_stt_event(SttEvent::Progress {
@@ -671,7 +706,9 @@ fn file_progress_ignores_a_stale_take() {
 #[test]
 fn file_take_finishes_through_the_normal_stop_flow() {
     let file = TempFile::new("finish.wav");
-    let (mut controller, sink) = file_controller();
+    let mut controller = ready_file();
+    let sink = RecordingSink::default();
+    controller.set_sink(Box::new(sink.clone()));
     controller.start_file_session(&file.path).expect("starts");
     controller.handle_stt_event(SttEvent::Committed {
         session_id: "take-1".into(),
@@ -693,6 +730,195 @@ fn file_take_finishes_through_the_normal_stop_flow() {
             .to_string(),
         "hello file"
     );
+}
+
+// ----- Nameless saves -------------------------------------------------
+
+/// A unique directory under the system temp dir, removed on drop.
+struct TempDir(std::path::PathBuf);
+
+impl TempDir {
+    fn new(label: &str) -> Self {
+        let mut path = std::env::temp_dir();
+        path.push(format!("speechtt-flow-{}-{label}", std::process::id()));
+        std::fs::create_dir_all(&path).expect("temp dir");
+        Self(path)
+    }
+
+    fn path(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+fn finished_live_with(text: &str) -> SessionController {
+    let (mut controller, _sink) = duplex_controller();
+    assert!(controller.start_recording());
+    controller.handle_stt_event(SttEvent::Committed {
+        session_id: "take-1".into(),
+        text: text.into(),
+    });
+    assert!(controller.pause_recording());
+    assert!(controller.finish_take());
+    controller
+}
+
+fn finished_file_with(stem: &str, text: &str) -> (SessionController, TempFile) {
+    let file = TempFile::new(&format!("{stem}.mp4"));
+    let mut controller = ready_file();
+    controller.start_file_session(&file.path).expect("starts");
+    controller.handle_stt_event(SttEvent::Committed {
+        session_id: "take-1".into(),
+        text: text.into(),
+    });
+    assert!(controller.finish_take());
+    (controller, file)
+}
+
+#[test]
+fn suggested_save_name_is_none_for_a_live_take() {
+    let controller = finished_live_with("hello there");
+
+    assert_eq!(controller.suggested_save_name(), None);
+}
+
+#[test]
+fn suggested_save_name_uses_the_source_file_stem() {
+    let (controller, file) = finished_file_with("weekly-sync", "hello");
+
+    let stem = file
+        .path
+        .file_stem()
+        .expect("file stem")
+        .to_string_lossy()
+        .into_owned();
+    assert_eq!(controller.suggested_save_name(), Some(stem));
+}
+
+#[test]
+fn saving_writes_the_chosen_path_and_titles_it_with_its_stem() {
+    let directory = TempDir::new("save");
+    let target = directory.path().join("Board Meeting.md");
+    let mut controller = finished_live_with("hello\nworld");
+
+    let saved = controller
+        .save_finished_transcript_to(&target)
+        .expect("save succeeds");
+
+    assert_eq!(saved.path, target);
+    assert_eq!(controller.written_path(), Some(target.as_path()));
+    assert_eq!(controller.output_status(), Some("Saved"));
+    assert_eq!(
+        std::fs::read_to_string(&target).expect("saved file"),
+        "# Board Meeting\n\nhello\nworld\n"
+    );
+}
+
+#[test]
+fn saving_honours_a_text_extension() {
+    let directory = TempDir::new("save-txt");
+    let target = directory.path().join("notes.txt");
+    let mut controller = finished_live_with("hello");
+
+    controller
+        .save_finished_transcript_to(&target)
+        .expect("save succeeds");
+
+    assert_eq!(
+        std::fs::read_to_string(&target).expect("saved file"),
+        "hello\n"
+    );
+}
+
+#[test]
+fn saving_without_a_finished_take_reports_an_error() {
+    let directory = TempDir::new("save-none");
+    let target = directory.path().join("notes.md");
+    let mut controller = SessionController::new();
+
+    let result = controller.save_finished_transcript_to(&target);
+
+    assert!(matches!(result, Err(AppError::SaveFailed(_))));
+    assert!(!target.exists());
+}
+
+#[test]
+fn saving_an_empty_transcript_reports_an_error() {
+    let directory = TempDir::new("save-empty");
+    let target = directory.path().join("notes.md");
+    // A real sink keeps the mock transcript out of the finished take.
+    let (mut controller, _sink) = duplex_controller();
+    assert!(controller.start_recording());
+    controller.handle_stt_event(SttEvent::Committed {
+        session_id: "take-1".into(),
+        text: "   ".into(),
+    });
+    assert!(controller.pause_recording());
+    assert!(controller.finish_take());
+
+    let result = controller.save_finished_transcript_to(&target);
+
+    assert!(matches!(result, Err(AppError::SaveFailed(_))));
+    assert!(!target.exists());
+}
+
+#[test]
+fn open_saved_file_uses_the_written_path() {
+    use speechtt_core::output::OutputError;
+    use speechtt_core::output::file::FileOpener;
+
+    #[derive(Default)]
+    struct RecordingOpener {
+        opened: Vec<std::path::PathBuf>,
+    }
+
+    impl FileOpener for RecordingOpener {
+        fn open(&mut self, path: &std::path::Path) -> Result<(), OutputError> {
+            self.opened.push(path.to_path_buf());
+            Ok(())
+        }
+    }
+
+    let directory = TempDir::new("open");
+    let target = directory.path().join("notes.md");
+    let mut controller = finished_live_with("hello");
+    controller
+        .save_finished_transcript_to(&target)
+        .expect("save succeeds");
+
+    let mut opener = RecordingOpener::default();
+    controller.open_saved_file(&mut opener).expect("opens");
+
+    assert_eq!(opener.opened, vec![target]);
+    assert_eq!(controller.output_status(), Some("Opened"));
+}
+
+#[test]
+fn opening_without_a_saved_file_reports_an_error() {
+    use speechtt_core::output::OutputError;
+    use speechtt_core::output::file::{FileOpener, SystemOpener};
+
+    struct NoOpOpener;
+
+    impl FileOpener for NoOpOpener {
+        fn open(&mut self, _path: &std::path::Path) -> Result<(), OutputError> {
+            Ok(())
+        }
+    }
+
+    let mut controller = finished_live_with("hello");
+    let mut opener = NoOpOpener;
+    assert!(matches!(
+        controller.open_saved_file(&mut opener),
+        Err(AppError::SaveFailed(_))
+    ));
+    // SystemOpener is only referenced to keep the production type in scope.
+    let _ = std::mem::size_of::<SystemOpener>();
 }
 
 #[test]

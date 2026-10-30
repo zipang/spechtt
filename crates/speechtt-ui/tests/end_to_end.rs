@@ -22,11 +22,10 @@ use speechtt_core::output::paste::PasteSink;
 use speechtt_core::protocol::{
     ModelCapabilityInfo, ProviderCapability, SecretString, SttCommand, SttEvent, TranscriptionMode,
 };
-use speechtt_core::session::OutputTarget;
 use speechtt_core::settings::{Settings, SettingsError, SettingsStore, WindowLayout};
 use speechtt_ui::app::{AppServices, SpeechTtApp};
 use speechtt_ui::controller::{
-    AppError, Clock, Dialog, SAMPLE_RATE, SessionController, SettingsChange, ViewState,
+    AppError, Clock, Dialog, SAMPLE_RATE, SessionController, SessionMode, SettingsChange, ViewState,
 };
 
 // ----- Fakes -----------------------------------------------------------
@@ -277,20 +276,19 @@ fn install_catalogue(controller: &mut SessionController) {
     controller.set_capabilities(catalogue());
 }
 
-fn complete_draft(output: OutputTarget) -> SessionController {
+/// A Live-mode controller past the form and `Ready`.
+fn complete_draft() -> SessionController {
     let mut controller = SessionController::new();
     install_catalogue(&mut controller);
-    controller.open_form();
+    assert!(!controller.choose_mode(SessionMode::Live));
     controller.cycle_provider();
     controller.cycle_model();
-    controller.set_draft_output(output);
-    controller.set_draft_name("meeting notes");
     assert!(controller.create_session());
     controller
 }
 
-fn duplex_controller(output: OutputTarget) -> (SessionController, RecordingSink) {
-    let controller = complete_draft(output);
+fn duplex_controller() -> (SessionController, RecordingSink) {
+    let controller = complete_draft();
     let sink = RecordingSink::default();
     let mut controller = controller;
     controller.set_sink(Box::new(sink.clone()));
@@ -348,7 +346,7 @@ fn finish_with_transcript(controller: &mut SessionController, sink: &RecordingSi
 
 #[test]
 fn audio_frames_reach_the_backend_only_while_recording() {
-    let (mut controller, sink) = duplex_controller(OutputTarget::Memory);
+    let (mut controller, sink) = duplex_controller();
     assert!(controller.start_recording());
     controller.push_audio_chunk(&[1, 2], Arc::<[f32]>::from([0.4]));
     assert!(controller.pause_recording());
@@ -369,7 +367,7 @@ fn audio_frames_reach_the_backend_only_while_recording() {
 
 #[test]
 fn partial_delta_and_committed_text_survive_finish_and_stopped_refines_it() {
-    let (mut controller, _sink) = duplex_controller(OutputTarget::Memory);
+    let (mut controller, _sink) = duplex_controller();
     assert!(controller.start_recording());
 
     controller.handle_stt_event(SttEvent::Partial {
@@ -410,7 +408,7 @@ fn partial_delta_and_committed_text_survive_finish_and_stopped_refines_it() {
 
 #[test]
 fn stale_session_events_are_ignored() {
-    let (mut controller, _sink) = duplex_controller(OutputTarget::Memory);
+    let (mut controller, _sink) = duplex_controller();
     assert!(controller.start_recording());
     controller.handle_stt_event(SttEvent::Partial {
         session_id: "take-1".into(),
@@ -420,11 +418,9 @@ fn stale_session_events_are_ignored() {
     assert!(controller.finish_take());
     controller.new_take();
 
-    controller.open_form();
+    assert!(!controller.choose_mode(SessionMode::Live));
     controller.cycle_provider();
     controller.cycle_model();
-    controller.set_draft_output(OutputTarget::Memory);
-    controller.set_draft_name("second");
     assert!(controller.create_session());
     assert!(controller.start_recording());
     assert_eq!(controller.session_label(), "take-2");
@@ -443,7 +439,7 @@ fn stale_session_events_are_ignored() {
 
 #[test]
 fn hotkey_actions_match_the_button_guards() {
-    let (mut controller, _sink) = duplex_controller(OutputTarget::Memory);
+    let (mut controller, _sink) = duplex_controller();
 
     assert!(controller.apply_action(SessionAction::StartRecording));
     assert_eq!(
@@ -466,7 +462,7 @@ fn hotkey_actions_match_the_button_guards() {
 
 #[test]
 fn clock_drives_elapsed_and_resets_for_each_take() {
-    let (mut controller, _sink) = duplex_controller(OutputTarget::Memory);
+    let (mut controller, _sink) = duplex_controller();
     let mut clock = ManualClock::new();
 
     let start = clock.now();
@@ -488,11 +484,9 @@ fn clock_drives_elapsed_and_resets_for_each_take() {
 
     assert!(controller.finish_take());
     controller.new_take();
-    controller.open_form();
+    assert!(!controller.choose_mode(SessionMode::Live));
     controller.cycle_provider();
     controller.cycle_model();
-    controller.set_draft_output(OutputTarget::Memory);
-    controller.set_draft_name("next take");
     assert!(controller.create_session());
 
     assert!(controller.start_recording_at(clock.advance(Duration::from_secs(30))));
@@ -505,7 +499,7 @@ fn clock_drives_elapsed_and_resets_for_each_take() {
 
 #[test]
 fn copy_sends_the_exact_transcript_to_the_clipboard() {
-    let (mut controller, sink) = duplex_controller(OutputTarget::Memory);
+    let (mut controller, sink) = duplex_controller();
     finish_with_transcript(&mut controller, &sink);
 
     let mut clipboard = RecordingClipboard::default();
@@ -522,15 +516,16 @@ fn copy_sends_the_exact_transcript_to_the_clipboard() {
 
 #[test]
 fn save_writes_markdown_and_keeps_the_transcript() {
-    let (mut controller, sink) = duplex_controller(OutputTarget::Memory);
+    let (mut controller, sink) = duplex_controller();
     finish_with_transcript(&mut controller, &sink);
     let directory = TempDir::new("save");
-    let now = UNIX_EPOCH + Duration::from_secs(1_793_109_785);
+    let target = directory.path().join("meeting notes.md");
 
     let saved = controller
-        .save_finished_transcript(directory.path(), now)
+        .save_finished_transcript_to(&target)
         .expect("save succeeds");
 
+    assert_eq!(saved.path, target);
     assert_eq!(
         std::fs::read_to_string(&saved.path).expect("saved file"),
         "# meeting notes\n\naudio capture\n"
@@ -542,15 +537,17 @@ fn save_writes_markdown_and_keeps_the_transcript() {
 
 #[test]
 fn a_save_failure_is_typed_and_keeps_the_transcript() {
-    let (mut controller, sink) = duplex_controller(OutputTarget::Memory);
+    let (mut controller, sink) = duplex_controller();
     finish_with_transcript(&mut controller, &sink);
 
     let directory = TempDir::new("save-failure");
     let blocked = directory.path().join("blocked");
     std::fs::write(&blocked, b"not a directory").expect("blocking file");
+    // The parent of the target is a regular file: the save must fail cleanly.
+    let target = blocked.join("notes.md");
 
     let error = controller
-        .save_finished_transcript(&blocked, UNIX_EPOCH)
+        .save_finished_transcript_to(&target)
         .expect_err("save must fail");
 
     assert!(matches!(error, AppError::SaveFailed(_)));
@@ -560,20 +557,35 @@ fn a_save_failure_is_typed_and_keeps_the_transcript() {
 }
 
 #[test]
-fn file_takes_write_to_the_target_and_open_it() {
+fn a_file_take_is_saved_under_its_source_stem() {
     let directory = TempDir::new("file-take");
-    let target = directory.path().join("notes.md");
-    let (mut controller, sink) =
-        duplex_controller(OutputTarget::File(target.to_string_lossy().into_owned()));
-    finish_with_transcript(&mut controller, &sink);
+    let source = directory.path().join("standup.mp4");
+    std::fs::write(&source, b"RIFF0000WAVE").expect("source fixture");
+    let target = directory.path().join("standup.md");
+    let mut controller = SessionController::new();
+    install_catalogue(&mut controller);
+    controller.choose_mode(SessionMode::File);
+    controller.cycle_provider();
+    controller.cycle_model();
+    assert!(controller.create_session());
+    controller
+        .start_file_session(&source)
+        .expect("file take starts");
+    controller.handle_stt_event(SttEvent::Committed {
+        session_id: "take-1".into(),
+        text: "audio capture".into(),
+    });
+    assert!(controller.finish_take());
 
-    let now = UNIX_EPOCH + Duration::from_secs(1_793_109_785);
-    let saved = controller.save_finished_file(now).expect("file take saves");
+    assert_eq!(controller.suggested_save_name().as_deref(), Some("standup"));
+    let saved = controller
+        .save_finished_transcript_to(&target)
+        .expect("file take saves");
 
-    assert_eq!(saved.path.parent(), Some(directory.path()));
+    assert_eq!(saved.path, target);
     assert_eq!(
         std::fs::read_to_string(&saved.path).expect("saved file"),
-        "# meeting notes\n\naudio capture\n"
+        "# standup\n\naudio capture\n"
     );
     assert_eq!(controller.written_path(), Some(saved.path.as_path()));
 
@@ -589,11 +601,12 @@ fn file_takes_write_to_the_target_and_open_it() {
 
 #[test]
 fn open_calls_the_opener_with_the_written_path() {
-    let (mut controller, sink) = duplex_controller(OutputTarget::Memory);
+    let (mut controller, sink) = duplex_controller();
     finish_with_transcript(&mut controller, &sink);
     let directory = TempDir::new("open");
+    let target = directory.path().join("meeting notes.md");
     let saved = controller
-        .save_finished_transcript(directory.path(), UNIX_EPOCH)
+        .save_finished_transcript_to(&target)
         .expect("save succeeds");
 
     let mut opener = RecordingOpener::default();
@@ -611,7 +624,7 @@ fn open_calls_the_opener_with_the_written_path() {
 #[test]
 fn auto_paste_runs_only_when_enabled() {
     // Disabled by default (no settings applied).
-    let (mut controller, sink) = duplex_controller(OutputTarget::Memory);
+    let (mut controller, sink) = duplex_controller();
     finish_with_transcript(&mut controller, &sink);
     let mut clipboard = RecordingClipboard::default();
     let mut paste = RecordingPaste::default();
@@ -623,7 +636,7 @@ fn auto_paste_runs_only_when_enabled() {
     assert_eq!(*paste.pastes.lock().expect("paste lock"), 0);
 
     // Enabled through persisted settings with a model and key.
-    let mut enabled = complete_draft(OutputTarget::Memory);
+    let mut enabled = complete_draft();
     let sink = RecordingSink::default();
     enabled.set_sink(Box::new(sink.clone()));
     enabled.apply_settings(settings_with_auto_paste());
@@ -644,7 +657,7 @@ fn auto_paste_runs_only_when_enabled() {
 
 #[test]
 fn clipboard_failure_is_typed_and_does_not_paste() {
-    let (mut controller, sink) = duplex_controller(OutputTarget::Memory);
+    let (mut controller, sink) = duplex_controller();
     finish_with_transcript(&mut controller, &sink);
     controller.apply_settings(settings_with_auto_paste());
 
@@ -723,25 +736,22 @@ fn capabilities_populate_options_and_connection_state() {
 }
 
 #[test]
-fn open_form_prefills_the_persisted_default_provider_and_model() {
+fn choosing_live_prefills_the_persisted_default_provider_and_model() {
     let mut controller = SessionController::new();
     install_catalogue(&mut controller);
     controller.apply_settings(settings_with_key());
 
-    controller.open_form();
-
-    assert!(controller.has_provider(), "provider is pre-filled");
-    assert!(controller.has_model(), "model is pre-filled");
-    assert_eq!(controller.provider_label(), Some("Vercel AI Gateway"));
-    assert_eq!(
-        controller.model_label(),
-        Some("gpt-realtime-whisper"),
-        "the handshake label is used for the pre-filled model"
+    assert!(
+        controller.choose_mode(SessionMode::Live),
+        "the settings already resolve, so Live lands on Ready"
     );
 
-    controller.set_draft_output(OutputTarget::Memory);
-    controller.set_draft_name("prefilled take");
-    assert!(controller.create_session());
+    assert_eq!(
+        controller.session_state(),
+        speechtt_core::session::SessionState::Ready
+    );
+    assert_eq!(controller.session_missing(), Vec::new());
+    assert_eq!(controller.mode(), SessionMode::Live);
 
     let sink = RecordingSink::default();
     controller.set_sink(Box::new(sink.clone()));
@@ -767,7 +777,7 @@ fn open_form_prefills_the_persisted_default_provider_and_model() {
 }
 
 #[test]
-fn open_form_starts_empty_without_a_configured_model() {
+fn choosing_live_opens_the_form_without_a_configured_model() {
     let mut controller = SessionController::new();
     // A provider-only/default settings file has no model to pre-fill.
     let mut settings = Settings {
@@ -777,7 +787,7 @@ fn open_form_starts_empty_without_a_configured_model() {
     settings.set_api_key("vercel-ai-gateway", "sk-provider-only");
     controller.apply_settings(settings);
 
-    controller.open_form();
+    assert!(!controller.choose_mode(SessionMode::Live));
 
     assert!(!controller.has_provider());
     assert!(!controller.has_model());
@@ -826,7 +836,7 @@ fn new_session_form_cycles_the_capability_catalogue() {
         },
     ]);
 
-    controller.open_form();
+    controller.choose_mode(SessionMode::Live);
     controller.cycle_provider();
     assert_eq!(controller.provider_label(), Some("Custom STT"));
     controller.cycle_model();
@@ -836,8 +846,6 @@ fn new_session_form_cycles_the_capability_catalogue() {
     controller.cycle_model();
     assert_eq!(controller.model_label(), Some("Custom Small"));
 
-    controller.set_draft_output(OutputTarget::Memory);
-    controller.set_draft_name("capability take");
     assert!(controller.create_session());
     let sink = RecordingSink::default();
     controller.set_sink(Box::new(sink.clone()));
@@ -861,9 +869,9 @@ fn new_session_form_cycles_the_capability_catalogue() {
 
 #[test]
 fn start_uses_the_session_choice_and_the_settings_key_for_that_provider() {
+    // No persisted model: the chooser opens the form and the user picks one.
     let mut settings = Settings {
         provider: "vercel-ai-gateway".into(),
-        model: "openai/gpt-realtime-whisper".into(),
         ..Settings::default()
     };
     settings.set_api_key("vercel-ai-gateway", "sk-vercel");
@@ -871,16 +879,14 @@ fn start_uses_the_session_choice_and_the_settings_key_for_that_provider() {
     install_catalogue(&mut controller);
     controller.apply_settings(settings);
 
-    controller.open_form();
-    // The user explicitly changes the default model for this session.
+    assert!(!controller.choose_mode(SessionMode::Live));
+    controller.cycle_provider();
     controller.cycle_model();
     assert_eq!(
         controller.model_label(),
         Some("GPT-4o Transcribe"),
-        "cycle_model moves to the next model in label order"
+        "cycle_model picks the first model in label order"
     );
-    controller.set_draft_output(OutputTarget::Memory);
-    controller.set_draft_name("chosen model");
     assert!(controller.create_session());
 
     let sink = RecordingSink::default();
@@ -929,14 +935,13 @@ fn settings_save_round_trips_to_the_store_and_start_carries_the_key() {
         Some("sk-round-trip")
     );
 
-    // Start uses the persisted provider/model/key that `open_form` pre-fills.
+    // Start uses the persisted provider/model/key that the chooser pre-fills.
     controller.apply_settings(store.get());
-    controller.open_form();
-    assert_eq!(controller.provider_label(), Some("Vercel AI Gateway"));
-    assert_eq!(controller.model_label(), Some("gpt-realtime-whisper"));
-    controller.set_draft_output(OutputTarget::Memory);
-    controller.set_draft_name("keyed take");
-    assert!(controller.create_session());
+    assert!(controller.choose_mode(SessionMode::Live));
+    assert_eq!(
+        controller.session_state(),
+        speechtt_core::session::SessionState::Ready
+    );
     let sink = RecordingSink::default();
     controller.set_sink(Box::new(sink.clone()));
     assert!(controller.start_recording());
@@ -971,7 +976,7 @@ fn a_missing_key_blocks_recording_with_a_settings_shortcut() {
     settings.remove_api_key("vercel");
     assert!(settings.api_key("vercel").is_none());
 
-    let mut controller = complete_draft(OutputTarget::Memory);
+    let mut controller = complete_draft();
     controller.apply_settings(settings);
     let sink = RecordingSink::default();
     controller.set_sink(Box::new(sink.clone()));
@@ -997,7 +1002,7 @@ fn a_missing_key_blocks_recording_with_a_settings_shortcut() {
 
 #[test]
 fn retry_reissues_start_with_the_same_session_id() {
-    let (mut controller, sink) = duplex_controller(OutputTarget::Memory);
+    let (mut controller, sink) = duplex_controller();
     assert!(controller.start_recording());
     let _ = sink.take();
 
@@ -1091,10 +1096,7 @@ fn the_app_constructs_from_fakes_and_persists_settings(cx: &mut gpui_kit::TestAp
         view.update(cx, |app, cx| app.apply_capabilities(catalogue(), cx));
     });
 
-    assert_eq!(
-        cx.update(|cx| view.read(cx).view_state()),
-        ViewState::Prompt
-    );
+    assert_eq!(cx.update(|cx| view.read(cx).view_state()), ViewState::Mode);
     assert!(
         !listener_handle
             .registrations
@@ -1197,15 +1199,11 @@ fn the_app_event_pump_updates_the_caption_and_copy_uses_the_clipboard(
         view.update(cx, |app, cx| app.apply_capabilities(catalogue(), cx));
     });
 
-    cx.update_window(window.into(), |_, window, cx| {
+    cx.update_window(window.into(), |_, _window, cx| {
         view.update(cx, |app, cx| {
-            app.open_form(window, cx);
-            // Persisted settings pre-fill the form; the test only names the
-            // take and chooses its output.
-            assert_eq!(app.view_state(), ViewState::Form);
-            app.select_output(OutputTarget::Memory, cx);
-            app.set_draft_name("app e2e", window, cx);
-            app.create_session(cx);
+            // Persisted settings resolve, so Live lands on Ready directly.
+            app.choose_mode(SessionMode::Live, cx);
+            assert_eq!(app.view_state(), ViewState::Ready);
         });
     })
     .unwrap();
@@ -1530,12 +1528,10 @@ fn ready_app_for_files(
 
     cx.update_window(window.into(), |_, window, cx| {
         view.update(cx, |app, cx| {
-            app.open_form(window, cx);
-            app.cycle_provider(cx);
-            app.cycle_model(cx);
-            app.select_output(OutputTarget::Memory, cx);
-            app.set_draft_name("file take", window, cx);
-            app.create_session(cx);
+            // The file card routes straight to the picker; this test starts the
+            // take from its headless seam instead, so ignore the pending prompt.
+            app.choose_mode(SessionMode::File, cx);
+            assert_eq!(app.view_state(), ViewState::Ready);
         });
         window.render_frame(cx);
     })
