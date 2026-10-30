@@ -1,9 +1,9 @@
-//! Stopped screen: the finished take, split by output mode.
+//! Stopped screen: the finished take and its save state.
 //!
-//! A memory take starts with Copy/Save. After Save (or immediately for a file
-//! take) the screen shows the written path and an Open File action backed by
-//! the injected opener. "Copied"/"Saved"/"Opened" feedback comes from the
-//! controller's transient output status.
+//! An unsaved take (live or file) starts with Copy/Save: nothing is written
+//! automatically. After Save the screen shows the written path and an Open
+//! File action backed by the injected opener. "Copied"/"Saved"/"Opened"
+//! feedback comes from the controller's transient output status.
 
 use gpui_kit::assets::IconName;
 use gpui_kit::base::h_flex;
@@ -11,24 +11,19 @@ use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::{ActiveTheme as _, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, Context, FontWeight, div, rems};
-use speechtt_core::session::OutputTarget;
 
 use crate::app::SpeechTtApp;
 use crate::components::{CaptionWell, IconAction, StatusBadge};
 use crate::layout::{ScreenShell, SurfaceBox};
 use crate::tokens::rem;
 
-/// Finished take. A written memory take and a file take both expose the path
-/// and an open action; an unsaved memory take exposes copy/save.
-pub(crate) fn render_stopped(app: &mut SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyElement {
+/// Finished take. A written take exposes the path and an open action; an
+/// unsaved take exposes copy/save.
+pub(crate) fn render(app: &mut SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyElement {
     let Some(result) = app.controller().finished_take() else {
         return StatusBadge::new("STOPPED").into_any_element();
     };
 
-    let target_path = match &result.session().output {
-        OutputTarget::File(path) => path.clone(),
-        OutputTarget::Memory => String::new(),
-    };
     let written_path = app
         .controller()
         .written_path()
@@ -37,8 +32,8 @@ pub(crate) fn render_stopped(app: &mut SpeechTtApp, cx: &mut Context<SpeechTtApp
     let committed = result.committed().clone();
     let live = result.live().clone();
 
-    // A save turns either output mode into a written-path view.
-    let path = written_path.clone().unwrap_or(target_path);
+    // Save turns the transcript into a written-path view.
+    let path = written_path.unwrap_or_default();
     let written = !path.is_empty();
 
     let controls = if written {

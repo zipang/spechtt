@@ -3,8 +3,9 @@
 //! Phase 2 shell: header + body views derived from the session controller.
 //!
 //! ```text
-//! Blank  → "New Session" prompt → New Session form → Ready (record)
-//! Ready  → Recording ⇄ Paused → (Stop → Blank prompt again)
+//! Mode   → (provider + model form) → Ready → Recording ⇄ Paused
+//!                   ↑                            │
+//!                   └──── "change mode" ──── Stopped ← Stop
 //! ```
 //!
 //! This module owns the window shell, the workflow state and the public
@@ -18,6 +19,7 @@ use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::{Sizable as _, button::Button};
 use std::cell::Cell;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -27,8 +29,8 @@ use std::time::{Duration, Instant};
 use gpui_kit::prelude::*;
 use gpui_kit::{
     AnyElement, AnyWindowHandle, App, Bounds, Context, Entity, PathPromptOptions, Pixels, Point,
-    Size, Subscription, Task, Window, WindowBounds, WindowId, WindowKind, WindowOptions, div, px,
-    rems,
+    SharedString, Size, Subscription, Task, Window, WindowBounds, WindowId, WindowKind,
+    WindowOptions, div, px, rems,
 };
 use speechtt_core::audio::{AudioError, AudioSource, CpalAudioSource, PcmChunk};
 use speechtt_core::backend::{BackendError, BunSubprocess, SttEventReceiver, SttSessionSink};
@@ -37,15 +39,15 @@ use speechtt_core::hotkeys::{
     GlobalHotkeyListener, HotkeyError, SessionAction, ShortcutListener, bindings_from_settings,
 };
 use speechtt_core::output::clipboard::{ClipboardSink, SystemClipboard};
-use speechtt_core::output::file::{FileOpener, SystemOpener};
+use speechtt_core::output::file::{FileOpener, SystemOpener, suggested_transcript_name};
 use speechtt_core::output::paste::{PasteSink, SystemPaste};
-use speechtt_core::session::{OutputTarget, SessionField, SessionState};
+use speechtt_core::session::{SessionField, SessionState};
 use speechtt_core::settings::{JsonFileStore, Settings, SettingsStore, WindowLayout};
 
 use crate::components::{ActionButton, AppFooter, AppHeader, IconButton};
 use crate::controller::{
     AppError, Clock, Dialog, ErrorAction, FinishedTake, HelpTab, SAMPLE_RATE, SessionController,
-    SettingsChange, SettingsDraft, SystemClock, ViewState,
+    SessionMode, SettingsChange, SettingsDraft, SystemClock, ViewState,
 };
 use crate::tokens::{color, rem};
 use crate::views;
@@ -79,7 +81,9 @@ type AudioFactory = Box<dyn FnMut() -> Result<Box<dyn AudioSource>, AudioError> 
 /// Root view of the widget window.
 pub struct SpeechTtApp {
     controller: SessionController,
-    session_name: Entity<InputState>,
+    /// Monotonic click counters for round-button ripples, keyed by element id.
+    /// `u64` because the view only needs "this changed", not a timestamp.
+    pulses: BTreeMap<SharedString, u64>,
     settings_api_key: Entity<InputState>,
     settings_key_revealed: bool,
     /// The open dialog window, if any. Dialogs are separate floating windows.
@@ -176,20 +180,10 @@ impl SpeechTtApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let session_name =
-            cx.new(|cx| InputState::new(window, cx).placeholder("e.g. meeting-notes"));
         let settings_api_key = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder("Paste your provider API key")
                 .masked(true)
-        });
-        // Mirror the input into the controller so `Create session` enables live.
-        let subscription = cx.subscribe(&session_name, |this, input, event: &InputEvent, cx| {
-            if matches!(event, InputEvent::Change) {
-                this.controller
-                    .set_draft_name(input.read(cx).value().to_string());
-                cx.notify();
-            }
         });
         let settings_subscription =
             cx.subscribe(&settings_api_key, |this, input, event: &InputEvent, cx| {
@@ -228,13 +222,13 @@ impl SpeechTtApp {
 
         let mut app = Self {
             controller,
-            session_name,
+            pulses: BTreeMap::new(),
             settings_api_key,
             settings_key_revealed: false,
             dialog_window: None,
             dialog_window_id,
             pending_settings: None,
-            _subscriptions: vec![subscription, settings_subscription, window_closed],
+            _subscriptions: vec![settings_subscription, window_closed],
             _event_task: None,
             _clock_task: None,
             _audio_task: None,
@@ -440,22 +434,26 @@ impl SpeechTtApp {
         &self.controller
     }
 
-    /// The editable session-name input, owned by this view.
-    pub(crate) fn session_name_input(&self) -> &Entity<InputState> {
-        &self.session_name
-    }
-
     // ----- Commands ----------------------------------------------------
 
-    pub fn open_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.controller.open_form();
-        self.clear_session_name(window, cx);
+    /// Enter the workflow for `mode`, then route: live goes to Ready, file
+    /// opens the picker straight away.
+    pub fn choose_mode(&mut self, mode: SessionMode, cx: &mut Context<Self>) {
+        if self.controller.choose_mode(mode) && mode == SessionMode::File {
+            self.pick_transcription_file(cx);
+        }
         cx.notify();
     }
 
-    pub fn cancel_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Back to the mode chooser (File Ready's "Change mode" link).
+    pub fn change_mode(&mut self, cx: &mut Context<Self>) {
+        self.stop_audio_capture();
+        self.controller.change_mode();
+        cx.notify();
+    }
+
+    pub fn cancel_form(&mut self, cx: &mut Context<Self>) {
         self.controller.cancel_form();
-        self.clear_session_name(window, cx);
         cx.notify();
     }
 
@@ -469,32 +467,23 @@ impl SpeechTtApp {
         cx.notify();
     }
 
-    pub fn select_output(&mut self, output: OutputTarget, cx: &mut Context<Self>) {
-        self.controller.set_draft_output(output);
-        cx.notify();
-    }
-
-    /// Set the session name in both the controller and the editable input.
-    pub fn set_draft_name(
-        &mut self,
-        name: impl Into<String>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let name = name.into();
-        self.controller.set_draft_name(name.clone());
-        self.session_name
-            .update(cx, |state, cx| state.set_value(name, window, cx));
-        cx.notify();
-    }
-
     pub fn create_session(&mut self, cx: &mut Context<Self>) {
-        // Read the editable input directly: change events are not guaranteed
-        // to have reached the controller before the click handler runs.
-        let name = self.session_name.read(cx).value().to_string();
-        self.controller.set_draft_name(name);
-        self.controller.create_session();
+        if self.controller.create_session() && self.controller.mode() == SessionMode::File {
+            self.pick_transcription_file(cx);
+        }
         cx.notify();
+    }
+
+    /// Bump the ripple counter for `id` (the click landed).
+    pub fn pulse(&mut self, id: &str) {
+        let counter = self.pulses.entry(SharedString::from(id)).or_insert(0);
+        *counter += 1;
+    }
+
+    /// Ripple counter for `id`; `0` means no click yet.
+    #[must_use]
+    pub fn pulse_count(&self, id: &str) -> u64 {
+        self.pulses.get(id).copied().unwrap_or(0)
     }
 
     pub fn start_recording(&mut self, cx: &mut Context<Self>) {
@@ -567,18 +556,11 @@ impl SpeechTtApp {
         }
         self.stop_audio_capture();
 
-        let now = self.clock.system_now();
+        // Nothing is written automatically: Save is an explicit action for both
+        // modes, so the user names the transcript.
         let _ = self
             .controller
             .auto_paste_after_finish(&mut *self.clipboard, &mut *self.paste);
-        if matches!(
-            self.controller
-                .finished_take()
-                .map(|take| &take.session().output),
-            Some(OutputTarget::File(_))
-        ) {
-            let _ = self.controller.save_finished_file(now);
-        }
         cx.notify();
     }
 
@@ -632,23 +614,40 @@ impl SpeechTtApp {
         copied
     }
 
-    /// Save the finished take. File takes use their configured target;
-    /// memory takes are written as Markdown under `~/Documents`.
-    pub fn save_transcript(&mut self, cx: &mut Context<Self>) -> bool {
-        let now = self.clock.system_now();
-        let is_file = matches!(
-            self.controller
-                .finished_take()
-                .map(|take| &take.session().output),
-            Some(OutputTarget::File(_))
-        );
-        let saved = if is_file {
-            self.controller.save_finished_file(now)
-        } else {
-            self.controller
-                .save_finished_transcript(&documents_dir(), now)
-        }
-        .is_ok();
+    /// Ask where to write the finished take, with a suggested name: the source
+    /// file's stem for a file take, a timestamped `speechtt-…` for dictation.
+    pub fn save_transcript(&mut self, cx: &mut Context<Self>) {
+        let prefix = self
+            .controller
+            .suggested_save_name()
+            .unwrap_or_else(|| "speechtt".to_owned());
+        let suggested = suggested_transcript_name(&prefix, self.clock.system_now());
+        let selection = cx.prompt_for_new_path(&documents_dir(), Some(&suggested));
+
+        cx.spawn(async move |this, cx| {
+            match selection.await {
+                Ok(Ok(Some(path))) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.save_transcript_to(&path, cx);
+                    });
+                }
+                // The user canceled the dialog.
+                Ok(Ok(None)) => {}
+                Ok(Err(_)) | Err(_) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.controller.report_error(AppError::FileDialogFailed);
+                        cx.notify();
+                    });
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// Write the finished take to `path`. Headless-testable seam behind the
+    /// save dialog.
+    pub fn save_transcript_to(&mut self, path: &Path, cx: &mut Context<Self>) -> bool {
+        let saved = self.controller.save_finished_transcript_to(path).is_ok();
         cx.notify();
         saved
     }
@@ -1114,11 +1113,6 @@ impl SpeechTtApp {
             Err(_) => false,
         }
     }
-
-    fn clear_session_name(&self, window: &mut Window, cx: &mut Context<Self>) {
-        self.session_name
-            .update(cx, |state, cx| state.set_value("", window, cx));
-    }
 }
 
 impl gpui_kit::Render for SpeechTtApp {
@@ -1169,16 +1163,16 @@ impl gpui_kit::Render for SpeechTtApp {
         }
 
         root = root.child(body.child(match state {
-            ViewState::Prompt => views::setup::render_prompt(cx),
-            ViewState::Form => views::setup::render_form(self, cx),
-            ViewState::Ready => views::transport::render_ready(cx),
-            ViewState::Recording => views::transport::render_recording(self, cx),
-            ViewState::Paused => views::transport::render_paused(self, cx),
-            ViewState::Stopped => views::stopped::render_stopped(self, cx),
+            ViewState::Mode => views::welcome::render(self, cx),
+            ViewState::Form => views::session_setup::render(self, cx),
+            ViewState::Ready => views::ready::render(self, cx),
+            ViewState::Recording => views::recording::render(self, cx),
+            ViewState::Paused => views::paused::render(self, cx),
+            ViewState::Stopped => views::stopped::render(self, cx),
         }));
 
         // The setup form's actions are full-bleed, exactly like AppHeader, and
-        // stay pinned while the four setting rows scroll.
+        // stay pinned while the two setting rows scroll.
         if state == ViewState::Form {
             root = root.child(self.render_form_footer(cx));
         }
@@ -1190,16 +1184,15 @@ impl gpui_kit::Render for SpeechTtApp {
 
 impl SpeechTtApp {
     fn render_form_footer(&self, cx: &mut Context<Self>) -> AnyElement {
-        let session_name = self.session_name.read(cx).value().to_string();
-        let can_create = self.controller().is_draft_complete_with_name(&session_name);
+        let can_create = self.controller().is_draft_complete();
 
         AppFooter::new()
             .action(
                 ActionButton::secondary("btn-cancel-session", "Cancel")
-                    .on_click(cx.listener(|this, _event, window, cx| this.cancel_form(window, cx))),
+                    .on_click(cx.listener(|this, _event, _window, cx| this.cancel_form(cx))),
             )
             .action(
-                ActionButton::primary("btn-create-session", "Create session")
+                ActionButton::primary("btn-create-session", "Continue")
                     .disabled(!can_create)
                     .on_click(cx.listener(|this, _event, _window, cx| this.create_session(cx))),
             )

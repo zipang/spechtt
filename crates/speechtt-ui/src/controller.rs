@@ -22,7 +22,7 @@ use speechtt_core::backend::{BackendError, SttEventReceiver, SttSessionSink};
 use speechtt_core::hotkeys::SessionAction;
 use speechtt_core::output::OutputError;
 use speechtt_core::output::clipboard::{ClipboardSink, CopySummary, copy_transcript};
-use speechtt_core::output::file::{FileOpener, SavedFile, TranscriptFormat, save_transcript_at};
+use speechtt_core::output::file::{FileOpener, SavedFile, TranscriptFormat, save_transcript_to};
 use speechtt_core::output::paste::PasteSink;
 use std::collections::BTreeMap;
 
@@ -30,9 +30,7 @@ use speechtt_core::protocol::{
     CapabilitySource, ModelCapabilityInfo, ProviderCapability, SecretString, SttCommand, SttEvent,
     TranscriptionMode,
 };
-use speechtt_core::session::{
-    FinishedSession, OutputTarget, SessionError, SessionField, SessionMachine, SessionState,
-};
+use speechtt_core::session::{FinishedSession, SessionField, SessionMachine, SessionState};
 use speechtt_core::settings::{Settings, SettingsError};
 use speechtt_core::transcript::TranscriptBuffer;
 
@@ -275,10 +273,10 @@ impl AppError {
         match error {
             OutputError::Clipboard(_) => Self::ClipboardFailed,
             OutputError::Paste(_) => Self::PasteFailed,
-            OutputError::EmptyTranscript => Self::ProtocolError("transcript is empty".to_owned()),
-            OutputError::UnsupportedFormat(detail) | OutputError::Write(detail) => {
-                Self::SaveFailed(detail)
-            }
+            // Only a save can surface this now: the finished take was blank.
+            OutputError::EmptyTranscript
+            | OutputError::UnsupportedFormat(_)
+            | OutputError::Write(_) => Self::SaveFailed(error.to_string()),
             OutputError::OpenFile(detail) => {
                 Self::SaveFailed(format!("could not open file: {detail}"))
             }
@@ -301,15 +299,25 @@ fn contains_any(haystack: &str, needles: &[&str]) -> bool {
 /// Which setup screen the body shows while the machine is `Blank`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Screen {
-    Prompt,
+    /// The mode chooser: live dictation or from a file.
+    Mode,
+    /// Provider + model, shown only when the settings do not resolve.
     Form,
+}
+
+/// How a take gets its audio: the microphone or an existing file.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SessionMode {
+    #[default]
+    Live,
+    File,
 }
 
 /// What the widget is currently displaying. Derived from the machine, the
 /// setup screen and the finished-take overlay.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViewState {
-    Prompt,
+    Mode,
     Form,
     Ready,
     Recording,
@@ -502,8 +510,6 @@ impl fmt::Debug for SettingsChange {
 struct SessionDraft {
     provider: Option<String>,
     model: Option<String>,
-    output: Option<OutputTarget>,
-    session_name: String,
 }
 
 /// A draft whose required fields all resolved to real catalogue entries.
@@ -511,8 +517,6 @@ struct SessionDraft {
 struct ValidatedDraft {
     provider: String,
     model: String,
-    session_name: String,
-    output: OutputTarget,
 }
 
 /// The finished take shown in the `Stopped` screen. The machine hands the
@@ -543,8 +547,13 @@ impl FinishedTake {
 /// the live take telemetry.
 pub struct SessionController {
     machine: SessionMachine,
+    /// How the current (or next) take gets its audio.
+    mode: SessionMode,
     screen: Screen,
     draft: SessionDraft,
+    /// Source-file stem of the finished take, when it came from a file. Titles
+    /// the suggested save name; `None` for a live take.
+    finished_file_stem: Option<String>,
     result: Option<FinishedTake>,
     /// Monotonic take counter; the wire id is `take-{session_id}`.
     session_id: u64,
@@ -587,6 +596,7 @@ impl fmt::Debug for SessionController {
         formatter
             .debug_struct("SessionController")
             .field("machine", &self.machine)
+            .field("mode", &self.mode)
             .field("screen", &self.screen)
             .field("draft", &self.draft)
             .field("result", &self.result)
@@ -598,6 +608,7 @@ impl fmt::Debug for SessionController {
             .field("app_error", &self.app_error)
             .field("output_status", &self.output_status)
             .field("written_path", &self.written_path)
+            .field("finished_file_stem", &self.finished_file_stem)
             .field("active_dialog", &self.active_dialog)
             .field("help_tab", &self.help_tab)
             .field("settings_draft", &self.settings_draft)
@@ -629,8 +640,10 @@ impl SessionController {
 
         Self {
             machine,
-            screen: Screen::Prompt,
+            mode: SessionMode::default(),
+            screen: Screen::Mode,
             draft: SessionDraft::default(),
+            finished_file_stem: None,
             result: None,
             session_id: 0,
             transcript: TranscriptBuffer::default(),
@@ -663,7 +676,7 @@ impl SessionController {
             return ViewState::Stopped;
         }
         match (self.machine.state(), self.screen) {
-            (SessionState::Blank, Screen::Prompt) => ViewState::Prompt,
+            (SessionState::Blank, Screen::Mode) => ViewState::Mode,
             (SessionState::Blank, Screen::Form) => ViewState::Form,
             (SessionState::Ready, _) => ViewState::Ready,
             (SessionState::Recording, _) => ViewState::Recording,
@@ -673,6 +686,12 @@ impl SessionController {
 
     pub fn session_state(&self) -> SessionState {
         self.machine.state()
+    }
+
+    /// How the current (or next) take gets its audio.
+    #[must_use]
+    pub fn mode(&self) -> SessionMode {
+        self.mode
     }
 
     pub fn session_missing(&self) -> Vec<SessionField> {
@@ -732,12 +751,6 @@ impl SessionController {
         self.machine.config().audio_source.as_deref()
     }
 
-    /// Session name of the current (or most recent) take.
-    #[must_use]
-    pub fn session_name(&self) -> Option<&str> {
-        self.machine.config().session_name.as_deref()
-    }
-
     /// Decoded position of the current file take, in seconds:
     /// `(processed, total)`, where `total` is absent when ffprobe failed.
     #[must_use]
@@ -793,21 +806,13 @@ impl SessionController {
         self.written_path.as_deref()
     }
 
+    /// True when the draft names a provider and model that both exist in the
+    /// current catalogue. That is the whole setup: a take has no other field.
     pub fn is_draft_complete(&self) -> bool {
-        self.is_draft_complete_with_name(&self.draft.session_name)
-    }
-
-    /// Completeness check against a name supplied by the view's input entity.
-    /// The UI reads the editable input directly; the controller may not have
-    /// received a change event yet.
-    pub fn is_draft_complete_with_name(&self, session_name: &str) -> bool {
         let (Some(provider), Some(model)) = (&self.draft.provider, &self.draft.model) else {
             return false;
         };
-        self.provider_exists(provider)
-            && self.model_exists(provider, model)
-            && self.draft.output.is_some()
-            && !session_name.trim().is_empty()
+        self.provider_exists(provider) && self.model_exists(provider, model)
     }
 
     pub fn finished_take(&self) -> Option<&FinishedTake> {
@@ -831,10 +836,6 @@ impl SessionController {
             self.draft.provider.as_deref()?,
             self.draft.model.as_deref()?,
         )
-    }
-
-    pub fn selected_output(&self) -> Option<&OutputTarget> {
-        self.draft.output.as_ref()
     }
 
     /// Catalogue label for a provider id.
@@ -1443,10 +1444,39 @@ impl SessionController {
         Some(change)
     }
 
-    pub fn open_form(&mut self) {
+    /// Enter the workflow for `mode`. Returns `true` when the persisted
+    /// settings already resolve (the machine goes straight to `Ready`), and
+    /// `false` when the two-field form is required.
+    ///
+    /// Refuses while a take is active: the setup is frozen then.
+    pub fn choose_mode(&mut self, mode: SessionMode) -> bool {
+        if self.machine.state().is_active() {
+            return false;
+        }
+        // A new take starts from scratch: drop whichever mode was configured.
+        let _ = self.machine.reset();
+        self.mode = mode;
         self.screen = Screen::Form;
         self.draft = SessionDraft::default();
+        self.finished_file_stem = None;
         self.seed_draft_from_settings();
+        self.create_session()
+    }
+
+    /// Back to the mode chooser, clearing the machine configuration.
+    /// Refuses while a take is active.
+    pub fn change_mode(&mut self) -> bool {
+        if self.machine.reset().is_err() {
+            return false;
+        }
+        self.mode = SessionMode::default();
+        self.screen = Screen::Mode;
+        self.draft = SessionDraft::default();
+        self.result = None;
+        self.finished_file_stem = None;
+        self.output_status = None;
+        self.written_path = None;
+        true
     }
 
     /// Pre-fill the New Session form from the persisted default provider and
@@ -1472,7 +1502,7 @@ impl SessionController {
     }
 
     pub fn cancel_form(&mut self) {
-        self.screen = Screen::Prompt;
+        self.screen = Screen::Mode;
         self.draft = SessionDraft::default();
     }
 
@@ -1497,43 +1527,33 @@ impl SessionController {
         self.draft.model = Some(next);
     }
 
-    pub fn set_draft_name(&mut self, value: impl Into<String>) {
-        self.draft.session_name = value.into();
-    }
-
-    pub fn set_draft_output(&mut self, output: OutputTarget) {
-        self.draft.output = Some(output);
-    }
-
     /// Commit the draft to the machine. Returns `false` (and changes nothing)
     /// while the draft is incomplete or the machine refuses a setup change.
     pub fn create_session(&mut self) -> bool {
+        if self.machine.state().is_active() {
+            return false;
+        }
         let Some(draft) = self.validate_draft() else {
             return false;
         };
 
-        // An explicit file target (tests, a future picker) is kept; the
-        // default location still follows the title.
-        let output = match draft.output {
-            OutputTarget::Memory => OutputTarget::Memory,
-            OutputTarget::File(path) if path.trim().is_empty() => {
-                OutputTarget::File(format!("~/Documents/{}.md", draft.session_name))
-            }
-            OutputTarget::File(path) => OutputTarget::File(path),
-        };
-
-        let setup = (|| -> Result<(), SessionError> {
-            self.machine.set_provider(draft.provider)?;
-            self.machine.set_model(draft.model)?;
-            self.machine.set_session_name(draft.session_name)?;
-            self.machine.set_output(output)?;
-            Ok(())
-        })();
-        if setup.is_err() {
+        // Both setters only accept an idle machine, so a partial failure can
+        // never leave the configuration frozen mid-take.
+        if self.machine.set_provider(draft.provider).is_err() {
+            return false;
+        }
+        if self.machine.set_model(draft.model).is_err() {
+            return false;
+        }
+        // Live takes always use the default microphone; file takes replace it
+        // with the picked file's name once `start_file_session` validates it.
+        if self.machine.config().audio_source.is_none()
+            && self.machine.set_audio_source(DEFAULT_AUDIO_SOURCE).is_err()
+        {
             return false;
         }
 
-        self.screen = Screen::Prompt;
+        self.screen = Screen::Mode;
         self.draft = SessionDraft::default();
         true
     }
@@ -1546,7 +1566,8 @@ impl SessionController {
 
     /// [`Self::start_recording`] with an injected clock reading.
     pub fn start_recording_at(&mut self, now: Instant) -> bool {
-        if self.machine.state() != SessionState::Ready {
+        // A file take never opens the microphone; the picker starts those.
+        if self.mode != SessionMode::Live || self.machine.state() != SessionState::Ready {
             return false;
         }
         let (provider, model, api_key) = match self.start_configuration() {
@@ -1573,6 +1594,7 @@ impl SessionController {
         self.app_error = None;
         self.output_status = None;
         self.written_path = None;
+        self.finished_file_stem = None;
 
         let start = SttCommand::Start {
             session_id: self.session_label(),
@@ -1634,20 +1656,11 @@ impl SessionController {
             |stem| stem.to_string_lossy().into_owned(),
         );
 
-        // Both setters only accept an idle machine, which `Ready` guarantees.
-        // `Ready` also requires a session name, so the stem fallback is
-        // defensive: it keeps a programmatic caller that skipped the form from
-        // producing an unnamed take.
+        // The source file names the take; the save dialog turns its stem into
+        // the transcript title.
         let _ = self.machine.set_audio_source(file_name);
-        if self
-            .machine
-            .config()
-            .session_name
-            .as_deref()
-            .is_none_or(|name| name.trim().is_empty())
-        {
-            let _ = self.machine.set_session_name(stem);
-        }
+        self.mode = SessionMode::File;
+        self.finished_file_stem = Some(stem);
 
         if self.machine.start().is_err() {
             return Ok(());
@@ -1744,11 +1757,13 @@ impl SessionController {
         true
     }
 
-    /// Leave the `Stopped` screen and start over from `Blank`.
+    /// Leave the `Stopped` screen and start over from the mode chooser.
     pub fn new_take(&mut self) {
         self.result = None;
-        self.screen = Screen::Prompt;
+        self.mode = SessionMode::default();
+        self.screen = Screen::Mode;
         self.draft = SessionDraft::default();
+        self.finished_file_stem = None;
         self.transcript.clear();
         self.waveform_bars = idle_waveform();
         self.elapsed_seconds = 0;
@@ -1830,64 +1845,33 @@ impl SessionController {
         }
     }
 
-    /// Save a memory take as Markdown in `directory`.
-    pub fn save_finished_transcript(
-        &mut self,
-        directory: &Path,
-        now: SystemTime,
-    ) -> Result<SavedFile, AppError> {
-        let Some(result) = self.result.as_ref() else {
-            return Err(self.fail(AppError::SaveFailed("no finished take".to_owned())));
-        };
-        let session_name = result.session.session_name.clone();
-        let text = joined_text(&result.committed, &result.live);
-
-        match save_transcript_at(
-            directory,
-            &session_name,
-            TranscriptFormat::Markdown,
-            &text,
-            now,
-        ) {
-            Ok(saved) => {
-                self.written_path = Some(saved.path.clone());
-                self.output_status = Some("Saved".into());
-                Ok(saved)
-            }
-            Err(error) => Err(self.fail(AppError::from_output(error))),
-        }
+    /// Suggested name for the native save dialog: the source file's stem for a
+    /// file take, `None` for dictation (the UI suggests a timestamped name).
+    #[must_use]
+    pub fn suggested_save_name(&self) -> Option<String> {
+        self.result.as_ref()?;
+        self.finished_file_stem.clone()
     }
 
-    /// Write a file take according to its `OutputTarget::File` directory and
-    /// extension. `~` is expanded against `$HOME`; the UI only calls this in
-    /// production.
-    pub fn save_finished_file(&mut self, now: SystemTime) -> Result<SavedFile, AppError> {
+    /// Write the finished take to exactly `path`, which the OS save dialog
+    /// already confirmed. The file's stem titles the document and names the
+    /// take; its extension picks Markdown or plain text.
+    pub fn save_finished_transcript_to(&mut self, path: &Path) -> Result<SavedFile, AppError> {
         let Some(result) = self.result.as_ref() else {
             return Err(self.fail(AppError::SaveFailed("no finished take".to_owned())));
         };
-        let OutputTarget::File(target) = &result.session.output else {
-            return Err(self.fail(AppError::SaveFailed(
-                "take does not target a file".to_owned(),
-            )));
-        };
-        let target = expand_tilde(target);
-        let extension = target
+        let title = path
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let format = path
             .extension()
             .and_then(|extension| extension.to_str())
-            .unwrap_or("md");
-        let Some(format) = TranscriptFormat::from_extension(extension) else {
-            return Err(self.fail(AppError::SaveFailed(format!(
-                "unsupported transcript format: {extension}"
-            ))));
-        };
-        let directory = target
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-            .unwrap_or_else(|| Path::new("."));
-        let session_name = result.session.session_name.clone();
+            .and_then(TranscriptFormat::from_extension)
+            .unwrap_or(TranscriptFormat::Markdown);
         let text = joined_text(&result.committed, &result.live);
 
-        match save_transcript_at(directory, &session_name, format, &text, now) {
+        match save_transcript_to(path, &title, format, &text) {
             Ok(saved) => {
                 self.written_path = Some(saved.path.clone());
                 self.output_status = Some("Saved".into());
@@ -1897,16 +1881,9 @@ impl SessionController {
         }
     }
 
-    /// Open the last written file (or the file take's target).
+    /// Open the file written by the last save.
     pub fn open_saved_file(&mut self, opener: &mut dyn FileOpener) -> Result<(), AppError> {
-        let path = self.written_path.clone().or_else(|| {
-            let result = self.result.as_ref()?;
-            match &result.session.output {
-                OutputTarget::File(path) => Some(expand_tilde(path)),
-                OutputTarget::Memory => None,
-            }
-        });
-        let Some(path) = path else {
+        let Some(path) = self.written_path.clone() else {
             return Err(self.fail(AppError::SaveFailed("no saved file".to_owned())));
         };
 
@@ -2006,17 +1983,7 @@ impl SessionController {
         if !self.provider_exists(&provider) || !self.model_exists(&provider, &model) {
             return None;
         }
-        let output = self.draft.output.clone()?;
-        let session_name = self.draft.session_name.trim().to_string();
-        if session_name.is_empty() {
-            return None;
-        }
-        Some(ValidatedDraft {
-            provider,
-            model,
-            session_name,
-            output,
-        })
+        Some(ValidatedDraft { provider, model })
     }
 
     fn fail(&mut self, error: AppError) -> AppError {
@@ -2071,16 +2038,6 @@ fn next_id(ids: &[String], current: Option<&str>) -> Option<String> {
 }
 
 /// Expand a leading `~` to `$HOME`. Paths without it are returned unchanged.
-fn expand_tilde(path: &str) -> PathBuf {
-    let Some(rest) = path.strip_prefix("~/") else {
-        return PathBuf::from(path);
-    };
-    match std::env::var_os("HOME") {
-        Some(home) => PathBuf::from(home).join(rest),
-        None => PathBuf::from(path),
-    }
-}
-
 fn idle_waveform() -> Arc<[f32]> {
     vec![0.0; WAVEFORM_BARS].into()
 }
@@ -2139,11 +2096,9 @@ mod tests {
     fn complete_controller() -> SessionController {
         let mut controller = SessionController::new();
         install_catalogue(&mut controller);
-        controller.open_form();
+        assert!(!controller.choose_mode(SessionMode::Live));
         controller.cycle_provider();
         controller.cycle_model();
-        controller.set_draft_output(OutputTarget::Memory);
-        controller.set_draft_name("meeting notes");
         assert!(controller.create_session());
         controller
     }
@@ -2329,7 +2284,7 @@ mod tests {
     fn the_setup_draft_exposes_its_model_mode() {
         let mut controller = SessionController::new();
         install_catalogue(&mut controller);
-        controller.open_form();
+        controller.choose_mode(SessionMode::Live);
 
         assert_eq!(controller.draft_model_mode(), None);
         controller.cycle_provider();
