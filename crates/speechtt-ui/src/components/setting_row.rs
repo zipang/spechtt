@@ -1,10 +1,10 @@
 //! A labelled setting row: a title, a fainter description and a control slot
 //! on the trailing edge. Shared by the setup form and the Settings dialog.
 //!
-//! The default (compact) form uses an uppercase micro-label so four rows fit
-//! inside the 480×280 widget. [`SettingRow::prominent`] uses the roomier
-//! dialog style: a larger title, muted helper text and a hairline separator
-//! between rows, per `mockups/app-window/new-session.png`.
+//! The default (compact) form uses an uppercase micro-label so several rows
+//! fit inside the widget. [`SettingRow::prominent`] uses the roomier dialog
+//! style: a larger title, muted helper text and a hairline separator between
+//! rows, as used by the provider/model setup form and the Settings dialog.
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::ActiveTheme as _;

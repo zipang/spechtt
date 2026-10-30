@@ -30,13 +30,13 @@ gpui_kit::assets::icon_assets!(
         CircleQuestionMark,
         Settings,
         Mic,
-        Plus,
         Square,
         Pause,
         Play,
         Copy,
         HardDriveDownload,
         FileText,
+        FileUp,
         Zap,
         Scissors
     ]
@@ -80,8 +80,9 @@ pub fn default_window_bounds() -> Bounds<Pixels> {
 
 /// Restores a persisted layout, clamping it into the first visible display.
 ///
-/// Sizes below [`WindowLayout`]'s minimum are rejected (default bounds), and a
-/// position that would leave the widget off-screen is pulled back so at least
+/// Sizes below [`WindowLayout`]'s minimum are rejected (default bounds), a
+/// remembered size below the widget minimum is raised to it, and a position
+/// that would leave the widget off-screen is pulled back so at least
 /// [`MIN_VISIBLE_EDGE`] logical pixels remain visible.
 #[must_use]
 pub fn restored_window_bounds(
@@ -92,8 +93,8 @@ pub fn restored_window_bounds(
         return default_window_bounds();
     };
 
-    let mut width = px(layout.width as f32);
-    let mut height = px(layout.height as f32);
+    let mut width = px(layout.width as f32).max(px(tokens::MIN_WINDOW_WIDTH));
+    let mut height = px(layout.height as f32).max(px(tokens::MIN_WINDOW_HEIGHT));
     if let Some(display) = displays.first() {
         width = width.min(display.size.width);
         height = height.min(display.size.height);
@@ -116,11 +117,21 @@ pub fn restored_window_bounds(
     }
 }
 
+/// The widget's minimum window size: the mode chooser must never be squeezed.
+#[must_use]
+fn minimum_window_size() -> Size<Pixels> {
+    Size {
+        width: px(tokens::MIN_WINDOW_WIDTH),
+        height: px(tokens::MIN_WINDOW_HEIGHT),
+    }
+}
+
 /// Window options for the widget, restoring a persisted layout when present.
 #[must_use]
 pub fn widget_window_options(layout: Option<WindowLayout>) -> WindowOptions {
     WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(restored_window_bounds(layout, &[]))),
+        window_min_size: Some(minimum_window_size()),
         ..WindowOptions::default()
     }
 }
@@ -153,6 +164,7 @@ pub fn run() {
             let bounds = restored_window_bounds(layout, &displays);
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
+                window_min_size: Some(minimum_window_size()),
                 ..WindowOptions::default()
             };
 

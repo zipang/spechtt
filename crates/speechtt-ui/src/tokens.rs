@@ -94,8 +94,28 @@ pub mod rem {
 
 /// Window dimensions of the widget.
 ///
-/// Tall enough for the four prominent New Session rows plus the optional error
-/// strip (line height is 26 px in this theme); a remembered size overrides it
-/// on later launches, and the body scrolls if a future row is added.
-pub const WIDGET_WIDTH: f32 = 480.0;
-pub const WIDGET_HEIGHT: f32 = 520.0;
+/// Wide enough for the mode chooser's two [`MODE_CARD_WIDTH`] cards side by
+/// side, the gap between them and the body inset (and for the provider/model
+/// form); tall enough for the two prominent rows plus the optional error
+/// strip. A remembered size overrides it on later launches, and the body
+/// scrolls if a future row is added.
+pub const WIDGET_WIDTH: f32 = 600.0;
+pub const WIDGET_HEIGHT: f32 = 460.0;
+
+/// Smallest window the widget accepts.
+///
+/// The mode chooser needs it: its two cards, the gap between them and the body
+/// inset must never be squeezed, or the cards would overlap the welcome title.
+/// With the mockup's 272 px cards the minimum equals the default width, so the
+/// window can no longer be narrowed below 600 px. The window manager enforces
+/// it, and a remembered smaller geometry is raised to it on launch.
+pub const MIN_WINDOW_WIDTH: f32 = 600.0;
+pub const MIN_WINDOW_HEIGHT: f32 = 360.0;
+
+/// Width of one mode-chooser card.
+///
+/// The chooser keeps its cards at this intrinsic size and centers the pair, so
+/// extra window space grows around the cards instead of inside them. Matches
+/// the mockup (`mockups/app-window/new-session.png`): both descriptions stay
+/// on two lines and the buttons align.
+pub const MODE_CARD_WIDTH: f32 = 272.0;

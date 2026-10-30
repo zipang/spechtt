@@ -15,10 +15,11 @@ use gpui_kit::{AnyElement, App, DefiniteLength, IntoElement, RenderOnce, Window,
 
 use crate::tokens::radius;
 
-/// Three-band screen container: status header, flexible body, optional footer.
+/// Three-band screen container: optional status header, flexible body,
+/// optional footer.
 #[derive(IntoElement)]
 pub struct ScreenShell {
-    status: AnyElement,
+    status: Option<AnyElement>,
     header_trailing: Option<AnyElement>,
     body: Vec<AnyElement>,
     footer: Option<AnyElement>,
@@ -31,7 +32,20 @@ impl ScreenShell {
     /// Starts a shell whose leading header edge shows `status`.
     pub fn new(status: impl IntoElement) -> Self {
         Self {
-            status: status.into_any_element(),
+            status: Some(status.into_any_element()),
+            header_trailing: None,
+            body: Vec::new(),
+            footer: None,
+            center_body: false,
+            gap: rems(0.25).into(),
+            body_gap: rems(0.25).into(),
+        }
+    }
+
+    /// A shell with no status header (the mode chooser has none).
+    pub fn headerless() -> Self {
+        Self {
+            status: None,
             header_trailing: None,
             body: Vec::new(),
             footer: None,
@@ -80,12 +94,15 @@ impl ScreenShell {
 
 impl RenderOnce for ScreenShell {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+        let has_header = self.status.is_some() || self.header_trailing.is_some();
         let mut header = h_flex()
             .w_full()
             .flex_shrink_0()
             .justify_between()
-            .items_center()
-            .child(self.status);
+            .items_center();
+        if let Some(status) = self.status {
+            header = header.child(status);
+        }
         if let Some(trailing) = self.header_trailing {
             header = header.child(trailing);
         }
@@ -100,12 +117,11 @@ impl RenderOnce for ScreenShell {
             body = body.items_center().justify_center();
         }
 
-        let mut shell = v_flex()
-            .size_full()
-            .min_h_0()
-            .gap(self.gap)
-            .child(header)
-            .child(body);
+        let mut shell = v_flex().size_full().min_h_0().gap(self.gap);
+        if has_header {
+            shell = shell.child(header);
+        }
+        let mut shell = shell.child(body);
         if let Some(footer) = self.footer {
             shell = shell.child(footer);
         }
