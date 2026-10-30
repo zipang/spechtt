@@ -94,7 +94,9 @@ impl Clock for SystemClock {
 pub enum AppError {
     MicPermissionDenied,
     NoInputDevice,
-    MissingApiKey { provider: String },
+    MissingApiKey {
+        provider: String,
+    },
     BackendUnavailable,
     BackendTimeout,
     ProviderAuthFailed,
@@ -103,6 +105,14 @@ pub enum AppError {
     ClipboardFailed,
     PasteFailed,
     ProtocolError(String),
+    /// The file picked for transcription no longer exists.
+    FileNotFound,
+    /// The picked path is a directory, unreadable, or not decodable.
+    FileUnreadable,
+    /// `ffmpeg`/`ffprobe` are not installed on the worker's host.
+    FfmpegMissing,
+    /// The native file picker could not be opened.
+    FileDialogFailed,
 }
 
 /// What the error strip offers next.
@@ -137,6 +147,10 @@ impl AppError {
             Self::ClipboardFailed => "Could not copy the transcript.",
             Self::PasteFailed => "Could not paste the transcript.",
             Self::ProtocolError(_) => "The transcription backend sent an unexpected message.",
+            Self::FileNotFound => "That file no longer exists. Pick another one.",
+            Self::FileUnreadable => "That file could not be read. Pick an audio or video file.",
+            Self::FfmpegMissing => "Transcribing files needs ffmpeg. Install it, then try again.",
+            Self::FileDialogFailed => "Could not open the file picker.",
         }
     }
 
@@ -153,7 +167,11 @@ impl AppError {
             | Self::SaveFailed(_)
             | Self::ClipboardFailed
             | Self::PasteFailed
-            | Self::ProtocolError(_) => ErrorAction::Dismiss,
+            | Self::ProtocolError(_)
+            | Self::FileNotFound
+            | Self::FileUnreadable
+            | Self::FfmpegMissing
+            | Self::FileDialogFailed => ErrorAction::Dismiss,
         }
     }
 
@@ -210,6 +228,9 @@ impl AppError {
                 Self::NetworkLost
             }
             "timeout" | "backend_timeout" => Self::BackendTimeout,
+            "file_not_found" => Self::FileNotFound,
+            "unsupported_file" | "decode_failed" => Self::FileUnreadable,
+            "ffmpeg_missing" => Self::FfmpegMissing,
             "stream_failed" => {
                 let message = message.to_ascii_lowercase();
                 if contains_any(&message, &["auth", "api key", "unauthorized", "forbidden"]) {
@@ -530,6 +551,10 @@ pub struct SessionController {
     transcript: TranscriptBuffer,
     waveform_bars: Arc<[f32]>,
     elapsed_seconds: u32,
+    /// Decoded position of the current file take: `(processed, total)` seconds.
+    progress: Option<(f32, Option<f32>)>,
+    /// True while the current take transcribes a file rather than live audio.
+    file_take: bool,
     /// Elapsed time accumulated before the current segment.
     elapsed_base: Duration,
     /// Start of the current recording segment (paused takes have none).
@@ -611,6 +636,8 @@ impl SessionController {
             transcript: TranscriptBuffer::default(),
             waveform_bars: idle_waveform(),
             elapsed_seconds: 0,
+            progress: None,
+            file_take: false,
             elapsed_base: Duration::ZERO,
             segment_started: None,
             last_error: None,
@@ -696,6 +723,32 @@ impl SessionController {
     #[must_use]
     pub fn elapsed_seconds(&self) -> u32 {
         self.elapsed_seconds
+    }
+
+    /// Audio source of the current (or most recent) take: the device name for
+    /// live takes, the picked file's display name for file takes.
+    #[must_use]
+    pub fn audio_source(&self) -> Option<&str> {
+        self.machine.config().audio_source.as_deref()
+    }
+
+    /// Session name of the current (or most recent) take.
+    #[must_use]
+    pub fn session_name(&self) -> Option<&str> {
+        self.machine.config().session_name.as_deref()
+    }
+
+    /// Decoded position of the current file take, in seconds:
+    /// `(processed, total)`, where `total` is absent when ffprobe failed.
+    #[must_use]
+    pub fn progress(&self) -> Option<(f32, Option<f32>)> {
+        self.progress
+    }
+
+    /// Whether the current take transcribes a file rather than live audio.
+    #[must_use]
+    pub fn is_file_take(&self) -> bool {
+        self.file_take
     }
 
     /// The last backend/protocol failure, shown until the next take.
@@ -1132,6 +1185,16 @@ impl SessionController {
             return;
         }
 
+        if let SttEvent::Progress {
+            processed_seconds,
+            total_seconds,
+            ..
+        } = &event
+        {
+            self.apply_progress(*processed_seconds, *total_seconds);
+            return;
+        }
+
         self.transcript.apply(&event);
 
         // A `stopped` flush usually lands just after the stopped screen is
@@ -1154,8 +1217,11 @@ impl SessionController {
     }
 
     /// Recompute the elapsed read-out from the injected clock.
+    ///
+    /// A file take has no live clock: its position comes from `progress`
+    /// events emitted by the decoder.
     pub fn refresh_elapsed(&mut self, now: Instant) -> bool {
-        if self.machine.state() != SessionState::Recording {
+        if self.file_take || self.machine.state() != SessionState::Recording {
             return false;
         }
         let Some(started) = self.segment_started else {
@@ -1168,6 +1234,21 @@ impl SessionController {
         }
         self.elapsed_seconds = seconds;
         true
+    }
+
+    /// Store a decoded position. Progress is monotonic in the worker, so the
+    /// read-out never runs backwards; a stale take is filtered upstream.
+    fn apply_progress(&mut self, processed_seconds: f64, total_seconds: Option<f64>) {
+        if !self.file_take {
+            return;
+        }
+        let processed = processed_seconds.max(0.0);
+        let seconds = processed.floor().min(f64::from(u32::MAX)) as u32;
+        if seconds >= self.elapsed_seconds {
+            self.elapsed_seconds = seconds;
+            self.elapsed_base = Duration::from_secs(u64::from(seconds));
+        }
+        self.progress = Some((processed as f32, total_seconds.map(|total| total as f32)));
     }
 
     fn accrue_elapsed(&mut self, now: Instant) {
@@ -1484,6 +1565,8 @@ impl SessionController {
         self.transcript.clear();
         self.waveform_bars = idle_waveform();
         self.elapsed_seconds = 0;
+        self.progress = None;
+        self.file_take = false;
         self.elapsed_base = Duration::ZERO;
         self.segment_started = Some(now);
         self.last_error = None;
@@ -1504,10 +1587,105 @@ impl SessionController {
         true
     }
 
+    /// Begins a take that transcribes a file already on the worker's host.
+    ///
+    /// Only the path crosses the bridge: the Bun worker decodes the file with
+    /// ffmpeg, so the host validates the path but never reads the media. The
+    /// take then follows the normal stop → result → copy/paste/save flow.
+    ///
+    /// Returns [`AppError::FileNotFound`] for a missing path and
+    /// [`AppError::FileUnreadable`] for an empty, NUL-bearing, directory or
+    /// unreadable path. When no take can start (machine not `Ready`) the call
+    /// is a no-op: the Prompt screen only offers the action in that state.
+    pub fn start_file_session(&mut self, path: &Path) -> Result<(), AppError> {
+        let display = path.to_string_lossy().into_owned();
+        if display.trim().is_empty() || display.contains('\0') {
+            return Err(self.fail(AppError::FileUnreadable));
+        }
+
+        let metadata = match std::fs::metadata(path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Err(self.fail(AppError::FileNotFound));
+            }
+            Err(_) => return Err(self.fail(AppError::FileUnreadable)),
+        };
+        if !metadata.is_file() {
+            return Err(self.fail(AppError::FileUnreadable));
+        }
+
+        if self.machine.state() != SessionState::Ready {
+            return Ok(());
+        }
+
+        let (provider, model, api_key) = match self.start_configuration() {
+            Ok(configuration) => configuration,
+            Err(provider) => {
+                return Err(self.fail(AppError::MissingApiKey { provider }));
+            }
+        };
+
+        let file_name = path.file_name().map_or_else(
+            || display.clone(),
+            |name| name.to_string_lossy().into_owned(),
+        );
+        let stem = path.file_stem().map_or_else(
+            || file_name.clone(),
+            |stem| stem.to_string_lossy().into_owned(),
+        );
+
+        // Both setters only accept an idle machine, which `Ready` guarantees.
+        // `Ready` also requires a session name, so the stem fallback is
+        // defensive: it keeps a programmatic caller that skipped the form from
+        // producing an unnamed take.
+        let _ = self.machine.set_audio_source(file_name);
+        if self
+            .machine
+            .config()
+            .session_name
+            .as_deref()
+            .is_none_or(|name| name.trim().is_empty())
+        {
+            let _ = self.machine.set_session_name(stem);
+        }
+
+        if self.machine.start().is_err() {
+            return Ok(());
+        }
+
+        self.session_id += 1;
+        self.transcript.clear();
+        self.waveform_bars = idle_waveform();
+        self.elapsed_seconds = 0;
+        self.elapsed_base = Duration::ZERO;
+        self.progress = None;
+        self.file_take = true;
+        // No live clock: the decoded position arrives as `progress` events.
+        self.segment_started = None;
+        self.last_error = None;
+        self.app_error = None;
+        self.output_status = None;
+        self.written_path = None;
+        // Retry re-issues a `Start`, which does not apply to a file take.
+        self.last_start = None;
+
+        self.send_command(SttCommand::TranscribeFile {
+            session_id: self.session_label(),
+            provider,
+            model,
+            path: display,
+            api_key,
+        });
+
+        Ok(())
+    }
+
     /// Forward one capture chunk and its FFT frame. Ignored unless the take is
     /// actively recording, so paused audio never reaches the provider.
     pub fn push_audio_chunk(&mut self, pcm16: &[i16], bars: Arc<[f32]>) {
-        if self.machine.state() != SessionState::Recording {
+        // A file take decodes on the worker host: live audio must never reach
+        // it, even if capture happens to be running.
+        if self.file_take || self.machine.state() != SessionState::Recording {
             return;
         }
         self.waveform_bars = bars;
@@ -1551,6 +1729,8 @@ impl SessionController {
         };
         self.accrue_elapsed(Instant::now());
         self.segment_started = None;
+        self.file_take = false;
+        self.progress = None;
         self.send_command(SttCommand::Stop);
 
         let (committed, live) = self.finished_transcript();

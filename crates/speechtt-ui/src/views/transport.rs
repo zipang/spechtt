@@ -11,8 +11,8 @@ use gpui_kit::{AnyElement, Context, div, rems};
 
 use crate::app::SpeechTtApp;
 use crate::components::{
-    BadgeTone, CaptionWell, ElapsedTimer, IconAction, StatusBadge, TranscriptionModeBadge,
-    TransportButton, TransportTone, Waveform,
+    ActionButton, BadgeTone, CaptionWell, ElapsedTimer, IconAction, StatusBadge,
+    TranscriptionModeBadge, TransportButton, TransportTone, Waveform,
 };
 use crate::layout::ScreenShell;
 use crate::tokens::rem;
@@ -33,15 +33,38 @@ pub(crate) fn render_ready(cx: &mut Context<SpeechTtApp>) -> AnyElement {
                 .text_color(cx.theme().muted_foreground)
                 .child("Press to start dictating"),
         )
+        // Secondary affordance: transcribe media that already exists instead
+        // of opening the microphone.
+        .body(
+            ActionButton::secondary("btn-prompt-transcribe-file", "TRANSCRIBE A FILE…").on_click(
+                cx.listener(|this, _event, _window, cx| this.pick_transcription_file(cx)),
+            ),
+        )
         .into_any_element()
 }
 
-/// Elapsed timer plus, when the catalogue knows the model, its audio mode.
-fn header_trailing(app: &SpeechTtApp, elapsed: u32) -> AnyElement {
-    let mut row = h_flex()
-        .gap_2()
-        .items_center()
-        .child(ElapsedTimer::new(elapsed));
+/// Take progress (files) or the elapsed timer (live), plus the model's mode.
+///
+/// A file take has no live clock: the worker reports the decoded position, so
+/// the read-out is `processed / total s` once ffprobe knows the duration and
+/// `processed s` otherwise.
+fn header_trailing(app: &SpeechTtApp, elapsed: u32, cx: &mut Context<SpeechTtApp>) -> AnyElement {
+    let mut row = h_flex().gap_2().items_center();
+    row = match app.controller().progress() {
+        Some((processed, total)) => {
+            let label = match total {
+                Some(total) => format!("{processed:.0} / {total:.0} s"),
+                None => format!("{processed:.0} s"),
+            };
+            row.child(
+                div()
+                    .font_family(cx.theme().mono_font_family.clone())
+                    .text_size(rems(rem::SM))
+                    .child(label),
+            )
+        }
+        None => row.child(ElapsedTimer::new(elapsed)),
+    };
     if let Some(mode) = app.controller().session_model_mode() {
         row = row.child(TranscriptionModeBadge::new(mode));
     }
@@ -56,7 +79,7 @@ pub(crate) fn render_recording(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>)
     let live = controller.transcript_live();
 
     ScreenShell::new(StatusBadge::tone("RECORDING", BadgeTone::Recording))
-        .header_trailing(header_trailing(app, elapsed))
+        .header_trailing(header_trailing(app, elapsed, cx))
         .gap(rems(0.25))
         .body_gap(rems(0.25))
         .body(Waveform::new(bars, true))
@@ -86,7 +109,7 @@ pub(crate) fn render_paused(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) ->
     let live = controller.transcript_live();
 
     ScreenShell::new(StatusBadge::tone("PAUSED", BadgeTone::Paused))
-        .header_trailing(header_trailing(app, elapsed))
+        .header_trailing(header_trailing(app, elapsed, cx))
         .gap(rems(0.25))
         .body_gap(rems(0.25))
         .body(Waveform::new(bars, false))

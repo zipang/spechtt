@@ -505,3 +505,229 @@ fn the_elapsed_clock_resets_when_a_new_take_starts() {
 
     assert_eq!(controller.elapsed_seconds(), 0);
 }
+
+// ----- File transcription (T0015) ------------------------------------
+
+use speechtt_ui::controller::AppError;
+
+/// A real file that is removed when the test ends.
+struct TempFile {
+    path: std::path::PathBuf,
+}
+
+impl TempFile {
+    fn new(name: &str) -> Self {
+        let mut path = std::env::temp_dir();
+        path.push(format!("speechtt-test-{}-{name}", std::process::id()));
+        std::fs::write(&path, b"RIFF0000WAVE").expect("write temp file");
+        Self { path }
+    }
+}
+
+impl Drop for TempFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+fn file_controller() -> (SessionController, RecordingSink) {
+    duplex_controller()
+}
+
+#[test]
+fn file_session_rejects_a_missing_path() {
+    let (mut controller, sink) = file_controller();
+    let missing = std::env::temp_dir().join("speechtt-definitely-missing-42.mp4");
+
+    let result = controller.start_file_session(&missing);
+
+    assert_eq!(result, Err(AppError::FileNotFound));
+    assert_eq!(controller.session_state(), SessionState::Ready);
+    assert!(sink.take().is_empty());
+}
+
+#[test]
+fn file_session_rejects_a_directory() {
+    let (mut controller, sink) = file_controller();
+    let directory = std::env::temp_dir();
+
+    let result = controller.start_file_session(&directory);
+
+    assert_eq!(result, Err(AppError::FileUnreadable));
+    assert_eq!(controller.session_state(), SessionState::Ready);
+    assert!(sink.take().is_empty());
+}
+
+#[test]
+fn file_session_rejects_an_empty_or_nul_path() {
+    let (mut controller, _sink) = file_controller();
+
+    assert_eq!(
+        controller.start_file_session(std::path::Path::new("")),
+        Err(AppError::FileUnreadable)
+    );
+    assert_eq!(
+        controller.start_file_session(std::path::Path::new("/tmp/a\u{0}b.wav")),
+        Err(AppError::FileUnreadable)
+    );
+}
+
+#[test]
+fn file_session_sends_a_transcribe_file_command_and_enters_recording() {
+    let file = TempFile::new("meeting-2026-10-29.mp4");
+    let (mut controller, sink) = file_controller();
+
+    controller.start_file_session(&file.path).expect("starts");
+
+    assert_eq!(controller.view_state(), ViewState::Recording);
+    assert_eq!(controller.session_state(), SessionState::Recording);
+    assert_eq!(controller.session_label(), "take-1");
+    assert!(controller.is_file_take());
+
+    assert_eq!(
+        sink.take(),
+        vec![SttCommand::TranscribeFile {
+            session_id: "take-1".to_string(),
+            provider: "vercel-ai-gateway".to_string(),
+            model: "openai/gpt-4o-transcribe".to_string(),
+            path: file.path.to_string_lossy().into_owned(),
+            api_key: None,
+        }]
+    );
+}
+
+#[test]
+fn file_session_adopts_the_file_name_as_its_audio_source() {
+    let file = TempFile::new("standup-notes.m4a");
+    let (mut controller, _sink) = file_controller();
+
+    controller.start_file_session(&file.path).expect("starts");
+
+    let name = file
+        .path
+        .file_name()
+        .expect("file name")
+        .to_string_lossy()
+        .into_owned();
+    assert_eq!(controller.audio_source(), Some(name.as_str()));
+}
+
+#[test]
+fn file_session_keeps_an_existing_session_name() {
+    let file = TempFile::new("keeps-name.mkv");
+    let (mut controller, _sink) = file_controller();
+
+    controller.start_file_session(&file.path).expect("starts");
+
+    assert_eq!(controller.session_name(), Some("meeting notes"));
+}
+
+#[test]
+fn file_session_never_sends_audio_even_if_the_capture_pushes() {
+    let file = TempFile::new("no-audio.wav");
+    let (mut controller, sink) = file_controller();
+    controller.start_file_session(&file.path).expect("starts");
+    sink.take();
+
+    controller.push_audio_chunk(&[1, 2, 3, 4], Arc::from(vec![0.1_f32; 8]));
+
+    assert!(sink.take().is_empty());
+}
+
+#[test]
+fn file_session_reports_progress_as_the_decoded_position() {
+    let file = TempFile::new("progress.mp3");
+    let (mut controller, sink) = file_controller();
+    controller.start_file_session(&file.path).expect("starts");
+    sink.take();
+
+    controller.handle_stt_event(SttEvent::Progress {
+        session_id: "take-1".into(),
+        processed_seconds: 12.5,
+        total_seconds: Some(340.25),
+    });
+
+    assert_eq!(controller.elapsed_seconds(), 12);
+    assert_eq!(controller.progress(), Some((12.5, Some(340.25))));
+    // The decoded position never drives a live audio command.
+    assert!(sink.take().is_empty());
+}
+
+#[test]
+fn file_progress_ignores_a_stale_take() {
+    let file = TempFile::new("stale.wav");
+    let (mut controller, _sink) = file_controller();
+    controller.start_file_session(&file.path).expect("starts");
+
+    controller.handle_stt_event(SttEvent::Progress {
+        session_id: "take-99".into(),
+        processed_seconds: 99.0,
+        total_seconds: None,
+    });
+
+    assert_eq!(controller.progress(), None);
+}
+
+#[test]
+fn file_take_finishes_through_the_normal_stop_flow() {
+    let file = TempFile::new("finish.wav");
+    let (mut controller, sink) = file_controller();
+    controller.start_file_session(&file.path).expect("starts");
+    controller.handle_stt_event(SttEvent::Committed {
+        session_id: "take-1".into(),
+        text: "hello file".into(),
+    });
+    sink.take();
+
+    assert!(controller.finish_take());
+
+    assert_eq!(sink.take(), vec![SttCommand::Stop]);
+    assert_eq!(controller.view_state(), ViewState::Stopped);
+    assert!(!controller.is_file_take());
+    assert_eq!(controller.progress(), None);
+    assert_eq!(
+        controller
+            .finished_take()
+            .expect("take")
+            .committed()
+            .to_string(),
+        "hello file"
+    );
+}
+
+#[test]
+fn file_errors_map_to_typed_app_errors() {
+    assert_eq!(
+        AppError::from_stt_error("file_not_found", "gone", "p"),
+        AppError::FileNotFound
+    );
+    assert_eq!(
+        AppError::from_stt_error("unsupported_file", "no audio", "p"),
+        AppError::FileUnreadable
+    );
+    assert_eq!(
+        AppError::from_stt_error("decode_failed", "boom", "p"),
+        AppError::FileUnreadable
+    );
+    assert_eq!(
+        AppError::from_stt_error("ffmpeg_missing", "install ffmpeg", "p"),
+        AppError::FfmpegMissing
+    );
+}
+
+#[test]
+fn file_errors_offer_a_dismiss_action_and_never_leak_details() {
+    for error in [
+        AppError::FileNotFound,
+        AppError::FileUnreadable,
+        AppError::FfmpegMissing,
+        AppError::FileDialogFailed,
+    ] {
+        assert_eq!(
+            error.action(),
+            speechtt_ui::controller::ErrorAction::Dismiss
+        );
+        assert!(!error.message().is_empty());
+        assert!(error.detail().is_none());
+    }
+}

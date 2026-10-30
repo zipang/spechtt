@@ -18,7 +18,7 @@ use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::{Sizable as _, button::Button};
 use std::cell::Cell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -26,8 +26,9 @@ use std::time::{Duration, Instant};
 
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    AnyElement, AnyWindowHandle, App, Bounds, Context, Entity, Pixels, Point, Size, Subscription,
-    Task, Window, WindowBounds, WindowId, WindowKind, WindowOptions, div, px, rems,
+    AnyElement, AnyWindowHandle, App, Bounds, Context, Entity, PathPromptOptions, Pixels, Point,
+    Size, Subscription, Task, Window, WindowBounds, WindowId, WindowKind, WindowOptions, div, px,
+    rems,
 };
 use speechtt_core::audio::{AudioError, AudioSource, CpalAudioSource, PcmChunk};
 use speechtt_core::backend::{BackendError, BunSubprocess, SttEventReceiver, SttSessionSink};
@@ -499,6 +500,53 @@ impl SpeechTtApp {
     pub fn start_recording(&mut self, cx: &mut Context<Self>) {
         if self.controller.start_recording_at(self.clock.now()) {
             self.start_audio_capture(cx);
+        }
+        cx.notify();
+    }
+
+    /// Opens the native file picker, then transcribes the chosen file.
+    ///
+    /// The picker is the only platform-specific part: the controller validates
+    /// the path and the worker decodes the file itself, so no media crosses
+    /// the bridge. Cancelling the dialog is a silent no-op.
+    pub fn pick_transcription_file(&mut self, cx: &mut Context<Self>) {
+        let selection = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("Transcribe".into()),
+        });
+
+        cx.spawn(async move |this, cx| {
+            match selection.await {
+                Ok(Ok(Some(paths))) => {
+                    if let Some(path) = paths.into_iter().next() {
+                        let _ = this.update(cx, |this, cx| {
+                            this.start_file_from_path(&path, cx);
+                        });
+                    }
+                }
+                // The user closed the dialog.
+                Ok(Ok(None)) => {}
+                Ok(Err(_)) | Err(_) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.controller.report_error(AppError::FileDialogFailed);
+                        cx.notify();
+                    });
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// Starts a file take for `path`. Headless-testable seam behind the picker.
+    ///
+    /// Validation errors are already recorded by the controller, so the strip
+    /// shows them without any extra plumbing here.
+    pub fn start_file_from_path(&mut self, path: &Path, cx: &mut Context<Self>) {
+        if self.controller.start_file_session(path).is_ok() {
+            // The worker decodes on its own host: never start a mic capture.
+            self.stop_audio_capture();
         }
         cx.notify();
     }

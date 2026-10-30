@@ -1492,3 +1492,150 @@ fn saving_settings_keeps_the_remembered_geometry(cx: &mut gpui_kit::TestAppConte
     assert_eq!(saved.window, Some(layout));
     assert_eq!(saved.model, "openai/gpt-4o-transcribe");
 }
+
+// ----- T15.8: file transcription wiring -------------------------------
+
+/// Backend event sender the file-transcription tests push into.
+type EventSender = speechtt_core::async_channel::Sender<Result<SttEvent, BackendError>>;
+
+/// Ready app whose backend events come from a channel the test owns.
+fn ready_app_for_files(
+    cx: &mut gpui_kit::TestAppContext,
+) -> (
+    gpui_kit::WindowHandle<gpui_kit::base::Root>,
+    gpui_kit::Entity<SpeechTtApp>,
+    EventSender,
+    RecordingSink,
+) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        speechtt_ui::theme::apply(cx);
+    });
+
+    let (sender, events) = speechtt_core::async_channel::unbounded();
+    let fake = FakeApp {
+        events,
+        store: MemoryStore::new(settings_with_key()),
+        ..FakeApp::default()
+    };
+    let sink = fake.sink.clone();
+
+    let (window, view) = common::open_window(cx, None, |window, cx| {
+        cx.new(|cx| SpeechTtApp::with_services(fake.services(), window, cx))
+    });
+
+    cx.update(|cx| {
+        view.update(cx, |app, cx| app.apply_capabilities(catalogue(), cx));
+    });
+
+    cx.update_window(window.into(), |_, window, cx| {
+        view.update(cx, |app, cx| {
+            app.open_form(window, cx);
+            app.cycle_provider(cx);
+            app.cycle_model(cx);
+            app.select_output(OutputTarget::Memory, cx);
+            app.set_draft_name("file take", window, cx);
+            app.create_session(cx);
+        });
+        window.render_frame(cx);
+    })
+    .unwrap();
+
+    (window, view, sender, sink)
+}
+
+#[gpui_kit::test]
+fn a_file_path_starts_a_take_without_audio(cx: &mut gpui_kit::TestAppContext) {
+    let dir = TempDir::new("file-take");
+    let media = dir.path().join("interview.mp4");
+    std::fs::write(&media, b"RIFF0000WAVE").expect("temp media");
+
+    let (window, view, _sender, sink) = ready_app_for_files(cx);
+    // The construction handshake already sent a capabilities request.
+    let _ = sink.take();
+
+    cx.update_window(window.into(), |_, window, cx| {
+        view.update(cx, |app, cx| app.start_file_from_path(&media, cx));
+        window.render_frame(cx);
+    })
+    .unwrap();
+
+    assert_eq!(
+        cx.update(|cx| view.read(cx).view_state()),
+        ViewState::Recording
+    );
+
+    let commands = sink.take();
+    assert_eq!(commands.len(), 1, "{commands:?}");
+    match &commands[0] {
+        SttCommand::TranscribeFile {
+            session_id,
+            path,
+            api_key,
+            ..
+        } => {
+            assert_eq!(session_id, "take-1");
+            assert_eq!(path, &media.to_string_lossy().into_owned());
+            assert_eq!(
+                api_key.as_ref().map(SecretString::expose_secret),
+                Some("sk-e2e-secret")
+            );
+        }
+        other => panic!("expected transcribeFile, got {other:?}"),
+    }
+
+    // Capture frames must never reach a file take.
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+    })
+    .unwrap();
+    assert!(sink.take().is_empty());
+}
+
+#[gpui_kit::test]
+fn a_progress_event_drives_the_elapsed_read_out(cx: &mut gpui_kit::TestAppContext) {
+    let dir = TempDir::new("file-progress");
+    let media = dir.path().join("lecture.m4a");
+    std::fs::write(&media, b"RIFF0000WAVE").expect("temp media");
+
+    let (window, view, sender, _sink) = ready_app_for_files(cx);
+
+    cx.update_window(window.into(), |_, window, cx| {
+        view.update(cx, |app, cx| app.start_file_from_path(&media, cx));
+        window.render_frame(cx);
+    })
+    .unwrap();
+
+    sender
+        .send_blocking(Ok(SttEvent::Progress {
+            session_id: "take-1".into(),
+            processed_seconds: 12.6,
+            total_seconds: Some(340.25),
+        }))
+        .expect("send progress");
+    cx.run_until_parked();
+
+    assert_eq!(cx.update(|cx| view.read(cx).elapsed_seconds()), 12);
+}
+
+#[gpui_kit::test]
+fn a_missing_file_shows_a_typed_error_and_keeps_the_ready_screen(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let (window, view, _sender, sink) = ready_app_for_files(cx);
+    let _ = sink.take();
+    let missing = std::env::temp_dir().join("speechtt-missing-e2e.mov");
+
+    cx.update_window(window.into(), |_, window, cx| {
+        view.update(cx, |app, cx| app.start_file_from_path(&missing, cx));
+        window.render_frame(cx);
+    })
+    .unwrap();
+
+    assert_eq!(cx.update(|cx| view.read(cx).view_state()), ViewState::Ready);
+    assert_eq!(
+        cx.update(|cx| view.read(cx).app_error().cloned()),
+        Some(AppError::FileNotFound)
+    );
+    assert!(sink.take().is_empty());
+}
