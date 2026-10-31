@@ -58,7 +58,7 @@ Do **not** touch: `design-tokens.css`, `crates/speechtt-ui/src/tokens.rs`,
 `crates/speechtt-ui/src/theme.rs`, the worker, providers, the file-decoding path,
 settings, the dialogs, `docs`/`PRODUCT.md`, the press-wave geometry contract
 (only extend it), or `views/welcome.rs`, `views/session_setup.rs`,
-`views/file_ready.rs`, `views/stopped.rs` beyond what T0021 already established.
+`views/stopped.rs` beyond what T0021 already established.
 No new screen, no new colour, no new round-button tone, no new font size, weight
 or spacing token. No layout, position or animation-snapshot test.
 
