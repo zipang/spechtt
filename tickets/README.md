@@ -103,6 +103,7 @@ Decisions, deviations, verification output.
 | [T0017](done/T0017-mode-chooser-and-nameless-sessions.md) | Mode chooser and nameless sessions | Rust core/UI + design system |
 | [T0018](done/T0018-typography-scale-and-round-button-polish.md) | Three-size typography scale and round-button polish | Rust UI + design system |
 | [T0019](done/T0019-one-view-per-file.md) | One view per file under `views/` | Rust UI (refactor) |
+| [T0020](done/T0020-empty-takes-and-explicit-logged-errors.md) | Silent empty takes and explicit, logged backend failures | Cross-cutting |
 
 ### In Progress
 
