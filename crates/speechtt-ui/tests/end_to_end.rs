@@ -1641,3 +1641,31 @@ fn a_missing_file_shows_a_typed_error_and_keeps_the_ready_screen(
     );
     assert!(sink.take().is_empty());
 }
+
+/// T0024: a non-media file is refused at the picker, before any take exists.
+#[gpui_kit::test]
+fn picking_a_non_media_file_returns_to_the_welcome_screen(cx: &mut gpui_kit::TestAppContext) {
+    let dir = TempDir::new("picker-media-only");
+    let document = dir.path().join("notes.pdf");
+    std::fs::write(&document, b"%PDF-1.7").expect("temp document");
+
+    let (window, view, _sender, sink) = ready_app_for_files(cx);
+    let _ = sink.take();
+
+    // The native prompt cannot be answered by the harness, so the headless
+    // seam that the picker branch calls is driven directly.
+    cx.update_window(window.into(), |_, window, cx| {
+        view.update(cx, |app, cx| {
+            assert!(!app.accept_picked_file(document.clone(), cx));
+        });
+        window.render_frame(cx);
+    })
+    .unwrap();
+
+    assert_eq!(cx.update(|cx| view.read(cx).view_state()), ViewState::Mode);
+    assert_eq!(
+        cx.update(|cx| view.read(cx).app_error().cloned()),
+        Some(AppError::UnsupportedFileType)
+    );
+    assert!(sink.take().is_empty(), "no take may start");
+}

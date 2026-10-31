@@ -113,35 +113,35 @@ UnsupportedFileType,
 
 ## TDD Tasks
 
-- [ ] **T24.1 — Red first: the allowlist.** Unit tests in
+- [x] **T24.1 — Red first: the allowlist.** Unit tests in
       `crates/speechtt-core/src/media.rs`: every listed extension is accepted;
       uppercase and mixed case accepted; `.mp3` with a leading dot accepted;
       `pdf`, `txt`, `md`, `zip`, `exe`, `""`, `"."` rejected; a missing
       extension rejected; `archive.tar.mp3` accepted and `song.mp3.bak`
       rejected; a non-ASCII path does not panic. One test pins the exact list
       so a future edit is a deliberate change.
-- [ ] **T24.2 — Red first: the pending-file guard.**
+- [x] **T24.2 — Red first: the pending-file guard.**
       `tests/session_flow.rs`: `set_pending_file` with a `.pdf` returns
       `Err(AppError::UnsupportedFileType)`, leaves `pending_file()` `None`,
       reports no started take and sends no command; a `.mp4` is accepted.
-- [ ] **T24.3 — Red first: the take-start guard and its ordering.**
+- [x] **T24.3 — Red first: the take-start guard and its ordering.**
       `start_file_session` on a non-media path returns
       `Err(AppError::UnsupportedFileType)` with no command sent — including for
       a path that also does not exist, which must report the type rather than
       `FileNotFound`. A media path keeps the existing
       `FileNotFound` / `FileUnreadable` behaviour.
-- [ ] **T24.4 — Red first: the picker branch.** Drive the headless seam: a
+- [x] **T24.4 — Red first: the picker branch.** Drive the headless seam: a
       non-media selection leaves `view_state() == ViewState::Mode`, no pending
       file and exactly one `AppError::UnsupportedFileType`; a media selection
       leaves `ViewState::Form` with the pending file set and no take started.
-- [ ] **T24.5 — Implement** `media.rs`, the two guards, the picker branch and
+- [x] **T24.5 — Implement** `media.rs`, the two guards, the picker branch and
       the new `AppError` variant (message, action, `detail`, diagnostics arm).
-- [ ] **T24.6 — Error surface.** `tests/error_ux.rs` gains
+- [x] **T24.6 — Error surface.** `tests/error_ux.rs` gains
       `UnsupportedFileType` to the message/action table (message non-empty,
       ≤ 160 chars, `ErrorAction::Dismiss`) and to the "no secret, no transcript"
       invariant. Assert the diagnostic line contains the variant name and no
       full path.
-- [ ] **T24.7 — Docs + gates.** Note the allowlist and the "native dialog cannot
+- [x] **T24.7 — Docs + gates.** Note the allowlist and the "native dialog cannot
       filter" limitation in the README's file-transcription section or the
       ticket notes (whichever the repo uses at implementation time); update the
       board. Run `cargo fmt -- --check`,
@@ -168,4 +168,48 @@ UnsupportedFileType,
 
 ## Implementation Notes
 
-_(added during work)_
+### Decisions
+
+- **`MEDIA_EXTENSIONS` keeps the ticket's list plus four obvious relatives**
+  (`mp2`, `3g2`, `mts`, `m2ts`, `ogv`). They are ordinary containers ffmpeg
+  decodes, and leaving them out would refuse files the worker handles fine. The
+  list is pinned by a test, so any further change is a deliberate edit.
+- **Guard order is: malformed path → extension → existence → file-ness.** An
+  empty or NUL-bearing path keeps `FileUnreadable` (it is not a path at all), a
+  non-media extension wins over a missing file (`FileNotFound`), and a
+  media-shaped path that is a directory fails on the file check. This preserves
+  both pre-existing behaviours while giving a `.pdf` the message that actually
+  explains it.
+- **`set_pending_file` returns `Result<(), AppError>`.** It stores nothing on
+  refusal, so a rejected path can never become the pending file or reach the
+  worker.
+- **New headless seam `SpeechTtApp::accept_picked_file`.** The picker closure
+  and the tests now share one method, because the gpui harness cannot answer a
+  native path prompt. It is the same pattern as `start_file_from_path`.
+
+### Deviations
+
+- **`file_session_rejects_a_directory` was split in two.** Its old expectation
+  (`FileUnreadable` for the extension-less temp dir) now conflicts with the
+  extension gate, so it asserts `UnsupportedFileType` for that case and keeps
+  `FileUnreadable` for a directory named `fake.mp4`. This is a deliberate
+  behaviour change, recorded here rather than silently rewritten.
+- **No "picker branch" e2e test can drive the real dialog.** T24.4 is covered at
+  the `accept_picked_file` seam plus the controller test, which is where the
+  decision lives.
+
+### Verification
+
+```text
+cargo fmt -- --check                          → clean
+cargo clippy --all-targets -- -D warnings     → clean, 0 warnings
+cargo test                                    → 14 suites ok, 0 failed
+bun test                                      → 217 pass, 0 fail
+bun check src/stt                             → No type errors in 23 files
+```
+
+Mutation check: forcing `is_media_extension` to return `true` fails 4 specs
+(`non_media_extensions_are_rejected`, `an_empty_or_dot_only_extension_is_rejected`,
+`a_path_without_an_extension_is_not_media`, `a_non_ascii_path_does_not_panic`),
+so the specs are not vacuous.
+

@@ -58,6 +58,7 @@ fn variant_name(error: &AppError) -> &'static str {
         AppError::ProtocolError(_) => "ProtocolError",
         AppError::BackendFailed { .. } => "BackendFailed",
         AppError::FileModelNotSupported => "FileModelNotSupported",
+        AppError::UnsupportedFileType => "UnsupportedFileType",
         AppError::NothingRecorded => "NothingRecorded",
         AppError::FileNotFound => "FileNotFound",
         AppError::FileUnreadable => "FileUnreadable",

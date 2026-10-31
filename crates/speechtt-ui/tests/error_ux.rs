@@ -218,6 +218,7 @@ fn every_error_has_a_short_message_and_one_primary_action() {
         ),
         (AppError::NothingRecorded, ErrorAction::Dismiss),
         (AppError::FileModelNotSupported, ErrorAction::OpenSettings),
+        (AppError::UnsupportedFileType, ErrorAction::Dismiss),
         (AppError::FileNotFound, ErrorAction::Dismiss),
         (AppError::FileUnreadable, ErrorAction::Dismiss),
         (AppError::FfmpegMissing, ErrorAction::Dismiss),
@@ -320,6 +321,26 @@ fn diagnostics_format_one_redacted_line_per_typed_error() {
     let info = format_error_line("controller", &AppError::NothingRecorded);
     assert!(info.contains("kind=NothingRecorded"), "{info}");
     assert!(info.contains("code=-"), "{info}");
+}
+
+#[test]
+fn an_unsupported_file_type_logs_one_line_without_the_path() {
+    use speechtt_ui::diagnostics::format_error_line;
+
+    let line = format_error_line("file_picker", &AppError::UnsupportedFileType);
+
+    assert!(line.starts_with("[speechtt] "), "{line}");
+    assert!(line.contains("kind=UnsupportedFileType"), "{line}");
+    assert!(line.contains("code=-"), "{line}");
+    assert_eq!(line.lines().count(), 1, "{line}");
+    // The variant carries no detail, so no path or file name can leak.
+    assert!(!line.contains('/'), "a path leaked: {line}");
+    assert!(!line.contains("pdf"), "{line}");
+    assert_eq!(AppError::UnsupportedFileType.detail(), None);
+    assert_eq!(
+        AppError::UnsupportedFileType.message(),
+        "That is not an audio or video file."
+    );
 }
 
 #[test]

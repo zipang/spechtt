@@ -20,6 +20,7 @@ use gpui_kit::SharedString;
 use speechtt_core::audio::AudioError;
 use speechtt_core::backend::{BackendError, SttEventReceiver, SttSessionSink};
 use speechtt_core::hotkeys::SessionAction;
+use speechtt_core::media::is_media_path;
 use speechtt_core::output::OutputError;
 use speechtt_core::output::clipboard::{ClipboardSink, CopySummary, copy_transcript};
 use speechtt_core::output::file::{FileOpener, SavedFile, TranscriptFormat, save_transcript_to};
@@ -112,6 +113,8 @@ pub enum AppError {
     NothingRecorded,
     /// FileModelNotSupported: a streaming-only model was chosen for a file take.
     FileModelNotSupported,
+    /// The picked path is not an audio or video file.
+    UnsupportedFileType,
     /// The file picked for transcription no longer exists.
     FileNotFound,
     /// The picked path is a directory, unreadable, or not decodable.
@@ -172,6 +175,7 @@ impl AppError {
             Self::FileModelNotSupported => {
                 "File transcription needs a non-streaming model.".to_owned()
             }
+            Self::UnsupportedFileType => "That is not an audio or video file.".to_owned(),
             Self::FileNotFound => "That file no longer exists. Pick another one.".to_owned(),
             Self::FileUnreadable => {
                 "That file could not be read. Pick an audio or video file.".to_owned()
@@ -202,6 +206,7 @@ impl AppError {
             | Self::ProtocolError(_)
             | Self::BackendFailed { .. }
             | Self::NothingRecorded
+            | Self::UnsupportedFileType
             | Self::FileNotFound
             | Self::FileUnreadable
             | Self::FfmpegMissing
@@ -1686,7 +1691,13 @@ impl SessionController {
     ///
     /// Nothing is transcribed yet: the take starts when [`Self::create_session`]
     /// commits the form, so the user picks a model before any decoding happens.
-    pub fn set_pending_file(&mut self, path: PathBuf) {
+    ///
+    /// Returns [`AppError::UnsupportedFileType`] — storing nothing — when the
+    /// path is not an audio or video file (T0024).
+    pub fn set_pending_file(&mut self, path: PathBuf) -> Result<(), AppError> {
+        if !is_media_path(&path) {
+            return Err(self.fail(AppError::UnsupportedFileType));
+        }
         self.pending_file = Some(path);
         self.screen = Screen::Form;
         self.draft = SessionDraft::default();
@@ -1695,6 +1706,7 @@ impl SessionController {
         self.output_status = None;
         self.written_path = None;
         self.seed_draft_from_settings();
+        Ok(())
     }
 
     /// The file waiting in the setup form, if any.
@@ -1908,6 +1920,11 @@ impl SessionController {
         let display = path.to_string_lossy().into_owned();
         if display.trim().is_empty() || display.contains('\0') {
             return Err(self.fail(AppError::FileUnreadable));
+        }
+        // The extension is checked before existence, so a `.pdf` reports its
+        // type rather than "that file no longer exists" (T0024).
+        if !is_media_path(path) {
+            return Err(self.fail(AppError::UnsupportedFileType));
         }
 
         let metadata = match std::fs::metadata(path) {

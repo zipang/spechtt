@@ -536,8 +536,7 @@ impl SpeechTtApp {
                 Ok(Ok(Some(paths))) => {
                     if let Some(path) = paths.into_iter().next() {
                         let _ = this.update(cx, |this, cx| {
-                            this.controller.set_pending_file(path);
-                            cx.notify();
+                            this.accept_picked_file(path, cx);
                         });
                     }
                 }
@@ -557,6 +556,20 @@ impl SpeechTtApp {
             }
         })
         .detach();
+    }
+
+    /// Accept (or refuse) the file chosen in the picker.
+    ///
+    /// Shared by the picker closure and the headless tests. A non-media path is
+    /// refused before any take exists: the strip explains it and the user stays
+    /// on the welcome screen (T0024). Returns `true` when the setup form opened.
+    pub fn accept_picked_file(&mut self, path: PathBuf, cx: &mut Context<Self>) -> bool {
+        let accepted = self.controller.set_pending_file(path).is_ok();
+        if !accepted {
+            self.controller.change_mode();
+        }
+        cx.notify();
+        accepted
     }
 
     /// Starts a file take for `path`. Headless-testable seam behind the picker.

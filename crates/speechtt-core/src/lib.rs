@@ -5,6 +5,7 @@ pub mod audio;
 pub mod backend;
 pub mod fft;
 pub mod hotkeys;
+pub mod media;
 pub mod output;
 pub mod protocol;
 pub mod session;

@@ -137,7 +137,9 @@ fn ready_file() -> SessionController {
     assert!(!controller.choose_mode(SessionMode::File));
     // The picker comes first in file mode (T0023): the form only exists once a
     // file has been chosen.
-    controller.set_pending_file(PathBuf::from("/tmp/speechtt-ready.mp4"));
+    controller
+        .set_pending_file(PathBuf::from("/tmp/speechtt-ready.mp4"))
+        .expect("a media path");
     controller.cycle_provider();
     controller.cycle_model();
     assert!(controller.create_session());
@@ -219,7 +221,9 @@ fn a_pending_file_opens_the_form_and_seeds_a_segmented_model() {
     controller.apply_settings(configured_settings("openai/gpt-4o-transcribe"));
     assert!(!controller.choose_mode(SessionMode::File));
 
-    controller.set_pending_file(PathBuf::from("/tmp/interview.mp4"));
+    controller
+        .set_pending_file(PathBuf::from("/tmp/interview.mp4"))
+        .expect("a media path");
 
     assert_eq!(controller.view_state(), ViewState::Form);
     assert_eq!(
@@ -243,7 +247,9 @@ fn a_pending_file_does_not_seed_a_streaming_model() {
     controller.apply_settings(configured_settings("openai/gpt-realtime-whisper"));
     assert!(!controller.choose_mode(SessionMode::File));
 
-    controller.set_pending_file(PathBuf::from("/tmp/interview.mp4"));
+    controller
+        .set_pending_file(PathBuf::from("/tmp/interview.mp4"))
+        .expect("a media path");
 
     assert_eq!(controller.view_state(), ViewState::Form);
     assert!(controller.has_provider(), "the provider is still seeded");
@@ -255,18 +261,24 @@ fn a_pending_file_does_not_seed_a_streaming_model() {
 fn the_pending_file_is_cleared_by_every_way_out() {
     let mut controller = catalogued();
     controller.choose_mode(SessionMode::File);
-    controller.set_pending_file(PathBuf::from("/tmp/a.mp4"));
+    controller
+        .set_pending_file(PathBuf::from("/tmp/a.mp4"))
+        .expect("a media path");
     controller.cancel_form();
     assert_eq!(controller.pending_file(), None);
 
     controller.choose_mode(SessionMode::File);
-    controller.set_pending_file(PathBuf::from("/tmp/b.mp4"));
+    controller
+        .set_pending_file(PathBuf::from("/tmp/b.mp4"))
+        .expect("a media path");
     controller.change_mode();
     assert_eq!(controller.pending_file(), None);
 
     // A finished take's "New take" also drops it.
     controller.choose_mode(SessionMode::File);
-    controller.set_pending_file(PathBuf::from("/tmp/c.mp4"));
+    controller
+        .set_pending_file(PathBuf::from("/tmp/c.mp4"))
+        .expect("a media path");
     controller.cycle_provider();
     controller.cycle_model();
     assert!(controller.create_session());
@@ -279,7 +291,9 @@ fn the_file_model_list_only_offers_segmented_models() {
     let mut controller = catalogued();
     controller.apply_settings(configured_settings("openai/gpt-4o-transcribe"));
     controller.choose_mode(SessionMode::File);
-    controller.set_pending_file(PathBuf::from("/tmp/a.mp4"));
+    controller
+        .set_pending_file(PathBuf::from("/tmp/a.mp4"))
+        .expect("a media path");
 
     assert_eq!(
         controller.selectable_model_ids("vercel-ai-gateway"),
@@ -309,7 +323,9 @@ fn file_mode_never_cycles_onto_a_streaming_model() {
     let mut controller = catalogued();
     controller.apply_settings(configured_settings("openai/gpt-realtime-whisper"));
     controller.choose_mode(SessionMode::File);
-    controller.set_pending_file(PathBuf::from("/tmp/a.mp4"));
+    controller
+        .set_pending_file(PathBuf::from("/tmp/a.mp4"))
+        .expect("a media path");
     controller.cycle_provider();
 
     // Walk a full cycle: no visited model may be streaming.
@@ -339,7 +355,9 @@ fn a_streaming_model_cannot_complete_a_file_draft() {
     let mut controller = catalogued();
     controller.apply_settings(configured_settings("openai/gpt-4o-transcribe"));
     controller.choose_mode(SessionMode::File);
-    controller.set_pending_file(PathBuf::from("/tmp/a.mp4"));
+    controller
+        .set_pending_file(PathBuf::from("/tmp/a.mp4"))
+        .expect("a media path");
     assert!(controller.is_draft_complete(), "segmented to begin with");
 
     // The catalogue reclassifies the model as streaming underneath the draft.
@@ -776,6 +794,68 @@ impl Drop for TempFile {
     }
 }
 
+// ----- Media allowlist (T0024) ---------------------------------------
+
+#[test]
+fn the_pending_file_refuses_a_non_media_path() {
+    let mut controller = catalogued();
+    controller.choose_mode(SessionMode::File);
+
+    let result = controller.set_pending_file(PathBuf::from("/tmp/report.pdf"));
+
+    assert_eq!(result, Err(AppError::UnsupportedFileType));
+    assert_eq!(controller.pending_file(), None, "nothing is stored");
+    assert_eq!(
+        controller.view_state(),
+        ViewState::Mode,
+        "the user stays on the welcome screen"
+    );
+    assert_eq!(controller.session_state(), SessionState::Blank);
+}
+
+#[test]
+fn the_pending_file_accepts_every_media_kind() {
+    for path in [
+        "/tmp/a.wav",
+        "/tmp/b.MP4",
+        "/tmp/c.mkv",
+        "/tmp/d.flac",
+        "/tmp/e.webm",
+    ] {
+        let mut controller = catalogued();
+        controller.choose_mode(SessionMode::File);
+        controller
+            .set_pending_file(PathBuf::from(path))
+            .unwrap_or_else(|error| panic!("{path}: {error}"));
+        assert_eq!(controller.pending_file(), Some(Path::new(path)), "{path}");
+        assert_eq!(controller.view_state(), ViewState::Form, "{path}");
+    }
+}
+
+#[test]
+fn a_file_take_refuses_a_non_media_path_before_checking_existence() {
+    let mut controller = ready_file();
+    let sink = RecordingSink::default();
+    controller.set_sink(Box::new(sink.clone()));
+    // Missing *and* not media: the type wins, because it is the real problem.
+    let path = std::env::temp_dir().join("speechtt-definitely-missing-42.pdf");
+
+    let result = controller.start_file_session(&path);
+
+    assert_eq!(result, Err(AppError::UnsupportedFileType));
+    assert!(sink.take().is_empty());
+    assert_eq!(controller.session_state(), SessionState::Ready);
+}
+
+#[test]
+fn a_file_take_accepts_an_extensionless_media_container() {
+    // `.tar.gz`-style stacks are not media, but a bare name is still refused
+    // even when the bytes would decode: the extension is the contract.
+    let mut controller = ready_file();
+    let result = controller.start_file_session(Path::new("/tmp/recording"));
+    assert_eq!(result, Err(AppError::UnsupportedFileType));
+}
+
 #[test]
 fn file_session_rejects_a_missing_path() {
     let mut controller = ready_file();
@@ -795,9 +875,22 @@ fn file_session_rejects_a_directory() {
     let mut controller = ready_file();
     let sink = RecordingSink::default();
     controller.set_sink(Box::new(sink.clone()));
-    let directory = std::env::temp_dir();
 
-    let result = controller.start_file_session(&directory);
+    // A directory without a media extension is refused as the wrong file type,
+    // which is the more useful message (T0024).
+    assert_eq!(
+        controller.start_file_session(&std::env::temp_dir()),
+        Err(AppError::UnsupportedFileType)
+    );
+
+    // A directory that *looks* media-shaped gets past the extension gate and
+    // fails on the file check instead.
+    let mut shaped = std::env::temp_dir();
+    shaped.push(format!("speechtt-dir-{}", std::process::id()));
+    shaped.push("fake.mp4");
+    std::fs::create_dir_all(&shaped).expect("temp dir");
+    let result = controller.start_file_session(&shaped);
+    let _ = std::fs::remove_dir_all(shaped.parent().expect("parent"));
 
     assert_eq!(result, Err(AppError::FileUnreadable));
     assert_eq!(controller.session_state(), SessionState::Ready);
