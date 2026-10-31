@@ -117,3 +117,5 @@ _(none)_
 | Ticket | Title | Track | Depends on |
 |---|---|---|---|
 | [T0016](planned/T0016-dependency-bootstrap-script.md) | Dependency bootstrap for Bun and ffmpeg | Tooling (TypeScript/Bun) | — |
+| [T0021](planned/T0021-consistent-footer-navigation.md) | One consistent footer and a live-first navigation flow | Rust UI | T0017, T0019, T0020 |
+| [T0022](planned/T0022-live-take-screen-record-control.md) | Live take screen: microphone record control, cancel and reset | Rust UI + core + design | T0020, T0021 |
