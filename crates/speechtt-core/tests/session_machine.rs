@@ -271,3 +271,52 @@ fn full_happy_path_blank_to_ready_to_recording_to_blank_to_ready() {
     full_config(&mut machine);
     assert_eq!(machine.state(), SessionState::Ready);
 }
+
+// ----- Discarding a take ----------------------------------------------
+
+#[test]
+fn discard_take_drops_the_take_but_keeps_the_configuration() {
+    let mut machine = SessionMachine::new();
+    full_config(&mut machine);
+    machine.start().unwrap();
+    machine.pause().unwrap();
+
+    machine.discard_take().unwrap();
+
+    // The configuration survives: the next press of the same control starts a
+    // fresh take without going through the form again.
+    assert_eq!(machine.state(), SessionState::Ready);
+    assert_eq!(
+        machine.config().provider.as_deref(),
+        Some("mistral"),
+        "provider kept"
+    );
+    assert_eq!(
+        machine.config().model.as_deref(),
+        Some("voxtral-mini-latest"),
+        "model kept"
+    );
+    assert_eq!(
+        machine.config().audio_source.as_deref(),
+        Some("Built-in Microphone"),
+        "audio source kept"
+    );
+    assert!(machine.missing().is_empty());
+
+    // And it records again straight away.
+    machine.start().unwrap();
+    assert_eq!(machine.state(), SessionState::Recording);
+}
+
+#[test]
+fn discard_take_is_a_no_op_when_no_take_is_open() {
+    let mut machine = SessionMachine::new();
+    machine.discard_take().unwrap();
+    assert_eq!(machine.state(), SessionState::Blank);
+
+    full_config(&mut machine);
+    assert_eq!(machine.state(), SessionState::Ready);
+    machine.discard_take().unwrap();
+    assert_eq!(machine.state(), SessionState::Ready, "still configured");
+    assert!(machine.missing().is_empty());
+}

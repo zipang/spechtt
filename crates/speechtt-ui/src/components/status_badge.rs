@@ -17,17 +17,37 @@ pub enum BadgeTone {
 }
 
 impl BadgeTone {
-    fn dot(self, cx: &App) -> Hsla {
+    /// The state's role colour, as the token value it comes from.
+    ///
+    /// Exposed so the colour of each scoreboard state is testable without
+    /// pixels.
+    #[must_use]
+    pub const fn role_rgb(self) -> Option<u32> {
         match self {
-            BadgeTone::Ready => cx.theme().muted_foreground,
+            BadgeTone::Ready => Some(color::SUCCESS),
+            BadgeTone::Paused => Some(color::WARNING),
+            BadgeTone::Recording => Some(color::DANGER),
+        }
+    }
+
+    /// Dot colour. Ready is the one "you may start" state, so it wears the
+    /// success role — the same mint that means "saved" and "connected". It adds
+    /// no colour: `--color-action-success` already exists.
+    fn dot(self) -> Hsla {
+        match self {
+            BadgeTone::Ready => gpui_kit::rgb(color::SUCCESS).into(),
             BadgeTone::Recording => gpui_kit::rgb(color::DANGER).into(),
             BadgeTone::Paused => gpui_kit::rgb(color::WARNING).into(),
         }
     }
 
+    /// Label colour: the state's own role, so the pill reads as one signal
+    /// (green ready, red recording, amber paused) rather than a coloured dot
+    /// beside neutral text.
     fn label_color(self, cx: &App) -> Hsla {
         match self {
-            BadgeTone::Ready | BadgeTone::Recording => cx.theme().muted_foreground,
+            BadgeTone::Ready => gpui_kit::rgb(color::SUCCESS).into(),
+            BadgeTone::Recording => cx.theme().muted_foreground,
             BadgeTone::Paused => gpui_kit::rgb(color::WARNING).into(),
         }
     }
@@ -71,7 +91,7 @@ impl StatusBadge {
 impl RenderOnce for StatusBadge {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let dot = match (self.tone, self.accent) {
-            (Some(tone), _) => tone.dot(cx),
+            (Some(tone), _) => tone.dot(),
             (None, Some(accent)) => accent,
             (None, None) => cx.theme().muted_foreground,
         };
@@ -88,5 +108,31 @@ impl RenderOnce for StatusBadge {
             .bg(cx.theme().secondary)
             .child(StatusDot::new(dot))
             .child(Label::new(self.label).bold().tone(label_color))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Ready is the success green — the "the microphone is free, press me"
+    /// signal — while paused is amber and recording is red.
+    #[test]
+    fn ready_is_the_success_green_and_paused_is_amber() {
+        assert_eq!(BadgeTone::Ready.role_rgb(), Some(color::SUCCESS));
+        assert_eq!(BadgeTone::Paused.role_rgb(), Some(color::WARNING));
+        // Recording stays on the red the pill already used.
+        assert_eq!(BadgeTone::Recording.role_rgb(), Some(color::DANGER));
+    }
+
+    /// The three transport states must never share a colour.
+    #[test]
+    fn every_transport_state_has_its_own_colour() {
+        let tones = [BadgeTone::Ready, BadgeTone::Recording, BadgeTone::Paused];
+        for (index, left) in tones.iter().enumerate() {
+            for right in &tones[index + 1..] {
+                assert_ne!(left.role_rgb(), right.role_rgb(), "{left:?} vs {right:?}");
+            }
+        }
     }
 }

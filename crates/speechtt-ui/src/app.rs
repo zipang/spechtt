@@ -378,8 +378,7 @@ impl SpeechTtApp {
         self.settings_api_key.read(cx).value().to_string()
     }
 
-    /// The change staged by `Save changes`, consumed by the settings store in
-    /// T0009.
+    /// The change staged by `Save changes`, consumed by the settings store.
     pub fn pending_settings_change(&self) -> Option<&SettingsChange> {
         self.pending_settings.as_ref()
     }
@@ -461,7 +460,7 @@ impl SpeechTtApp {
     /// discards its draft, a finished take is cleared, and the take screen
     /// returns home. Transient state (error strip, pending file, output status,
     /// finished take) is dropped exactly as the underlying controller method
-    /// already does it, so no stale screen state survives the step (T0021).
+    /// does it, so no stale screen state survives the step.
     pub fn go_back(&mut self, cx: &mut Context<Self>) {
         self.stop_audio_capture();
         self.controller.go_back();
@@ -534,7 +533,7 @@ impl SpeechTtApp {
     ///
     /// The picker is the only platform-specific part: the worker decodes the
     /// file itself, so no media crosses the bridge. Cancelling the dialog is a
-    /// full no-op on the flow — the user stays on the welcome screen (T0023).
+    /// full no-op on the flow — the user stays on the welcome screen.
     pub fn pick_transcription_file(&mut self, cx: &mut Context<Self>) {
         let selection = cx.prompt_for_paths(PathPromptOptions {
             files: true,
@@ -574,7 +573,7 @@ impl SpeechTtApp {
     ///
     /// Shared by the picker closure and the headless tests. A non-media path is
     /// refused before any take exists: the strip explains it and the user stays
-    /// on the welcome screen (T0024). Returns `true` when the setup form opened.
+    /// on the welcome screen. Returns `true` when the setup form opened.
     pub fn accept_picked_file(&mut self, path: PathBuf, cx: &mut Context<Self>) -> bool {
         let accepted = self.controller.set_pending_file(path).is_ok();
         if !accepted {
@@ -618,6 +617,38 @@ impl SpeechTtApp {
             .controller
             .auto_paste_after_finish(&mut *self.clipboard, &mut *self.paste);
         cx.notify();
+    }
+
+    /// Whether a capture thread is running (test surface for device release).
+    ///
+    /// Reset, Cancel and Stop release the microphone, so this must be `false`
+    /// after any of them.
+    #[must_use]
+    pub fn is_capturing_audio(&self) -> bool {
+        self.audio_stop.is_some()
+    }
+
+    /// Abandon the open take and stay on the take screen (the footer's Reset).
+    ///
+    /// Capture stops, the worker tears the session down, the transcript,
+    /// waveform and timer are cleared, and the configuration survives so the
+    /// mic starts a fresh take immediately.
+    pub fn reset_take(&mut self, cx: &mut Context<Self>) -> bool {
+        let reset = self.controller.reset_take();
+        if reset {
+            self.stop_audio_capture();
+        }
+        cx.notify();
+        reset
+    }
+
+    /// Leave the take screen for the mode chooser, discarding an open take
+    /// (the footer's Cancel). Capture stops first so the device is released.
+    pub fn cancel_take(&mut self, cx: &mut Context<Self>) -> bool {
+        self.stop_audio_capture();
+        let cancelled = self.controller.cancel_take();
+        cx.notify();
+        cancelled
     }
 
     pub fn new_take(&mut self, cx: &mut Context<Self>) {
@@ -987,7 +1018,8 @@ impl SpeechTtApp {
     /// Own the backend event receiver. The task lives as long as the view;
     /// dropping it cancels the pump.
     fn start_event_loop(&mut self, events: SttEventReceiver, cx: &mut Context<Self>) {
-        // Replacing the backend cancels any pump that was reading the old one.
+        // Exactly one pump owns the event stream; replacing the backend cancels
+        // the pump attached to the previous one.
         self._event_task = None;
         self._event_task = Some(cx.spawn(async move |this, cx| {
             while let Ok(message) = events.recv().await {

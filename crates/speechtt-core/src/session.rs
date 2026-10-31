@@ -18,6 +18,8 @@
 //!   transcript and the save/paste/copy actions), then clears the whole
 //!   configuration and returns to `Blank`. The next take starts from the mode
 //!   chooser, which re-derives the mode, provider and model.
+//! - `discard_take` abandons an open take and keeps the configuration, so the
+//!   take screen's Reset can start again; `stop` also clears everything.
 //! - `reset` clears an idle machine; it backs the UI's "change mode" action.
 
 /// Transport state. `Blank` and `Ready` are derived from configuration
@@ -228,6 +230,24 @@ impl SessionMachine {
         self.config = SessionConfig::default();
         self.state = SessionState::Blank;
         Ok(finished)
+    }
+
+    /// Abandons an open take **without** producing a result, keeping the
+    /// configuration so a new take can start immediately.
+    ///
+    /// This backs the take screen's Reset: the user clears a microphone check
+    /// and stays on the same screen, ready to record again. It is a no-op
+    /// success when no take is open, so calling it idly never errors.
+    ///
+    /// The take is dropped rather than returned: nothing reaches the transcript,
+    /// the clipboard or a file. Use [`Self::stop`] when the take is a result.
+    pub fn discard_take(&mut self) -> Result<(), SessionError> {
+        if self.state.is_active() {
+            // The configuration was complete when the take started and stays
+            // untouched, so `Ready` is the correct state to return to.
+            self.state = SessionState::Ready;
+        }
+        Ok(())
     }
 
     /// Clears the configuration and returns to `Blank`. Refuses while a take is

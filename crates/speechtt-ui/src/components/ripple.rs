@@ -10,10 +10,9 @@
 //!
 //! - painted *behind* the screen it emerges from under the button instead of
 //!   tinting the glyph on top of it;
-//! - owned by the window it survives the navigation every round action
-//!   triggers (chooser → form, Ready → Recording, Pause → Paused). A wave drawn
-//!   inside the pressed screen would be destroyed on release, which is exactly
-//!   why an earlier version animated something nobody could see.
+//! - owned by the window it survives the navigation a round action can trigger
+//!   (chooser → form, take screen → chooser). A wave drawn inside the pressed
+//!   screen would be destroyed on release.
 //!
 //! The centre comes from [`super::button_anchors`], recorded while the button
 //! prepainted, so the wave is concentric with the button no matter where inside

@@ -135,7 +135,7 @@ fn ready_live() -> SessionController {
 fn ready_file() -> SessionController {
     let mut controller = catalogued();
     assert!(!controller.choose_mode(SessionMode::File));
-    // The picker comes first in file mode (T0023): the form only exists once a
+    // The picker comes first in file mode: the form only exists once a
     // file has been chosen.
     controller
         .set_pending_file(PathBuf::from("/tmp/speechtt-ready.mp4"))
@@ -171,7 +171,7 @@ fn choosing_a_mode_without_settings_opens_the_two_field_form() {
     assert_eq!(controller.mode(), SessionMode::Live);
     assert!(!controller.is_draft_complete());
 
-    // File mode waits for the picker on the welcome screen (T0023).
+    // File mode waits for the picker on the welcome screen.
     assert!(!controller.choose_mode(SessionMode::File));
     assert_eq!(controller.view_state(), ViewState::Mode);
     assert_eq!(controller.mode(), SessionMode::File);
@@ -186,7 +186,7 @@ fn choosing_live_with_configured_settings_opens_the_take_screen_directly() {
 
     assert!(controller.choose_mode(SessionMode::Live));
 
-    // No Ready holding screen (T0021): the configuration is complete, so the
+    // No Ready holding screen: the configuration is complete, so the
     // take screen is what the user sees. Capture is started by its own
     // control, never by the mode choice.
     assert_eq!(controller.view_state(), ViewState::Live);
@@ -407,7 +407,7 @@ fn create_session_commits_provider_and_model_and_keeps_the_mode() {
 
     assert!(!controller.is_draft_complete(), "the draft is consumed");
     // File mode has no holding screen: with no take running the setup form is
-    // the only thing to show (T0023).
+    // the only thing to show.
     assert_eq!(controller.view_state(), ViewState::Form);
     assert_eq!(controller.mode(), SessionMode::File);
     assert_eq!(controller.session_state(), SessionState::Ready);
@@ -497,7 +497,138 @@ fn change_mode_is_inert_while_a_take_is_active() {
     assert_eq!(controller.session_state(), SessionState::Recording);
 }
 
-// ----- Back contract (T0021) ------------------------------------------
+// ----- Take screen: reset and cancel --------------------------------
+
+#[test]
+fn reset_clears_the_take_and_keeps_the_configuration() {
+    let (mut controller, sink) = duplex_controller();
+    controller.report_error(AppError::PasteFailed);
+    assert!(controller.start_recording());
+    controller.handle_stt_event(SttEvent::Committed {
+        session_id: "take-1".into(),
+        text: "a microphone check".into(),
+    });
+    let _ = sink.take();
+
+    assert!(controller.reset_take());
+
+    // Still on the take screen, still configured, with nothing left over.
+    assert_eq!(controller.view_state(), ViewState::Live);
+    assert_eq!(controller.session_state(), SessionState::Ready);
+    assert_eq!(controller.transcript_committed(), "");
+    assert_eq!(controller.transcript_live(), "");
+    assert_eq!(controller.elapsed_seconds(), 0);
+    assert!(controller.progress().is_none());
+    assert!(!controller.is_file_take());
+    assert!(controller.finished_take().is_none(), "no result to copy");
+    assert!(controller.output_status().is_none());
+    assert!(controller.app_error().is_none(), "a reset is not a failure");
+    assert_eq!(
+        sink.take(),
+        vec![SttCommand::Stop],
+        "one Stop tears the session down"
+    );
+
+    // The next press opens a brand-new session.
+    assert!(controller.start_recording());
+    assert_eq!(controller.session_state(), SessionState::Recording);
+    assert_eq!(controller.session_label(), "take-3");
+}
+
+#[test]
+fn a_reset_take_ignores_late_events_of_the_discarded_session() {
+    let (mut controller, _sink) = duplex_controller();
+    assert!(controller.start_recording());
+    assert!(controller.reset_take());
+
+    controller.handle_stt_event(SttEvent::Committed {
+        session_id: "take-1".into(),
+        text: "text from the discarded take".into(),
+    });
+
+    assert_eq!(
+        controller.transcript_committed(),
+        "",
+        "the abandoned session cannot write into the fresh one"
+    );
+}
+
+#[test]
+fn reset_is_refused_when_idle_and_for_a_file_take() {
+    let (mut controller, sink) = duplex_controller();
+    // Idle live screen: there is nothing to reset.
+    assert!(!controller.reset_take());
+    assert!(sink.take().is_empty());
+
+    // A file take decodes on the worker: Reset must not fake a local reset.
+    let file = TempFile::new("meeting.mp4");
+    let mut file_controller = ready_file();
+    let file_sink = RecordingSink::default();
+    file_controller.set_sink(Box::new(file_sink.clone()));
+    file_controller
+        .start_file_session(&file.path)
+        .expect("the file take starts");
+    assert!(file_controller.is_file_take());
+    let _ = file_sink.take();
+
+    assert!(!file_controller.reset_take());
+
+    assert!(file_sink.take().is_empty(), "no command may be sent");
+    assert_eq!(file_controller.session_state(), SessionState::Recording);
+    assert_eq!(file_controller.view_state(), ViewState::Live);
+}
+
+#[test]
+fn cancel_ends_the_take_from_recording_and_from_paused() {
+    for paused in [false, true] {
+        let (mut controller, sink) = duplex_controller();
+        assert!(controller.start_recording());
+        if paused {
+            assert!(controller.pause_recording());
+        }
+        let _ = sink.take();
+
+        assert!(controller.cancel_take());
+
+        assert_eq!(controller.view_state(), ViewState::Mode, "paused={paused}");
+        assert_eq!(controller.session_state(), SessionState::Blank);
+        assert!(controller.finished_take().is_none(), "nothing to save");
+        assert!(
+            controller.app_error().is_none(),
+            "cancelling is not a failure"
+        );
+        assert_eq!(sink.take(), vec![SttCommand::Stop], "paused={paused}");
+    }
+}
+
+#[test]
+fn cancel_from_the_idle_take_screen_only_goes_home() {
+    let (mut controller, sink) = duplex_controller();
+    let _ = sink.take();
+
+    assert!(controller.cancel_take());
+
+    assert_eq!(controller.view_state(), ViewState::Mode);
+    assert!(sink.take().is_empty(), "no session to stop");
+}
+
+#[test]
+fn stop_ends_a_running_take_without_pausing_first() {
+    let (mut controller, _sink) = duplex_controller();
+    assert!(controller.start_recording());
+    controller.handle_stt_event(SttEvent::Committed {
+        session_id: "take-1".into(),
+        text: "recorded while recording".into(),
+    });
+
+    assert!(controller.finish_take());
+
+    assert_eq!(controller.view_state(), ViewState::Stopped);
+    let take = controller.finished_take().expect("a finished take");
+    assert_eq!(take.committed(), "recorded while recording");
+}
+
+// ----- Back contract ---------------------------------------------------
 
 #[test]
 fn back_from_the_setup_form_returns_to_the_chooser_with_nothing_left() {
@@ -860,7 +991,7 @@ impl Drop for TempFile {
     }
 }
 
-// ----- Media allowlist (T0024) ---------------------------------------
+// ----- Media allowlist -------------------------------------------------
 
 #[test]
 fn the_pending_file_refuses_a_non_media_path() {
@@ -943,7 +1074,7 @@ fn file_session_rejects_a_directory() {
     controller.set_sink(Box::new(sink.clone()));
 
     // A directory without a media extension is refused as the wrong file type,
-    // which is the more useful message (T0024).
+    // which is the more useful message.
     assert_eq!(
         controller.start_file_session(&std::env::temp_dir()),
         Err(AppError::UnsupportedFileType)

@@ -1,9 +1,9 @@
 //! SpeechTT visual components (RenderOnce), built from design tokens.
 //!
-//! These are the pieces the mockups define that gpui-component does not
-//! ship: the state badge, elapsed timer, waveform, caption well, mode cards,
-//! round action buttons, transport fragments and setup-form controls. They read `crate::tokens` /
-//! the active theme — no raw colors.
+//! These are the pieces the mockups define that gpui-component does not ship:
+//! the state badge, elapsed timer, waveform, caption well, mode cards, round and
+//! toggle round buttons, the screen footer and the setup-form controls. They read
+//! `crate::tokens` / the active theme — no raw colors.
 //!
 //! Behavior lives in `controller.rs` / `speechtt-core`; components render what
 //! they are given and forward requested actions through `on_click`.
@@ -25,8 +25,8 @@ mod screen_footer;
 mod setting_row;
 mod status_badge;
 mod status_dot;
-mod stop_control;
 mod text;
+mod toggle_round_button;
 mod transcription_mode_badge;
 mod transport_header;
 mod waveform;
@@ -51,8 +51,11 @@ pub use screen_footer::{FooterZone, ScreenFooter};
 pub use setting_row::SettingRow;
 pub use status_badge::{BadgeTone, StatusBadge};
 pub use status_dot::StatusDot;
-pub use stop_control::StopControl;
 pub use text::{Body, Label, TextRole, Title};
+pub use toggle_round_button::{
+    TOGGLE_PULSE_AMPLITUDE, TOGGLE_PULSE_PERIOD, TOGGLE_PULSE_SELECTOR, TOGGLE_WAVE_MAX_SIZE,
+    TOGGLE_WAVE_SELECTOR, ToggleRoundButton, ToggleState, pulse_scale, toggle_wave_frame,
+};
 pub use transcription_mode_badge::{TranscriptionModeBadge, mode_label};
 pub use transport_header::{Progress, TransportHeader};
 pub use waveform::Waveform;

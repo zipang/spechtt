@@ -500,9 +500,9 @@ pub enum SessionMode {
 /// What the widget is currently displaying. Derived from the machine, the
 /// setup screen and the finished-take overlay.
 ///
-/// There is deliberately no `Ready` and no `Paused` screen: a complete
-/// configuration shows the live take screen directly, and pause/resume are
-/// states of that one screen (T0021/T0022).
+/// A complete live configuration shows `Live` directly; idle, recording and
+/// paused are states of that one screen, told apart by the machine and rendered
+/// by its badge and waveform.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViewState {
     Mode,
@@ -636,8 +636,8 @@ pub const STORED_KEY_REVEAL_HINT: &str =
 
 /// Editable copy of the settings shown in the Settings dialog.
 ///
-/// It is deliberately UI-only: T0006 supplies the persisted store and T0009
-/// maps [`SettingsChange`] into it.
+/// It is the dialog's own copy: [`SettingsChange`] is what later reaches the
+/// persisted store.
 #[derive(Clone, Default, PartialEq, Eq)]
 pub struct SettingsDraft {
     pub provider: Option<String>,
@@ -667,8 +667,8 @@ impl fmt::Debug for SettingsDraft {
     }
 }
 
-/// The value committed by `Save changes`; consumed by the settings store in
-/// T0009. `api_key = None` keeps the stored key, `Some("")` clears it.
+/// The value committed by `Save changes`, consumed by the settings store.
+/// `api_key = None` keeps the stored key, `Some("")` clears it.
 #[derive(Clone, PartialEq, Eq)]
 pub struct SettingsChange {
     pub provider: String,
@@ -869,9 +869,9 @@ impl SessionController {
         match (self.machine.state(), self.screen) {
             (SessionState::Blank, Screen::Mode) => ViewState::Mode,
             (SessionState::Blank, Screen::Form) => ViewState::Form,
-            // File mode has no holding screen (T0023): with no take running,
-            // the setup form is the only thing to show. A running file take
-            // borrows the live take screen until T0025 gives it its own.
+            // File mode has no holding screen: with no take running, the setup
+            // form is the only thing to show. A running file take renders the
+            // take screen while the worker decodes.
             (SessionState::Ready, _) if self.mode == SessionMode::File => ViewState::Form,
             (SessionState::Ready | SessionState::Recording | SessionState::Paused, _) => {
                 ViewState::Live
@@ -1665,7 +1665,7 @@ impl SessionController {
     ///
     /// File mode always returns `false` and stays on the welcome screen: the
     /// picker runs first, and [`Self::set_pending_file`] opens the form once a
-    /// file has been chosen (T0023).
+    /// file has been chosen.
     ///
     /// Refuses while a take is active: the setup is frozen then.
     pub fn choose_mode(&mut self, mode: SessionMode) -> bool {
@@ -1696,7 +1696,7 @@ impl SessionController {
     /// commits the form, so the user picks a model before any decoding happens.
     ///
     /// Returns [`AppError::UnsupportedFileType`] — storing nothing — when the
-    /// path is not an audio or video file (T0024).
+    /// path is not an audio or video file.
     pub fn set_pending_file(&mut self, path: PathBuf) -> Result<(), AppError> {
         if !is_media_path(&path) {
             return Err(self.fail(AppError::UnsupportedFileType));
@@ -1740,13 +1740,12 @@ impl SessionController {
         true
     }
 
-    /// The one back action every screen footer renders (T0021).
+    /// The one back action every screen footer renders.
     ///
     /// Back always means "one step towards the mode chooser": the setup form
     /// discards its draft, a finished take is cleared, and the take screen
-    /// returns home. Whichever path runs, the step leaves no stale error strip
-    /// behind. Sending a take back to the chooser is refused while it is still
-    /// active; T0022 makes that step discard the take instead.
+    /// discards an open take and returns home. Whichever path runs, the step
+    /// leaves no stale error strip behind.
     pub fn go_back(&mut self) -> bool {
         let stepped = match self.view_state() {
             ViewState::Form => {
@@ -1757,7 +1756,8 @@ impl SessionController {
                 self.new_take();
                 true
             }
-            ViewState::Mode | ViewState::Live => self.change_mode(),
+            // Leaving the take screen mid-take discards the take.
+            ViewState::Mode | ViewState::Live => self.cancel_take(),
         };
         if stepped {
             self.dismiss_error();
@@ -1771,7 +1771,7 @@ impl SessionController {
     ///
     /// A file take can only be batched, so file mode seeds the model only when
     /// it is segmented; the provider is still seeded so the user picks from the
-    /// right list (T0023).
+    /// right list.
     fn seed_draft_from_settings(&mut self) {
         // Never overwrite a choice the user already made in this draft.
         if self.draft.provider.is_some() {
@@ -1837,8 +1837,8 @@ impl SessionController {
     /// Model ids the setup form may offer for `provider` in the current mode.
     ///
     /// A file take is decoded and sent in batches, so file mode only ever
-    /// offers [`TranscriptionMode::Segmented`] models (T0023). Live mode offers
-    /// the provider's whole list.
+    /// offers [`TranscriptionMode::Segmented`] models. Live mode offers the
+    /// provider's whole list.
     #[must_use]
     pub fn selectable_model_ids(&self, provider: &str) -> Vec<String> {
         self.capabilities
@@ -1957,7 +1957,7 @@ impl SessionController {
             return Err(self.fail(AppError::FileUnreadable));
         }
         // The extension is checked before existence, so a `.pdf` reports its
-        // type rather than "that file no longer exists" (T0024).
+        // type rather than "that file no longer exists".
         if !is_media_path(path) {
             return Err(self.fail(AppError::UnsupportedFileType));
         }
@@ -1986,7 +1986,7 @@ impl SessionController {
 
         // A file take is batched. Defensive check: `is_draft_complete` already
         // refuses this, but a catalogue refresh can reclassify a committed
-        // model, and this method is reachable from other callers (T0023).
+        // model, and this method is reachable from other callers.
         if self.model_mode(&provider, &model) == Some(TranscriptionMode::Streaming) {
             return Err(self.fail(AppError::FileModelNotSupported));
         }
@@ -2101,6 +2101,65 @@ impl SessionController {
         true
     }
 
+    /// Abandon the open take and stay on the take screen, ready to record
+    /// again: the footer's Reset.
+    ///
+    /// Sends exactly one `Stop` so the worker tears the session down, then
+    /// invalidates the discarded session so any late event of it is ignored.
+    /// The configuration is kept (`SessionState::Ready`), so the next mic press
+    /// opens a new session with a new id. Nothing reaches Copy/Save: the
+    /// finished result stays `None`.
+    ///
+    /// Returns `false` — changing nothing, sending nothing — when no take is
+    /// open or when the take decodes a file (the worker owns that decode).
+    pub fn reset_take(&mut self) -> bool {
+        if self.file_take || !self.machine.state().is_active() {
+            return false;
+        }
+        if self.machine.discard_take().is_err() {
+            return false;
+        }
+        self.send_command(SttCommand::Stop);
+        self.forget_take();
+        true
+    }
+
+    /// Abandon the open take and return to the mode chooser: the footer's
+    /// Cancel.
+    ///
+    /// Works mid-take, from Recording or Paused. A file take also aborts the
+    /// worker's decode. Whatever the state, the result is the mode chooser with
+    /// no finished take to copy or save.
+    pub fn cancel_take(&mut self) -> bool {
+        if self.machine.state().is_active() {
+            if self.machine.discard_take().is_err() {
+                return false;
+            }
+            self.send_command(SttCommand::Stop);
+        }
+        self.change_mode()
+    }
+
+    /// Drop every trace of the take that was just discarded, keeping the
+    /// configuration. The session counter moves on so late events of the
+    /// abandoned session fail [`Self::accepts_session`].
+    fn forget_take(&mut self) {
+        self.session_id += 1;
+        self.transcript.clear();
+        self.waveform_bars = idle_waveform();
+        self.elapsed_seconds = 0;
+        self.elapsed_base = Duration::ZERO;
+        self.segment_started = None;
+        self.progress = None;
+        self.file_take = false;
+        self.finished_file_stem = None;
+        self.result = None;
+        self.last_error = None;
+        self.app_error = None;
+        self.output_status = None;
+        self.written_path = None;
+    }
+
     /// Leave the `Stopped` screen and start over from the mode chooser.
     pub fn new_take(&mut self) {
         self.result = None;
@@ -2129,8 +2188,10 @@ impl SessionController {
             SessionAction::StartRecording => self.start_recording(),
             SessionAction::PauseRecording => self.pause_recording(),
             SessionAction::ResumeRecording => self.resume_recording(),
+            // Stop needs no pause first: the microphone owns pause/resume, so
+            // Stop is the only way to end the take and is always live.
             SessionAction::StopRecording => {
-                if self.machine.state() == SessionState::Paused {
+                if self.machine.state().is_active() {
                     self.finish_take()
                 } else {
                     false
@@ -2334,7 +2395,7 @@ impl SessionController {
         if !self.provider_exists(&provider) || !self.model_exists(&provider, &model) {
             return None;
         }
-        // A file take is batched: only a segmented model can serve it (T0023).
+        // A file take is batched: only a segmented model can serve it.
         if self.mode == SessionMode::File
             && self.model_mode(&provider, &model) != Some(TranscriptionMode::Segmented)
         {
@@ -2358,7 +2419,7 @@ impl SessionController {
     }
 
     /// Transcript for the stopped screen. With no backend attached the widget
-    /// is an offline demo, so it keeps the mock take it showed before T0002.
+    /// is an offline demo and shows its built-in sample take.
     fn finished_transcript(&self) -> (String, String) {
         if self.sink.is_none() && self.transcript.full_text().is_empty() {
             (MOCK_COMMITTED.to_string(), MOCK_LIVE.to_string())

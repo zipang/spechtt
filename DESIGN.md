@@ -129,9 +129,9 @@ dot, and waveform shape all at once — never by color alone.
   chrome, dividers on raised surfaces.
 - **Success (`#35c48b`)** — Transcript saved, provider connected.
 - **Info (`#4d9dff`)** — Neutral notices and links inside settings.
-- **Warning (`#f0a82e`)** — The **Paused** state: status dot, label, and the
-  resume affordance. Amber is deliberately far from the recording orange so
-  the two never blur together.
+- **Warning (`#f0a82e`)** — The **Paused** state: status dot and label. Amber
+  is deliberately far from the recording orange so the two never blur
+  together; the record control returns to its dark face at the same time.
 - **Danger (`#e5484d`)** — Errors, failed transcription, destructive actions.
 - **Text (`#f2efeb`)** — Warm off-white body text on dark surfaces.
 - **Text accent (`#ff8a3d`)** — Newly arrived transcript words, highlighted
@@ -300,14 +300,61 @@ current draft. In **file** mode the body is preceded by an `InfoNote` reading
 because a file take cannot use a streaming model. The note uses the existing
 component as-is: no new tone, size or spacing.
 
-### Record / transport controls
+### Toggle round button
 
-The round button is the hero of the take screen at the same 56 px size as
-everywhere else: `Primary` with a mic glyph while idle, a pause glyph while
-recording, a play glyph while paused, and a stop square (small square
-`IconAction`) in the footer's trailing zone. A paused take's Resume stays
-`Primary`; colour alone never distinguishes the states — the status pill and
-waveform do.
+`components::ToggleRoundButton` is the `RoundButton` as a **switch**: one glyph,
+two states, on or off. The caller passes the icon and the state; the two tones
+below and the motion that marks "on" belong to the component.
+
+The take screen uses it for its record button, at the same 56 px diameter as
+every round button. That button speaks the language of **capture**, not of
+playback — the glyph is always the microphone, never a play, pause or square:
+
+| Take state | Control | Face | Motion |
+|---|---|---|---|
+| idle | **off** | `surface` fill, `brand.secondary` outline (`RoundTone::Secondary`), `--color-text` mic | none |
+| recording | **on** | `brand.primary` fill and outline (`RoundTone::Primary`), `--color-text` mic | pulse + repeating wave |
+| paused | **off** | as idle | none |
+
+The control uses the two tones §Round button defines and introduces no colour of
+its own; "off" is the same resting dark face as the chooser's file card. "Inert"
+is visual only — the off control still accepts a click, because pressing it is
+how a take starts and how a paused take resumes.
+
+While on, two animations run for the same `TOGGLE_PULSE_PERIOD` (1.6 s),
+both in the button's own colour and both drawn **behind** the face, so only the
+sliver past the button edge is ever visible:
+
+- a **pulse**: the resting disc drawn at `pulse_scale`, a 6 % swell
+  (1.00 → 1.06 → 1.00) eased with a raised cosine, so the loop has no seam;
+- a **ring wave**: one per period, from the button diameter to
+  `TOGGLE_WAVE_MAX_SIZE`, fading 1 → 0 — the same growth-and-fade as the press
+  wave.
+
+Both start when the switch turns on and stop when it turns off, so a paused take
+is completely still. The press wave still fires on every click, unchanged.
+
+The take screen's footer puts this control in the centre zone:
+
+| Zone | Action | Behaviour |
+|---|---|---|
+| Leading | `ArrowBigLeft`, "Cancel" | discards an open take, stops capture, returns to the mode chooser |
+| Primary | `ToggleRoundButton` (mic) | off → starts or resumes; on → pauses |
+| Trailing | `RotateCcw`, "Reset" | clears the take and stays on the screen; dimmed when idle or for a file take |
+| Trailing | `ArrowBigRight`, "Stop" | ends the take and shows the Stopped screen; live whenever a take is open, no pause first |
+
+The trailing Stop is a **forward arrow**, the mirror of the footer's back arrow:
+ending the take is going forward, to the transcript. No playback glyph (play,
+pause, square) appears on this screen; the record control is always the
+microphone.
+
+Idle, recording and paused are three states of this one screen: the status pill
+and the waveform say which, and colour is never the only signal.
+
+The top-right corner of the take screen holds **one** read-out: the elapsed
+`mm:ss` timer, or the decoded position in seconds for a file take. The
+streaming/batched distinction belongs to the model picker, where a model is
+chosen.
 
 ### Waveform
 
@@ -328,9 +375,19 @@ the newest line; a soft fade at the top edge hints at earlier text.
 
 Small pill (`rounded.full`) at the top-left of the transcript section: a 8px
 dot plus an uppercase `mono` label at `--font-size-xs`,
-`--letter-spacing-wide`. Recording = `brand.primary` dot with pulse + label
-`RECORDING`; Paused = `action.warning` dot, static + label `PAUSED`; Idle =
-`text.muted` dot + label `READY`.
+`--letter-spacing-wide`. The pill is one signal: dot and label share the state's
+role colour.
+
+| State | Dot | Label |
+|---|---|---|
+| idle (take screen, ready to record) | `action.success` (mint) | `action.success` |
+| recording | `action.danger` (red) | `text.muted` |
+| paused | `action.warning` (amber) | `action.warning` |
+
+Green says "the microphone is free, press it"; red and amber own the two live
+states. No colour is invented for this: the mint is the existing
+`--color-action-success` role that also means *saved* and *connected*. Colour is
+never the only signal — the label spells the state out.
 
 ### Action buttons
 

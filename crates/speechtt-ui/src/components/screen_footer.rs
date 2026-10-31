@@ -1,11 +1,7 @@
 //! One footer, three zones, on every widget screen.
 //!
-//! Actions used to sit wherever each screen put them: a window-level footer on
-//! the setup form, a header button on the stopped screen, a third arrangement
-//! on the transport screens. "Go back" therefore moved from screen to screen.
-//!
-//! [`ScreenFooter`] fixes that. Every screen with actions renders this one
-//! strip, and the zones always mean the same thing:
+//! Every screen with actions renders this one strip, so an action is always in
+//! the same place and the zones always mean the same thing:
 //!
 //! | Zone | Meaning |
 //! |---|---|

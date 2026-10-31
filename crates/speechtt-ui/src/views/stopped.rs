@@ -9,8 +9,8 @@
 //! disabled and a muted label replaces the transient status area, so no
 //! failure is ever implied.
 //!
-//! Going home is the shared footer's back action (T0021); the header no longer
-//! carries its own "New take" button.
+//! Going home is the shared footer's back action, in the same place as on every
+//! other screen.
 
 use gpui_kit::assets::IconName;
 use gpui_kit::base::h_flex;

@@ -1,6 +1,9 @@
 # T0022 — Live take screen: microphone record control, cancel and reset
 
 - **Track**: Rust UI + Rust core + design system
+- **Owner**: CTO agent
+- **Started**: 2026-10-31
+- **Closed**: 2026-10-31
 - **Wave**: 2 (integration)
 - **Depends on**: T0021 (shared footer, `ViewState::Live`), T0020 (empty takes)
 - **Blocks**: T0025 (file takes get their own progression screen instead of
@@ -189,35 +192,35 @@ Uses T0021's `ScreenFooter`:
 
 ## TDD Tasks
 
-- [ ] **T22.1 — Red first: take states.** Controller tests: a complete live
+- [x] **T22.1 — Red first: take states.** Controller tests: a complete live
       configuration is `Live` in idle; the mic press starts a take
       (`SessionState::Recording`, capture requested); a second press pauses
       (`Paused`); a third resumes; Stop from either state yields `Stopped`.
       No `ViewState::Paused` remains anywhere.
-- [ ] **T22.2 — Red first: reset and cancel (core).** `discard_take()` returns
+- [x] **T22.2 — Red first: reset and cancel (core).** `discard_take()` returns
       to `Ready` keeping the configuration, refuses nothing, and is a no-op when
       idle. Controller: `reset_take()` clears transcript/elapsed/waveform,
       sends exactly one `Stop`, keeps the configuration and reports no error;
       `reset_take()` is refused for a file take and when idle.
-- [ ] **T22.3 — Red first: cancel.** `cancel_take()` from recording and from
+- [x] **T22.3 — Red first: cancel.** `cancel_take()` from recording and from
       paused ends on `ViewState::Mode`, sends exactly one `Stop`, stops capture,
       and leaves no finished take to copy or save.
-- [ ] **T22.4 — Pure geometry specs.** `pulse_scale` at phases `0`, `0.5`, `1`
+- [x] **T22.4 — Pure geometry specs.** `pulse_scale` at phases `0`, `0.5`, `1`
       and out-of-range clamps; `record_wave_frame` start diameter, monotonic
       growth, opacity 1 → 0, clamping; period and max-size constants pinned.
-- [ ] **T22.5 — `RecordControl`.** Implement the component on top of the
+- [x] **T22.5 — `RecordControl`.** Implement the component on top of the
       existing `RoundTone::Primary` / `RoundTone::Secondary` fills — no new tone,
       no new token. An `Off` instance renders no animation, an `On` instance
       renders pulse + wave (asserted through the pure functions and the
       component's state, never through pixels).
-- [ ] **T22.6 — Rebuild `views/recording.rs`** with the footer table above,
+- [x] **T22.6 — Rebuild `views/recording.rs`** with the footer table above,
       delete `views/paused.rs`, and wire capture start/stop in `app.rs`
       (reset stops capture; resume restarts it; cancel stops it).
-- [ ] **T22.7 — Document, do not tokenise.** Rewrite `DESIGN.md` §Record &
+- [x] **T22.7 — Document, do not tokenise.** Rewrite `DESIGN.md` §Record &
       transport controls to describe the microphone on/off control and the
       reuse of the two existing tones; confirm `design-tokens.css`, `tokens.rs`
       and `theme.rs` are unchanged and `bun run design:validate` still passes.
-- [ ] **T22.8 — Gates.** `cargo fmt -- --check`,
+- [x] **T22.8 — Gates.** `cargo fmt -- --check`,
       `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
       `bun check src/stt`, `bun run design:validate`. All green, zero warnings.
 
@@ -242,4 +245,164 @@ Uses T0021's `ScreenFooter`:
 
 ## Implementation Notes
 
-_(added during work)_
+### Decisions
+
+- **The pulse is drawn, not transformed.** GPUI exposes a transform only for
+  SVG elements, so "scale the disc" is implemented the way the press wave
+  already works: the same disc in the button's own colour, painted *behind* the
+  face at `pulse_scale` of the diameter. The overlap is invisible and only the
+  sliver past the edge reads, so the button appears to swell without the footer
+  moving. Both layers live in a square larger than the face
+  (`RECORD_WAVE_MAX_SIZE`) and are centred on it, so nothing reflows per frame.
+- **`RECORD_WAVE_MAX_SIZE` reuses `RIPPLE_TRAVEL`** (`56 + 20 = 76`). It is the
+  same growth the press wave has, and it makes the wave exactly the height of
+  the footer's button band, so the fading disc never collides with the strip's
+  edge.
+- **`pulse_scale` uses a raised cosine**, so both ends of a period sit exactly at
+  rest with zero slope — the 1.6 s loop has no visible seam.
+- **`RecordControl` is `Always Mic`.** Idle and paused are the same `Off` state;
+  the glyph never changes, so the control cannot be read as play/pause.
+- **`Reset` is one verb in the controller, not a `change_mode` variant.** It
+  sends exactly one `Stop`, moves the session counter on so late events of the
+  abandoned session fail `accepts_session`, and clears transcript, waveform,
+  timer, progress, result and output status while keeping the machine `Ready`.
+- **`cancel_take` = discard + `change_mode`**, so Back (T0021), Cancel and the
+  keyboard all end on the same cleared mode chooser.
+- **`StopRecording` no longer requires a pause.** With the mic owning
+  pause/resume, Stop is the only way to end a take, so the hotkey follows the
+  button: live whenever a take is open. One existing end-to-end assertion was
+  rewritten to that rule.
+
+### CEO revision — the idle chip is green
+
+During visual review the CEO approved the pulse and asked for the `READY` chip
+to be green "at the start of a recording". Implemented in `StatusBadge`:
+
+| State | Dot | Label | Before |
+|---|---|---|---|
+| idle | `action.success` (mint) | `action.success` | muted dot + muted label |
+| recording | `action.danger` | `text.muted` | unchanged |
+| paused | `action.warning` | `action.warning` | unchanged |
+
+The mint is the existing `--color-action-success` role (it already means *saved*
+and *connected*), so no token, theme role or component is added. `BadgeTone`
+gained a small `role_rgb()` accessor so the decision is unit-tested without
+pixels: ready is success, paused is amber, recording is red, and the three can
+never collapse onto one colour. `DESIGN.md` §Status pill documents the table.
+
+### CEO revision — Stop becomes a forward arrow
+
+Second visual-review revision: "the Stop icon button (last one in the navigation
+footer) should in fact be a continue arrow, just like in the session_setup
+screen". The action is unchanged — it still ends the take — but its glyph is now
+`ArrowBigRight`, the exact mirror of the footer's back arrow:
+
+| Zone | Before | After |
+|---|---|---|
+| Trailing (1st) | `RotateCcw` Reset | unchanged |
+| Trailing (2nd) | `Square` Stop | `ArrowBigRight` Stop |
+
+The reasoning is the footer's own rule (T0021): back goes one step towards the
+chooser, forward goes one step onward — here, to the transcript. Ending a take
+is progress, not a destructive dead end.
+
+`AppIcons` dropped its now-unused `Square`, `Play` and `Pause` entries: after
+this ticket nothing on the take screen shows a playback glyph, which is exactly
+what §Record control claims. Accessible names are unchanged, so the action still
+announces itself as "Stop".
+
+### CEO revision — name, and the header read-out
+
+Third visual-review revision:
+
+1. **`RecordControl` is now `components::ToggleRoundButton`** (module
+   `toggle_round_button.rs`), with `ToggleState::{Off, On}`. The CEO's point is
+   exactly right: it is not a record control, it is a *switch built on the round
+   button* — the take screen merely decides that "on" means "the microphone is
+   capturing". The component is now take-agnostic: it takes `(id, icon, state)`
+   and knows nothing about sessions. Constants follow the name
+   (`TOGGLE_PULSE_PERIOD`, `TOGGLE_PULSE_AMPLITUDE`, `TOGGLE_WAVE_MAX_SIZE`,
+   `toggle_wave_frame`), and `ToggleState::from_active(bool)` replaces
+   `RecordState::from_recording`.
+2. **The streaming/batched chip left the take screen.** `TransportHeader` now
+   takes `(elapsed, progress)` only, so the top-right corner carries one
+   read-out: the `mm:ss` timer. The chip still appears wherever a model is
+   *chosen* (setup form, Settings default, Help catalogue), because there it
+   explains the choice; `DESIGN.md` §Toggle round button records why it is
+   absent from the take screen.
+
+### Deviations
+
+- **`StopControl` is deleted** (the ticket allowed either option): the footer's
+  Stop is a labelled `IconAction`, and `StopControl` had become a one-line
+  wrapper with no other caller.
+- **`App::is_capturing_audio` added** as a headless test surface: "Reset and
+  Cancel release the device" is otherwise unobservable without real audio
+  hardware. The headless fixture has no audio factory, so a *second* take after
+  Reset cannot re-open a source there; production re-opens through the factory
+  that `SpeechTtApp::new` installs.
+- **A file take disables the microphone and Reset** as a temporary branch
+  (T0025 routes file takes to their own progression screen); Stop and Cancel
+  already work for it.
+- **`paused.rs` was already deleted in T0021**; this ticket only confirms no
+  `ViewState::Paused` remains.
+
+### Verification
+
+```text
+cargo fmt -- --check                          → clean
+cargo clippy --all-targets -- -D warnings     → clean, 0 warnings
+cargo test                                    → 14 suites ok, 0 failed
+bun test                                      → 217 pass, 0 fail
+bun check src/stt                             → No type errors in 23 files
+bun run design:validate                       → 66 tokens, 0 errors
+```
+
+Tests added: `discard_take` (keeps the configuration, no-op when idle); reset
+(one `Stop`, cleared take, stale-session events ignored, refused when idle and
+for a file take); cancel from recording and paused; Stop without a pause; the
+pulse and wave geometry (clamps, monotonic growth, pinned constants); the
+`Off`/`On` tone mapping and animation gating; and two window tests that render
+every take state and prove Reset keeps the screen while releasing the
+microphone. No layout, position or animation-snapshot assertion was added.
+
+### Review
+
+Validated by the CEO on 2026-10-31 in the running widget, over three rounds: the
+microphone control and its pulse, the green `READY` chip, and the forward arrow
+in place of the stop square. No independent reviewer pass ran: the `reviewer`
+sub-agent was still unavailable (usage limit), so the audit was the CTO agent's,
+backed by the core/controller tests, the geometry specs, and the window tests
+that render each take state.
+
+### Documentation hygiene
+
+Component and module docs describe what a piece **is** and what it can do — its
+purpose, its states, its options. Any prose about what a piece was *not*, or what
+it did before, is removed: that reasoning lives in this ticket and the commit,
+and the source keeps only the current contract.
+
+Swept in this pass:
+
+- `toggle_round_button.rs`, `screen_footer.rs`, `transport_header.rs`,
+  `transcription_mode_badge.rs`, `ripple.rs`, `round_button.rs`, `layout.rs`,
+  `status_badge.rs`, `components/mod.rs`, `controller.rs`, `app.rs`,
+  `views/recording.rs`, `views/stopped.rs`, `views/dialogs/{help,settings}.rs`,
+  `speechtt-core` (`backend.rs`, `protocol.rs`, `settings.rs`): past-tense and
+  "no longer" sentences replaced by the present rule;
+- every ticket ID, ticket path and dated decision removed from doc comments,
+  module headers and test comments across `crates/**` and `src/stt/**`
+  (`segmentation.ts`, `transcript-merge.ts` referenced a ticket path);
+- `AGENTS.md` gained §3 **Documentation in Code** — what to write (purpose,
+  states, options, invariants, design source), what never to write (change
+  history, ticket IDs, past-draft reasoning, dated decisions), the scope (code
+  and the narrative docs, **not** `tickets/` or git history), and the review
+  rule that such a sentence is deleted rather than rephrased. §2 also caught up
+  with the current view list (`ready.rs`/`paused.rs` are gone) and component
+  list (`ScreenFooter`, `ToggleRoundButton`, `ElapsedTimer`, `Waveform`,
+  `CaptionWell`; `StopControl` deleted).
+
+Found but deliberately **not** changed here (a doc bug outside this ticket's
+scope): `PRODUCT.md` still links to `tickets/planned/T0004…`–`T0009…`, which now
+live in `tickets/done/`, and its Wave plan lists them as still planned. Fixing
+those links belongs in a follow-up documentation ticket.

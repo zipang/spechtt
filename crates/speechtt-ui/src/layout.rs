@@ -15,11 +15,10 @@ use gpui_kit::{AnyElement, App, IntoElement, RenderOnce, Window, px};
 
 use crate::tokens::{radius, space};
 
-/// Vertical inset of a screen's header and body (the old `py_2p5`).
+/// Vertical inset of a screen's header and body.
 ///
-/// The horizontal inset is `space::LG`, the window gutter every screen used
-/// through `px_5`. Both belong to the shell rather than to the window so the
-/// footer can stay full-bleed at the bottom edge.
+/// The horizontal inset is `space::LG`. Both belong to the shell rather than to
+/// the window, so a screen's footer can stay full-bleed at the bottom edge.
 const SCREEN_INSET_Y: f32 = 10.0;
 
 /// Three-band screen container: optional status header, flexible body,

@@ -2,8 +2,8 @@
 //!
 //! Streaming models produce a live transcript over a WebSocket; segmented
 //! models batch audio and return text after each silence-aligned segment. The
-//! distinction is invisible otherwise, so it is rendered next to every model
-//! choice and in the recording header.
+//! distinction is invisible otherwise, so it is rendered wherever a model is
+//! chosen — the setup form, the Settings default and the Help catalogue.
 //!
 //! Text is always rendered (never an icon alone), so the chip needs no tooltip
 //! and stays readable in a screenshot or for assistive tooling.

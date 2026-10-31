@@ -446,12 +446,18 @@ fn hotkey_actions_match_the_button_guards() {
         controller.session_state(),
         speechtt_core::session::SessionState::Recording
     );
-    // Stop is inert while recording, exactly like the disabled button.
-    assert!(!controller.apply_action(SessionAction::StopRecording));
-    assert!(controller.apply_action(SessionAction::PauseRecording));
+    // The microphone owns pause/resume, so Stop is the only way to end a take
+    // and stays live while one is open.
     assert!(controller.apply_action(SessionAction::StopRecording));
+    assert_eq!(
+        controller.session_state(),
+        speechtt_core::session::SessionState::Blank
+    );
     assert!(controller.apply_action(SessionAction::NewTake));
     assert!(!controller.apply_action(SessionAction::NewTake));
+    // With no take open, Stop and Pause are inert like their disabled buttons.
+    assert!(!controller.apply_action(SessionAction::StopRecording));
+    assert!(!controller.apply_action(SessionAction::PauseRecording));
 
     assert!(controller.apply_action(SessionAction::ToggleHelp));
     assert_eq!(controller.active_dialog(), Some(Dialog::Help));
@@ -1530,7 +1536,7 @@ fn ready_app_for_files(
         view.update(cx, |app, cx| {
             // The file card opens the native picker; this helper walks the form
             // from its headless seams instead, so the pending prompt is ignored
-            // (T0023: picker -> form -> take).
+            // (picker -> form -> take).
             app.choose_mode(SessionMode::File, cx);
             assert_eq!(app.view_state(), ViewState::Mode);
             app.cycle_provider(cx);
@@ -1630,7 +1636,7 @@ fn a_missing_file_shows_a_typed_error_and_keeps_the_ready_screen(
     })
     .unwrap();
 
-    // File mode has no holding screen; the form stays up (T0023).
+    // File mode has no holding screen; the form stays up.
     assert_eq!(cx.update(|cx| view.read(cx).view_state()), ViewState::Form);
     assert_eq!(
         cx.update(|cx| view.read(cx).app_error().cloned()),
@@ -1639,7 +1645,7 @@ fn a_missing_file_shows_a_typed_error_and_keeps_the_ready_screen(
     assert!(sink.take().is_empty());
 }
 
-/// T0024: a non-media file is refused at the picker, before any take exists.
+/// A non-media file is refused at the picker, before any take exists.
 #[gpui_kit::test]
 fn picking_a_non_media_file_returns_to_the_welcome_screen(cx: &mut gpui_kit::TestAppContext) {
     let dir = TempDir::new("picker-media-only");

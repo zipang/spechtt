@@ -1,4 +1,4 @@
-//! The circular action used by the mode chooser and every transport screen.
+//! The circular action used by the mode chooser and the take screen.
 //!
 //! One diameter everywhere (56 px, from `mockups/app-window/new-session.png`)
 //! and two tones. The press ripple is **not** drawn here: the ring is owned by
