@@ -105,7 +105,9 @@ Decisions, deviations, verification output.
 
 ### In Progress
 
-_(none)_
+| Ticket | Title | Track | Depends on |
+|---|---|---|---|
+| [T0018](in_progress/T0018-typography-scale-and-round-button-polish.md) | Three-size typography scale and round-button polish | Rust UI + design system | T0017 |
 
 ### Review
 
@@ -116,4 +118,3 @@ _(none)_
 | Ticket | Title | Track | Depends on |
 |---|---|---|---|
 | [T0016](planned/T0016-dependency-bootstrap-script.md) | Dependency bootstrap for Bun and ffmpeg | Tooling (TypeScript/Bun) | — |
-| [T0018](planned/T0018-typography-scale-and-round-button-polish.md) | Three-size typography scale and round-button polish | Rust UI + design system | T0017 |

@@ -26,12 +26,6 @@ NDJSON bridge. Visual fidelity is governed by `DESIGN.md` + `design-tokens.css`.
 - **`crates/speechtt-ui`** — native `gpui-kit` application. Owns: window shell,
   view model (`controller.rs`), screens (`views/`), reusable components,
   theme/token mirror, dialogs.
-
-**View rule**: each file under `crates/speechtt-ui/src/views/` exports exactly
-one screen renderer, named `render(app, cx)` and named for the screen it draws
-(`welcome.rs`, `session_setup.rs`, `ready.rs`, `recording.rs`, `paused.rs`,
-`stopped.rs`). Never add a second screen or a shared fragment to a view file —
-fragments used by more than one screen are components.
 - **`src/stt/`** — TypeScript/Bun worker. Runs as a subprocess; `stdout` is
   strictly NDJSON events, `stderr` is strictly human diagnostics.
 - **`scripts/` + `tests/` (TypeScript)** — design-system tooling only; run
@@ -41,6 +35,49 @@ fragments used by more than one screen are components.
 
 **Boundary rule**: `speechtt-core` must never depend on GPUI or any UI crate.
 `speechtt-ui` may depend on `speechtt-core`. The worker must never import Rust.
+
+**View rule**: each file under `crates/speechtt-ui/src/views/` exports exactly
+one screen renderer, named `render(app, cx)` and named for the screen it draws
+(`welcome.rs`, `session_setup.rs`, `ready.rs`, `recording.rs`, `paused.rs`,
+`stopped.rs`). Never add a second screen or a shared fragment to a view file —
+fragments used by more than one screen are components.
+
+**Component rule (design system)**: visual decisions live in
+`crates/speechtt-ui/src/components/` (guided by `DESIGN.md`), never in a view.
+Introducing new text sizes, weights, colors, spacing, radii, shadows, or ad-hoc
+styles directly in application/view code without Designer validation and explicit
+approval in `DESIGN.md` is strictly prohibited. A view (`crates/speechtt-ui/src/views/`)
+composes approved UI components and passes data plus intent; it must not choose
+a font size, a weight, a colour, a radius, a padding, or a shadow. When a screen
+needs a visual element or variant that does not exist yet:
+1. Discuss and get explicit approval from the Designer/CEO to document it in `DESIGN.md`.
+2. Implement it as a reusable component under `crates/speechtt-ui/src/components/` (with its own tests) — never by styling a raw `div` at the view call site.
+
+Concretely:
+
+- **Text** — every string is rendered by `components::Title`
+  (`--font-size-lg`), `components::Body` (`--font-size-md`) or
+  `components::Label` (`--font-size-sm`). Those three roles are the whole type
+  scale: `.text_size(..)` and `.font_weight(..)` outside `components/text.rs`
+  and `tokens.rs` are gate failures, enforced by
+  `crates/speechtt-ui/tests/design_system.rs`. `Title`/`Body`/`Label` take the
+  copy plus optional `.muted()`, `.tone(..)`, `.mono()`, `.bold()` (the single
+  emphasis step above the role's weight) and `.center()`; there is no other
+  knob.
+- **Actions** — `components::ActionButton` (labelled), `components::IconButton`
+  (window chrome), `components::IconAction` (square/compact),
+  `components::RoundButton` (round affordance and transport),
+  `components::RippleRing` (press wave).
+- **Surfaces** — `components::Card` (clickable card), `layout::SurfaceBox`
+  (recessed well), `layout::ScreenShell` (three-band screen).
+- **Chrome & Indicators** — `components::AppHeader`, `components::AppFooter`,
+  `components::StatusBadge`, `components::StatusDot`, `components::InfoNote`,
+  `components::KeyCap`, `components::TranscriptionModeBadge`,
+  `components::SettingRow`, `components::TransportHeader`,
+  `components::StopControl`.
+- Tokens are read from `crate::tokens` (or the theme roles they map to). A raw
+  hex, `px(..)` spacing, `rems(..)` type or `radius` literal in a view is a
+  gate failure (`tests/design_system.rs`) and a review blocker.
 
 ---
 
@@ -89,11 +126,20 @@ All gates must be green with **zero warnings**. Do not weaken, skip, or
   files with mode `0600` on Unix.
 - Load the relevant local skills from `.agents/skills/` per the ticket's track
   (see §6).
-- Validate visual changes against `mockups/**/*.png` via manual QA (T0009 §T9.7).
+- Hand off final visual and animation review to the user (CEO/Designer) after
+  all deterministic headless tests and design-system gates pass.
 
 ### Don't
 - Don't write or edit production feature code directly when a coding sub-agent
   can be dispatched — the CTO architects, specifies, delegates, audits.
+- Don't conduct autonomous visual QA by launching the GUI window on the user's
+  display to take screenshots, record video bursts, or tune animations via
+  snapshot scripts — verify via headless tests (`cargo test`) and let the user
+  perform the visual review.
+- Don't write **UI placement/layout tests**. Never assert positions, offsets,
+  alignment, baselines, centring, spacing, sizes, or geometry of rendered
+  elements. Visual layout is reviewed by the user, not by automated tests;
+  automated tests cover behaviour, state transitions, and contracts only.
 - Don't touch files outside a ticket's `Scope Boundary`.
 - Don't leak secrets in `Debug`, `Display`, error messages, logs, or tests.
 - Don't use `npm`, `npx`, `tsc`, or `vitest` — Bun only for JS/TS.

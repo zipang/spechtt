@@ -4,8 +4,8 @@
 - **Wave**: 1 (independent — no contract change outside `speechtt-ui`)
 - **Depends on**: T0017 (mode chooser, `Card`, `RoundButton`)
 - **Blocks**: —
-- **Owner**: unassigned
-- **Started**: —
+- **Owner**: coding sub-agent, supervised by CTO
+- **Started**: 2026-10-30
 - **References**: `mockups/app-window/welcome.png` (visual target),
   `mockups/app-window/new-session.png`, `DESIGN.md` § Components,
   `AGENTS.md` §5 (no hardcoded type values in views)
@@ -37,11 +37,13 @@ May create or modify:
 - `crates/speechtt-ui/src/components/card.rs`
 - `crates/speechtt-ui/src/components/round_button.rs`
 - `crates/speechtt-ui/src/components/{app_header,status_badge,setting_row,key_cap,caption_well,elapsed_timer,action_button,icon_action,transcription_mode_badge}.rs`
-- `crates/speechtt-ui/src/views/setup.rs`, `views/transport.rs`, `views/stopped.rs`
+- `crates/speechtt-ui/src/views/{welcome,ready,recording,paused,stopped}.rs`
 - `crates/speechtt-ui/src/views/dialogs/{help,settings,window,mod}.rs`
+- `crates/speechtt-ui/src/views/session_setup.rs`
 - `crates/speechtt-ui/src/app.rs` (error strip copy + `pulse` call sites)
 - `crates/speechtt-ui/src/tokens.rs` (`MIN_WINDOW_WIDTH` if the cards grow)
-- `crates/speechtt-ui/tests/*` (only where a behaviour changes)
+- `crates/speechtt-ui/tests/design_system.rs` (new: the type-scale gate)
+- `crates/speechtt-ui/tests/widget.rs` (ripple wiring + chooser alignment)
 - `DESIGN.md`
 
 Do **not** touch `crates/speechtt-core`, `src/stt`, or any `.ts`/`.tsx` file.
@@ -61,7 +63,8 @@ pub struct Label { .. }   // --font-size-sm   (12.8 px), medium
 - Each component takes one string (or child) plus optional `.muted()` and
   `.tone(Hsla)`; size and weight come from the component, never the caller.
 - No view or component may contain `.text_size(rems(..))` after this ticket,
-  except `text.rs` itself and `tokens.rs`. `TextRole` covers every call site
+  except `text.rs` itself and `tokens.rs`; `tests/design_system.rs` scans the
+  source and fails the gate otherwise (per `AGENTS.md` §2 component rule). `TextRole` covers every call site
   today: badge/status/chip copy is `Label`, card copy is `Title` + `Body`,
   transport captions are `Label`, dialog rows are `Body`.
 - `XS` disappears from the UI: former `XS` copy becomes `Label`.
@@ -93,9 +96,11 @@ pub struct Label { .. }   // --font-size-sm   (12.8 px), medium
   size comes from the role (not the caller), and `.muted()` uses the muted
   token. Include a `Title`/`Body`/`Label` size table asserting they match
   `tokens::font::{LG, MD, SM}`.
-- [ ] **T18.2 — Red: no ad-hoc type**: add a source scan test in
-  `tests/` that fails while any file under `src/` other than `text.rs` and
-  `tokens.rs` contains `.text_size(rems(` or `.text_size(px(`.
+- [ ] **T18.2 — Red: no ad-hoc type**: `tests/design_system.rs` scans
+  `src/` and fails while any file other than `components/text.rs` and
+  `tokens.rs` contains `.text_size(` or `.font_weight(`; it also fails while a
+  file under `src/views/` contains `px(`/`rems(`/`radius::`. List the
+  offenders in the assertion message so the migration is obvious.
 - [ ] **T18.3 — Red: ripple is wired**: drive a real click through the
   chooser card and assert `pulse_count` moves *because of the click*; delete
   the current test that calls `pulse` directly.

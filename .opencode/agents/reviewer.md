@@ -42,6 +42,7 @@ You are a **fresh-eye code reviewer** reporting to the **CTO**. You are dispatch
    - **Error handling**: typed errors, no silent swallowing, no panic on recoverable failures, meaningful messages without secret leakage.
    - **Secret safety**: credentials/tokens never appear in `Debug`, log output, error messages, test assertions, or commits.
    - **Hermetic tests**: tests must not require live hardware, display servers, real user config dirs, or network access unless explicitly gated.
+   - **Design System compliance**: verify that application/view code introduces zero ad-hoc text sizes, weights, colors, spacing, radii, or unapproved visual styles; all visual presentation must be encapsulated in the dedicated UI component library and explicitly documented in `DESIGN.md`.
    - **Scope discipline**: no out-of-scope edits, no mock leftovers in production paths.
 
 6. **Audit Code Documentation & Clarity**:
