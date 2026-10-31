@@ -52,7 +52,7 @@ pub const MOCK_BARS: [f32; 36] = [
     0.94, 0.58, 0.36, 0.26, 0.47, 0.70, 0.89, 0.81, 0.44, 0.32, 0.56, 0.75, 0.90, 0.63, 0.39, 0.29,
     0.50, 0.68, 0.46, 0.24,
 ];
-/// Offline demo transcript shown on the stopped screen when no STT backend is
+/// Offline demo transcript shown on the result screen when no STT backend is
 /// connected (Phases 3–6 replace it with the live [`TranscriptBuffer`]).
 pub const MOCK_COMMITTED: &str =
     "...so I think the best approach here is to split the work into two phases, starting with the";
@@ -502,13 +502,15 @@ pub enum SessionMode {
 ///
 /// A complete live configuration shows `Live` directly; idle, recording and
 /// paused are states of that one screen, told apart by the machine and rendered
-/// by its badge and waveform.
+/// by its badge and waveform. A file take has its own `Transcription` screen and
+/// stays there after the decode ends until the user continues.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViewState {
     Mode,
     Form,
     Live,
-    Stopped,
+    Transcription,
+    SessionEnd,
 }
 
 /// The focused overlay currently open, if any. Only one dialog at a time.
@@ -705,7 +707,7 @@ struct ValidatedDraft {
     model: String,
 }
 
-/// The finished take shown in the `Stopped` screen. The machine hands the
+/// The finished take shown in the `SessionEnd` screen. The machine hands the
 /// session identity back on `stop`; the transcript is the live buffer at that
 /// moment and is refined by the final `stopped` event.
 #[derive(Debug)]
@@ -729,7 +731,7 @@ impl FinishedTake {
     }
 }
 
-/// Owns the session machine, the setup draft, the stopped-screen result and
+/// Owns the session machine, the setup draft, the finished-take result and
 /// the live take telemetry.
 pub struct SessionController {
     machine: SessionMachine,
@@ -751,8 +753,21 @@ pub struct SessionController {
     elapsed_seconds: u32,
     /// Decoded position of the current file take: `(processed, total)` seconds.
     progress: Option<(f32, Option<f32>)>,
+    /// Display name of the file the current file take transcribes.
+    ///
+    /// Held for the whole take: the session machine drops its configuration when
+    /// the take ends, but the transcription screen keeps naming the file while
+    /// decoding and once the result is ready.
+    file_display_name: Option<String>,
     /// True while the current take transcribes a file rather than live audio.
     file_take: bool,
+    /// A file take has been finalized and is waiting for the user to open the
+    /// result: the transcription screen then offers Continue instead of Stop.
+    awaiting_continue: bool,
+    /// A finalized file take was ended by the user rather than by the worker
+    /// reaching the end of the file. The transcription screen reports it as
+    /// stopped, not as done.
+    file_take_stopped_early: bool,
     /// Elapsed time accumulated before the current segment.
     elapsed_base: Duration,
     /// Start of the current recording segment (paused takes have none).
@@ -799,6 +814,8 @@ impl fmt::Debug for SessionController {
             .field("output_status", &self.output_status)
             .field("written_path", &self.written_path)
             .field("finished_file_stem", &self.finished_file_stem)
+            .field("file_display_name", &self.file_display_name)
+            .field("file_take_stopped_early", &self.file_take_stopped_early)
             .field("active_dialog", &self.active_dialog)
             .field("help_tab", &self.help_tab)
             .field("settings_draft", &self.settings_draft)
@@ -841,7 +858,10 @@ impl SessionController {
             waveform_bars: idle_waveform(),
             elapsed_seconds: 0,
             progress: None,
+            file_display_name: None,
             file_take: false,
+            awaiting_continue: false,
+            file_take_stopped_early: false,
             elapsed_base: Duration::ZERO,
             segment_started: None,
             last_error: None,
@@ -863,15 +883,19 @@ impl SessionController {
     // ----- Queries -----------------------------------------------------
 
     pub fn view_state(&self) -> ViewState {
+        // A file take owns its screen from the first decoded frame until the
+        // user continues into the result.
+        if self.file_take || self.awaiting_continue {
+            return ViewState::Transcription;
+        }
         if self.result.is_some() {
-            return ViewState::Stopped;
+            return ViewState::SessionEnd;
         }
         match (self.machine.state(), self.screen) {
             (SessionState::Blank, Screen::Mode) => ViewState::Mode,
             (SessionState::Blank, Screen::Form) => ViewState::Form,
             // File mode has no holding screen: with no take running, the setup
-            // form is the only thing to show. A running file take renders the
-            // take screen while the worker decodes.
+            // form is the only thing to show.
             (SessionState::Ready, _) if self.mode == SessionMode::File => ViewState::Form,
             (SessionState::Ready | SessionState::Recording | SessionState::Paused, _) => {
                 ViewState::Live
@@ -953,10 +977,35 @@ impl SessionController {
         self.progress
     }
 
-    /// Whether the current take transcribes a file rather than live audio.
+    /// Whether a file take is decoding right now.
     #[must_use]
     pub fn is_file_take(&self) -> bool {
         self.file_take
+    }
+
+    /// Name of the file the current file take transcribes, if any.
+    ///
+    /// Available from the moment the take starts until it is discarded, so the
+    /// transcription screen names the file while decoding and once the result is
+    /// ready.
+    #[must_use]
+    pub fn file_display_name(&self) -> Option<&str> {
+        self.file_display_name.as_deref()
+    }
+
+    /// Whether the finished file take was ended by the user before the end.
+    #[must_use]
+    pub fn file_take_stopped_early(&self) -> bool {
+        self.file_take_stopped_early
+    }
+
+    /// Whether a file take has finished and its result waits behind Continue.
+    ///
+    /// While this is true the transcription screen shows the completed take:
+    /// Stop is inert, Continue opens the result.
+    #[must_use]
+    pub fn is_awaiting_continue(&self) -> bool {
+        self.awaiting_continue
     }
 
     /// The last backend/protocol failure, shown until the next take.
@@ -1411,13 +1460,17 @@ impl SessionController {
 
         self.transcript.apply(&event);
 
-        // A `stopped` flush usually lands just after the stopped screen is
-        // already visible: refine it in place.
-        if matches!(event, SttEvent::Stopped { .. })
-            && let Some(result) = &mut self.result
-        {
-            result.committed = self.transcript.committed().into();
-            result.live = self.transcript.live().into();
+        if matches!(event, SttEvent::Stopped { .. }) {
+            // A live take that is already finished keeps refining in place; a
+            // running file take is finalized here without asking the worker for
+            // a second stop.
+            if self.finalize_file_take() {
+                return;
+            }
+            if let Some(result) = &mut self.result {
+                result.committed = self.transcript.committed().into();
+                result.live = self.transcript.live().into();
+            }
         }
     }
 
@@ -1435,7 +1488,7 @@ impl SessionController {
     /// A file take has no live clock: its position comes from `progress`
     /// events emitted by the decoder.
     pub fn refresh_elapsed(&mut self, now: Instant) -> bool {
-        if self.file_take || self.machine.state() != SessionState::Recording {
+        if self.machine.state() != SessionState::Recording {
             return false;
         }
         let Some(started) = self.segment_started else {
@@ -1450,18 +1503,17 @@ impl SessionController {
         true
     }
 
-    /// Store a decoded position. Progress is monotonic in the worker, so the
-    /// read-out never runs backwards; a stale take is filtered upstream.
+    /// Store a decoded position. Progress is monotonic in the worker, so the bar
+    /// never runs backwards; a stale take is filtered upstream.
+    ///
+    /// The decoded position drives the progress bar only. The elapsed read-out
+    /// stays the wall-clock time since the take started, exactly as it is for a
+    /// live take.
     fn apply_progress(&mut self, processed_seconds: f64, total_seconds: Option<f64>) {
         if !self.file_take {
             return;
         }
         let processed = processed_seconds.max(0.0);
-        let seconds = processed.floor().min(f64::from(u32::MAX)) as u32;
-        if seconds >= self.elapsed_seconds {
-            self.elapsed_seconds = seconds;
-            self.elapsed_base = Duration::from_secs(u64::from(seconds));
-        }
         self.progress = Some((processed as f32, total_seconds.map(|total| total as f32)));
     }
 
@@ -1735,6 +1787,11 @@ impl SessionController {
         self.pending_file = None;
         self.result = None;
         self.finished_file_stem = None;
+        self.file_display_name = None;
+        self.file_take = false;
+        self.awaiting_continue = false;
+        self.file_take_stopped_early = false;
+        self.progress = None;
         self.output_status = None;
         self.written_path = None;
         true
@@ -1752,12 +1809,12 @@ impl SessionController {
                 self.cancel_form();
                 true
             }
-            ViewState::Stopped => {
+            ViewState::SessionEnd => {
                 self.new_take();
                 true
             }
-            // Leaving the take screen mid-take discards the take.
-            ViewState::Mode | ViewState::Live => self.cancel_take(),
+            // Leaving a take screen discards the take.
+            ViewState::Mode | ViewState::Live | ViewState::Transcription => self.cancel_take(),
         };
         if stepped {
             self.dismiss_error();
@@ -1927,6 +1984,8 @@ impl SessionController {
         self.output_status = None;
         self.written_path = None;
         self.finished_file_stem = None;
+        self.file_display_name = None;
+        self.file_take_stopped_early = false;
 
         let start = SttCommand::Start {
             session_id: self.session_label(),
@@ -2002,9 +2061,11 @@ impl SessionController {
 
         // The source file names the take; the save dialog turns its stem into
         // the transcript title.
-        let _ = self.machine.set_audio_source(file_name);
+        let _ = self.machine.set_audio_source(file_name.clone());
         self.mode = SessionMode::File;
         self.finished_file_stem = Some(stem);
+        self.file_display_name = Some(file_name);
+        self.file_take_stopped_early = false;
 
         if self.machine.start().is_err() {
             return Ok(());
@@ -2017,8 +2078,10 @@ impl SessionController {
         self.elapsed_base = Duration::ZERO;
         self.progress = None;
         self.file_take = true;
-        // No live clock: the decoded position arrives as `progress` events.
-        self.segment_started = None;
+        self.awaiting_continue = false;
+        // The elapsed read-out times the transcription itself, so the clock
+        // starts with the take even though no audio reaches the host.
+        self.segment_started = Some(Instant::now());
         self.last_error = None;
         self.app_error = None;
         self.output_status = None;
@@ -2054,8 +2117,11 @@ impl SessionController {
     }
 
     /// [`Self::pause_recording`] with an injected clock reading.
+    ///
+    /// A file take cannot pause: the worker decodes and transcribes it in one
+    /// sequential batch run, so only Stop ends it.
     pub fn pause_recording_at(&mut self, now: Instant) -> bool {
-        if self.machine.pause().is_err() {
+        if self.file_take || self.machine.pause().is_err() {
             return false;
         }
         self.accrue_elapsed(now);
@@ -2069,8 +2135,10 @@ impl SessionController {
     }
 
     /// [`Self::resume_recording`] with an injected clock reading.
+    ///
+    /// Inert for a file take, which has no paused state to resume from.
     pub fn resume_recording_at(&mut self, now: Instant) -> bool {
-        if self.machine.resume().is_err() {
+        if self.file_take || self.machine.resume().is_err() {
             return false;
         }
         self.segment_started = Some(now);
@@ -2079,8 +2147,13 @@ impl SessionController {
     }
 
     /// Ends the take, asks the backend to flush, and remembers the transcript
-    /// for the `Stopped` screen.
+    /// for the result screen.
+    ///
+    /// A live take goes straight to `SessionEnd`. A file take stays on
+    /// `Transcription`: the result is built and held until the user presses
+    /// Continue, so the screen never leaves on its own.
     pub fn finish_take(&mut self) -> bool {
+        let was_file_take = self.file_take;
         let Ok(session) = self.machine.stop() else {
             return false;
         };
@@ -2096,8 +2169,55 @@ impl SessionController {
             committed: committed.into(),
             live: live.into(),
         });
+        self.awaiting_continue = was_file_take;
+        self.file_take_stopped_early = was_file_take;
         self.written_path = None;
         self.output_status = None;
+        true
+    }
+
+    /// Finalize a file take the worker ended by itself.
+    ///
+    /// Called on the worker's `Stopped` event for a take that is still running:
+    /// the machine returns to `Ready` and the result is built from the text
+    /// received so far, but **no** `SttCommand::Stop` is sent — the worker
+    /// already finished. The screen stays on `Transcription` with Continue
+    /// enabled; the user decides when to open the transcript.
+    ///
+    /// Returns `false` (changing nothing) when no file take is running, so a
+    /// `Stopped` event can never finalize a live take.
+    pub fn finalize_file_take(&mut self) -> bool {
+        if !self.file_take {
+            return false;
+        }
+        let Ok(session) = self.machine.stop() else {
+            return false;
+        };
+        self.accrue_elapsed(Instant::now());
+        self.segment_started = None;
+        self.file_take = false;
+        let (committed, live) = self.finished_transcript();
+        self.result = Some(FinishedTake {
+            session,
+            committed: committed.into(),
+            live: live.into(),
+        });
+        self.awaiting_continue = true;
+        self.written_path = None;
+        self.output_status = None;
+        true
+    }
+
+    /// Reveal the result of a finished file take: the transcription screen's
+    /// Continue.
+    ///
+    /// Returns `false` when no file take is waiting, so Continue is inert in
+    /// every other state.
+    pub fn continue_to_end(&mut self) -> bool {
+        if !self.awaiting_continue || self.result.is_none() {
+            return false;
+        }
+        self.awaiting_continue = false;
         true
     }
 
@@ -2152,7 +2272,10 @@ impl SessionController {
         self.segment_started = None;
         self.progress = None;
         self.file_take = false;
+        self.awaiting_continue = false;
+        self.file_take_stopped_early = false;
         self.finished_file_stem = None;
+        self.file_display_name = None;
         self.result = None;
         self.last_error = None;
         self.app_error = None;
@@ -2160,14 +2283,17 @@ impl SessionController {
         self.written_path = None;
     }
 
-    /// Leave the `Stopped` screen and start over from the mode chooser.
+    /// Leave the result screen and start over from the mode chooser.
     pub fn new_take(&mut self) {
         self.result = None;
+        self.awaiting_continue = false;
+        self.file_take_stopped_early = false;
         self.mode = SessionMode::default();
         self.screen = Screen::Mode;
         self.draft = SessionDraft::default();
         self.pending_file = None;
         self.finished_file_stem = None;
+        self.file_display_name = None;
         self.transcript.clear();
         self.waveform_bars = idle_waveform();
         self.elapsed_seconds = 0;
@@ -2418,7 +2544,7 @@ impl SessionController {
         }
     }
 
-    /// Transcript for the stopped screen. With no backend attached the widget
+    /// Transcript for the result screen. With no backend attached the widget
     /// is an offline demo and shows its built-in sample take.
     fn finished_transcript(&self) -> (String, String) {
         if self.sink.is_none() && self.transcript.full_text().is_empty() {

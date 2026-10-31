@@ -19,6 +19,7 @@ mod icon_action;
 mod icon_button;
 mod info_note;
 mod key_cap;
+mod progress_bar;
 mod ripple;
 mod round_button;
 mod screen_footer;
@@ -42,6 +43,9 @@ pub use icon_action::IconAction;
 pub use icon_button::IconButton;
 pub use info_note::InfoNote;
 pub use key_cap::KeyCap;
+pub use progress_bar::{
+    PROGRESS_BARS, ProgressBar, bar_height, progress_fraction, progress_readout, revealed_bars,
+};
 pub use ripple::{Ripple, RippleRing};
 pub use round_button::{
     RIPPLE_DURATION, RIPPLE_MAX_SIZE, RIPPLE_SELECTOR, RIPPLE_START_SIZE, RIPPLE_TRAVEL,
@@ -57,5 +61,5 @@ pub use toggle_round_button::{
     TOGGLE_WAVE_SELECTOR, ToggleRoundButton, ToggleState, pulse_scale, toggle_wave_frame,
 };
 pub use transcription_mode_badge::{TranscriptionModeBadge, mode_label};
-pub use transport_header::{Progress, TransportHeader};
+pub use transport_header::TransportHeader;
 pub use waveform::Waveform;

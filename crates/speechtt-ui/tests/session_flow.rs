@@ -575,7 +575,7 @@ fn reset_is_refused_when_idle_and_for_a_file_take() {
 
     assert!(file_sink.take().is_empty(), "no command may be sent");
     assert_eq!(file_controller.session_state(), SessionState::Recording);
-    assert_eq!(file_controller.view_state(), ViewState::Live);
+    assert_eq!(file_controller.view_state(), ViewState::Transcription);
 }
 
 #[test]
@@ -623,9 +623,316 @@ fn stop_ends_a_running_take_without_pausing_first() {
 
     assert!(controller.finish_take());
 
-    assert_eq!(controller.view_state(), ViewState::Stopped);
+    assert_eq!(controller.view_state(), ViewState::SessionEnd);
     let take = controller.finished_take().expect("a finished take");
     assert_eq!(take.committed(), "recorded while recording");
+}
+
+// ----- File transcription screen ---------------------------------------
+
+#[test]
+fn a_running_and_a_finished_file_take_both_stay_on_the_transcription_screen() {
+    let file = TempFile::new("routing.wav");
+    let mut controller = ready_file();
+    let sink = RecordingSink::default();
+    controller.set_sink(Box::new(sink.clone()));
+
+    controller.start_file_session(&file.path).expect("starts");
+    assert_eq!(controller.view_state(), ViewState::Transcription);
+
+    // The worker reaches the end of the file by itself.
+    controller.handle_stt_event(SttEvent::Stopped {
+        session_id: "take-1".into(),
+        full_text: String::new(),
+    });
+    assert_eq!(
+        controller.view_state(),
+        ViewState::Transcription,
+        "the screen never leaves on its own"
+    );
+
+    assert!(controller.continue_to_end());
+    assert_eq!(controller.view_state(), ViewState::SessionEnd);
+}
+
+#[test]
+fn a_finished_file_take_is_not_navigated_by_the_app() {
+    let file = TempFile::new("natural.wav");
+    let mut controller = ready_file();
+    let sink = RecordingSink::default();
+    controller.set_sink(Box::new(sink.clone()));
+    controller.start_file_session(&file.path).expect("starts");
+    controller.handle_stt_event(SttEvent::Committed {
+        session_id: "take-1".into(),
+        text: "transcribed by the worker".into(),
+    });
+    let _ = sink.take();
+
+    controller.handle_stt_event(SttEvent::Stopped {
+        session_id: "take-1".into(),
+        full_text: String::new(),
+    });
+
+    // Finalized from the accumulated transcript, without asking the worker for
+    // a second stop, and held behind Continue.
+    assert!(
+        sink.take().is_empty(),
+        "natural completion sends no Stop command"
+    );
+    assert!(!controller.is_file_take());
+    assert!(controller.is_awaiting_continue());
+    assert_eq!(controller.session_state(), SessionState::Blank);
+    assert_eq!(
+        controller
+            .finished_take()
+            .expect("the take is finalized")
+            .committed()
+            .to_string(),
+        "transcribed by the worker"
+    );
+    assert_eq!(controller.view_state(), ViewState::Transcription);
+}
+
+#[test]
+fn a_late_stopped_event_only_refines_the_finished_take() {
+    let file = TempFile::new("late.wav");
+    let mut controller = ready_file();
+    let sink = RecordingSink::default();
+    controller.set_sink(Box::new(sink.clone()));
+    controller.start_file_session(&file.path).expect("starts");
+    controller.handle_stt_event(SttEvent::Stopped {
+        session_id: "take-1".into(),
+        full_text: String::new(),
+    });
+    assert!(controller.is_awaiting_continue());
+    let _ = sink.take();
+
+    controller.handle_stt_event(SttEvent::Committed {
+        session_id: "take-1".into(),
+        text: "words that arrived after the flush".into(),
+    });
+    controller.handle_stt_event(SttEvent::Stopped {
+        session_id: "take-1".into(),
+        full_text: String::new(),
+    });
+
+    assert!(sink.take().is_empty(), "no command for a refined take");
+    assert_eq!(controller.view_state(), ViewState::Transcription);
+    assert_eq!(
+        controller
+            .finished_take()
+            .expect("still one take")
+            .committed()
+            .to_string(),
+        "words that arrived after the flush"
+    );
+}
+
+#[test]
+fn a_stopped_event_never_finalizes_a_live_take() {
+    let (mut controller, sink) = duplex_controller();
+    assert!(controller.start_recording());
+    let _ = sink.take();
+
+    controller.handle_stt_event(SttEvent::Stopped {
+        session_id: "take-1".into(),
+        full_text: String::new(),
+    });
+
+    assert_eq!(controller.view_state(), ViewState::Live);
+    assert_eq!(controller.session_state(), SessionState::Recording);
+    assert!(controller.finished_take().is_none());
+}
+
+#[test]
+fn continue_is_refused_before_a_file_take_has_finished() {
+    let file = TempFile::new("not-yet.wav");
+    let mut controller = ready_file();
+    controller.set_sink(Box::new(RecordingSink::default()));
+    controller.start_file_session(&file.path).expect("starts");
+
+    assert!(!controller.continue_to_end());
+    assert_eq!(controller.view_state(), ViewState::Transcription);
+
+    // And it is refused outright for a live take.
+    let (mut live, _sink) = duplex_controller();
+    assert!(live.start_recording());
+    assert!(!live.continue_to_end());
+    assert_eq!(live.view_state(), ViewState::Live);
+}
+
+#[test]
+fn back_from_the_transcription_screen_discards_the_take() {
+    for finished in [false, true] {
+        let name = if finished {
+            "back-done.wav"
+        } else {
+            "back-run.wav"
+        };
+        let file = TempFile::new(name);
+        let mut controller = ready_file();
+        let sink = RecordingSink::default();
+        controller.set_sink(Box::new(sink.clone()));
+        controller.start_file_session(&file.path).expect("starts");
+        if finished {
+            controller.handle_stt_event(SttEvent::Stopped {
+                session_id: "take-1".into(),
+                full_text: String::new(),
+            });
+        }
+        let _ = sink.take();
+
+        assert!(controller.cancel_take(), "finished={finished}");
+
+        assert_eq!(controller.view_state(), ViewState::Mode, "{finished}");
+        assert!(controller.finished_take().is_none(), "{finished}");
+        assert!(!controller.is_awaiting_continue(), "{finished}");
+        assert!(!controller.is_file_take(), "{finished}");
+        assert_eq!(controller.transcript_committed(), "", "{finished}");
+        assert!(controller.progress().is_none(), "{finished}");
+        assert!(
+            controller.app_error().is_none(),
+            "cancelling is not a failure"
+        );
+    }
+}
+
+#[test]
+fn pause_and_resume_are_inert_for_a_file_take() {
+    let file = TempFile::new("pause.wav");
+    let mut controller = ready_file();
+    let sink = RecordingSink::default();
+    controller.set_sink(Box::new(sink.clone()));
+    controller.start_file_session(&file.path).expect("starts");
+    let _ = sink.take();
+
+    assert!(!controller.pause_recording());
+    assert!(!controller.resume_recording());
+
+    assert!(sink.take().is_empty(), "no command may be sent");
+    assert_eq!(controller.session_state(), SessionState::Recording);
+    assert_eq!(controller.view_state(), ViewState::Transcription);
+
+    // A live take still pauses and resumes.
+    let (mut live, _live_sink) = duplex_controller();
+    assert!(live.start_recording());
+    assert!(live.pause_recording());
+    assert!(live.resume_recording());
+}
+
+#[test]
+fn progress_events_drive_the_file_take_position() {
+    let file = TempFile::new("progress.wav");
+    let mut controller = ready_file();
+    controller.set_sink(Box::new(RecordingSink::default()));
+    controller.start_file_session(&file.path).expect("starts");
+
+    controller.handle_stt_event(SttEvent::Progress {
+        session_id: "take-1".into(),
+        processed_seconds: 42.7,
+        total_seconds: Some(120.0),
+    });
+
+    assert_eq!(controller.progress(), Some((42.7, Some(120.0))));
+    assert_eq!(
+        controller.elapsed_seconds(),
+        0,
+        "the corner clock times the take, not the position in the file"
+    );
+
+    // The position is cleared once the take is discarded.
+    assert!(controller.cancel_take());
+    assert_eq!(controller.progress(), None);
+}
+
+#[test]
+fn a_file_take_times_its_own_transcription() {
+    use std::time::{Duration, Instant};
+
+    let file = TempFile::new("clock.wav");
+    let mut controller = ready_file();
+    controller.set_sink(Box::new(RecordingSink::default()));
+    let started = Instant::now();
+    controller.start_file_session(&file.path).expect("starts");
+
+    assert_eq!(controller.elapsed_seconds(), 0, "fresh take");
+
+    // The clock runs while the worker decodes, exactly like a live take.
+    assert!(controller.refresh_elapsed(started + Duration::from_millis(3500)));
+    assert_eq!(controller.elapsed_seconds(), 3);
+    assert!(controller.refresh_elapsed(started + Duration::from_millis(8500)));
+    assert_eq!(controller.elapsed_seconds(), 8);
+
+    // A decoded position does not disturb it.
+    controller.handle_stt_event(SttEvent::Progress {
+        session_id: "take-1".into(),
+        processed_seconds: 41.0,
+        total_seconds: Some(90.0),
+    });
+    assert_eq!(controller.elapsed_seconds(), 8);
+    assert_eq!(controller.progress(), Some((41.0, Some(90.0))));
+
+    // The clock stops when the worker finishes: the report is final, and it is
+    // the transcription time, never the decoded index.
+    controller.handle_stt_event(SttEvent::Stopped {
+        session_id: "take-1".into(),
+        full_text: String::new(),
+    });
+    assert!(controller.is_awaiting_continue());
+    assert!(!controller.refresh_elapsed(started + Duration::from_secs(30)));
+    let frozen = controller.elapsed_seconds();
+    assert!(frozen < 30, "the frozen clock is the take's own time");
+    assert_ne!(frozen, 41, "and never the position in the file");
+}
+
+#[test]
+fn stopping_a_file_take_early_reports_it_as_stopped() {
+    let file = TempFile::new("interrupted.wav");
+    let mut controller = ready_file();
+    controller.set_sink(Box::new(RecordingSink::default()));
+    controller.start_file_session(&file.path).expect("starts");
+    assert!(!controller.file_take_stopped_early(), "still decoding");
+
+    // The user ends the decode before the worker reaches the end of the file.
+    assert!(controller.finish_take());
+
+    assert!(controller.is_awaiting_continue());
+    assert!(
+        controller.file_take_stopped_early(),
+        "an interrupted take is reported as stopped, not done"
+    );
+
+    // The report survives into the result screen…
+    assert!(controller.continue_to_end());
+    assert!(controller.file_take_stopped_early());
+    // …and is dropped with the take.
+    controller.new_take();
+    assert!(!controller.file_take_stopped_early());
+}
+
+#[test]
+fn a_file_take_the_worker_finished_is_not_reported_as_stopped() {
+    let file = TempFile::new("completed.wav");
+    let mut controller = ready_file();
+    controller.set_sink(Box::new(RecordingSink::default()));
+    controller.start_file_session(&file.path).expect("starts");
+
+    controller.handle_stt_event(SttEvent::Stopped {
+        session_id: "take-1".into(),
+        full_text: String::new(),
+    });
+
+    assert!(controller.is_awaiting_continue());
+    assert!(
+        !controller.file_take_stopped_early(),
+        "a natural completion is done, not stopped"
+    );
+
+    // A live take never reports a file-take stop either.
+    let (mut live, _sink) = duplex_controller();
+    assert!(live.start_recording());
+    assert!(live.finish_take());
+    assert!(!live.file_take_stopped_early());
 }
 
 // ----- Back contract ---------------------------------------------------
@@ -677,7 +984,7 @@ fn back_from_the_stopped_screen_clears_the_finished_take() {
     assert!(controller.pause_recording());
     assert!(controller.finish_take());
     controller.report_error(AppError::PasteFailed);
-    assert_eq!(controller.view_state(), ViewState::Stopped);
+    assert_eq!(controller.view_state(), ViewState::SessionEnd);
 
     // Back on the stopped footer clears the finished take.
     assert!(controller.go_back());
@@ -720,7 +1027,7 @@ fn recording_pauses_resumes_and_finishes_a_take() {
 
     // The machine is Blank again, but the view still shows the finished take.
     assert_eq!(controller.session_state(), SessionState::Blank);
-    assert_eq!(controller.view_state(), ViewState::Stopped);
+    assert_eq!(controller.view_state(), ViewState::SessionEnd);
 
     let take = controller
         .finished_take()
@@ -1117,7 +1424,7 @@ fn file_session_sends_a_transcribe_file_command_and_enters_recording() {
 
     controller.start_file_session(&file.path).expect("starts");
 
-    assert_eq!(controller.view_state(), ViewState::Live);
+    assert_eq!(controller.view_state(), ViewState::Transcription);
     assert_eq!(controller.session_state(), SessionState::Recording);
     assert_eq!(controller.session_label(), "take-1");
     assert!(controller.is_file_take());
@@ -1179,8 +1486,12 @@ fn file_session_reports_progress_as_the_decoded_position() {
         total_seconds: Some(340.25),
     });
 
-    assert_eq!(controller.elapsed_seconds(), 12);
     assert_eq!(controller.progress(), Some((12.5, Some(340.25))));
+    assert_eq!(
+        controller.elapsed_seconds(),
+        0,
+        "the decoded index leaves the elapsed clock alone"
+    );
     // The decoded position never drives a live audio command.
     assert!(sink.take().is_empty());
 }
@@ -1201,7 +1512,7 @@ fn file_progress_ignores_a_stale_take() {
 }
 
 #[test]
-fn file_take_finishes_through_the_normal_stop_flow() {
+fn file_take_stops_early_and_waits_for_continue() {
     let file = TempFile::new("finish.wav");
     let mut controller = ready_file();
     let sink = RecordingSink::default();
@@ -1215,10 +1526,12 @@ fn file_take_finishes_through_the_normal_stop_flow() {
 
     assert!(controller.finish_take());
 
+    // Stopping sends exactly one Stop, keeps the partial text, and leaves the
+    // user on the transcription screen with Continue available.
     assert_eq!(sink.take(), vec![SttCommand::Stop]);
-    assert_eq!(controller.view_state(), ViewState::Stopped);
+    assert_eq!(controller.view_state(), ViewState::Transcription);
     assert!(!controller.is_file_take());
-    assert_eq!(controller.progress(), None);
+    assert!(controller.is_awaiting_continue());
     assert_eq!(
         controller
             .finished_take()
@@ -1227,6 +1540,10 @@ fn file_take_finishes_through_the_normal_stop_flow() {
             .to_string(),
         "hello file"
     );
+
+    assert!(controller.continue_to_end());
+    assert_eq!(controller.view_state(), ViewState::SessionEnd);
+    assert!(!controller.continue_to_end(), "already revealed");
 }
 
 // ----- Nameless saves -------------------------------------------------
@@ -1423,7 +1740,7 @@ fn a_take_that_recorded_nothing_finishes_without_an_error() {
 
     assert!(controller.finished_take_is_empty());
     assert!(controller.app_error().is_none());
-    assert_eq!(controller.view_state(), ViewState::Stopped);
+    assert_eq!(controller.view_state(), ViewState::SessionEnd);
 
     // A late empty flush must not introduce an error either.
     controller.handle_stt_event(SttEvent::Stopped {
@@ -1523,4 +1840,51 @@ fn file_errors_offer_a_dismiss_action_and_never_leak_details() {
         assert!(!error.message().is_empty());
         assert!(error.detail().is_none());
     }
+}
+
+#[test]
+fn a_file_take_names_its_file_while_decoding_and_after() {
+    let file = TempFile::new("budget-review.m4a");
+    let mut controller = ready_file();
+    controller.set_sink(Box::new(RecordingSink::default()));
+    controller.start_file_session(&file.path).expect("starts");
+
+    let expected = format!("speechtt-test-{}-budget-review.m4a", std::process::id());
+    assert_eq!(controller.file_display_name(), Some(expected.as_str()));
+
+    // The machine drops its configuration when the take ends; the name stays,
+    // so the screen never falls back to a placeholder.
+    controller.handle_stt_event(SttEvent::Stopped {
+        session_id: "take-1".into(),
+        full_text: String::new(),
+    });
+    assert!(controller.is_awaiting_continue());
+    assert_eq!(
+        controller.file_display_name(),
+        Some(expected.as_str()),
+        "the name survives the end of the decode"
+    );
+    assert_eq!(controller.audio_source(), None, "the machine is reset");
+
+    assert!(controller.continue_to_end());
+    assert_eq!(controller.view_state(), ViewState::SessionEnd);
+    let expected = format!("speechtt-test-{}-budget-review.m4a", std::process::id());
+    assert_eq!(controller.file_display_name(), Some(expected.as_str()));
+
+    // Discarding the take drops the name with it.
+    controller.new_take();
+    assert_eq!(controller.file_display_name(), None);
+}
+
+#[test]
+fn a_live_take_never_inherits_a_file_name() {
+    let file = TempFile::new("inherited.wav");
+    let mut controller = ready_file();
+    controller.set_sink(Box::new(RecordingSink::default()));
+    controller.start_file_session(&file.path).expect("starts");
+    assert!(controller.file_display_name().is_some());
+
+    let mut live = duplex_controller().0;
+    assert!(live.start_recording());
+    assert_eq!(live.file_display_name(), None, "a live take names no file");
 }

@@ -62,10 +62,10 @@ fn drive_all_screens(view: &Entity<SpeechTtApp>, window: &mut Window, cx: &mut A
     window.render_frame(cx);
     assert_eq!(view.read(cx).view_state(), ViewState::Live);
 
-    // Paused → stopped result → new take.
+    // Paused → the result screen → new take.
     view.update(cx, |view, cx| view.finish_take(cx));
     window.render_frame(cx);
-    assert_eq!(view.read(cx).view_state(), ViewState::Stopped);
+    assert_eq!(view.read(cx).view_state(), ViewState::SessionEnd);
 
     view.update(cx, |view, cx| view.new_take(cx));
     window.render_frame(cx);
@@ -266,7 +266,7 @@ fn saving_from_the_stopped_screen_writes_the_chosen_path(cx: &mut TestAppContext
         view.update(cx, |app, cx| {
             app.pause_recording(cx);
             app.finish_take(cx);
-            assert_eq!(app.view_state(), ViewState::Stopped);
+            assert_eq!(app.view_state(), ViewState::SessionEnd);
             app.save_transcript(cx);
         });
         window.render_frame(cx);
@@ -447,7 +447,7 @@ fn back_returns_to_the_mode_chooser_from_every_screen(cx: &mut TestAppContext) {
             view.finish_take(cx);
         });
         window.render_frame(cx);
-        assert_eq!(view.read(cx).view_state(), ViewState::Stopped);
+        assert_eq!(view.read(cx).view_state(), ViewState::SessionEnd);
         view.update(cx, |view, cx| view.go_back(cx));
         window.render_frame(cx);
         assert_eq!(view.read(cx).view_state(), ViewState::Mode);
@@ -589,7 +589,7 @@ fn the_take_screen_renders_the_mic_control_in_every_state(cx: &mut TestAppContex
         window.render_frame(cx);
         view.update(cx, |view, cx| view.finish_take(cx));
         window.render_frame(cx);
-        assert_eq!(view.read(cx).view_state(), ViewState::Stopped);
+        assert_eq!(view.read(cx).view_state(), ViewState::SessionEnd);
     })
     .unwrap();
 }
@@ -614,7 +614,7 @@ fn the_take_screen_ends_on_the_forward_arrow(cx: &mut TestAppContext) {
         view.update(cx, |view, cx| view.finish_take(cx));
         window.render_frame(cx);
 
-        assert_eq!(view.read(cx).view_state(), ViewState::Stopped);
+        assert_eq!(view.read(cx).view_state(), ViewState::SessionEnd);
         assert!(view.read(cx).finished_take().is_some());
         assert!(!view.read(cx).is_capturing_audio());
     })
@@ -665,6 +665,72 @@ fn reset_and_cancel_are_reachable_from_the_take_screen(cx: &mut TestAppContext) 
             !view.read(cx).is_capturing_audio(),
             "Cancel releases the device"
         );
+    })
+    .unwrap();
+}
+
+// ----- The file transcription screen -----------------------------------
+
+#[gpui_kit::test]
+fn the_file_transcription_screen_renders_while_decoding_and_after(cx: &mut TestAppContext) {
+    let media = std::env::temp_dir().join(format!(
+        "speechtt-widget-transcription-{}.m4a",
+        std::process::id()
+    ));
+    std::fs::write(&media, b"RIFF0000WAVE").expect("temp media");
+
+    let (window, view) = open_speechtt_window(cx);
+
+    cx.update_window(window.into(), |_, window, cx| {
+        // The native prompt cannot be answered by the harness, so the take is
+        // opened through the seam the picker uses.
+        view.update(cx, |view, cx| {
+            view.choose_mode(SessionMode::File, cx);
+            assert!(view.accept_picked_file(media.clone(), cx));
+            view.cycle_provider(cx);
+            view.cycle_model(cx);
+            view.create_session(cx);
+        });
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).view_state(), ViewState::Transcription);
+        assert!(view.read(cx).is_file_take());
+
+        // Stop ends the decode early: the screen reports it as stopped, holds,
+        // and Continue opens the result, which renders too.
+        view.update(cx, |view, cx| view.finish_take(cx));
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).view_state(), ViewState::Transcription);
+        assert!(view.read(cx).is_awaiting_continue());
+        assert!(
+            view.read(cx).file_take_stopped_early(),
+            "the pill reports the interruption"
+        );
+
+        view.update(cx, |view, cx| {
+            assert!(view.continue_to_end(cx));
+        });
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).view_state(), ViewState::SessionEnd);
+
+        // Back from the result returns to the chooser.
+        view.update(cx, |view, cx| view.go_back(cx));
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).view_state(), ViewState::Mode);
+    })
+    .unwrap();
+
+    let _ = std::fs::remove_file(&media);
+}
+
+#[gpui_kit::test]
+fn continue_is_inert_until_a_file_take_has_finished(cx: &mut TestAppContext) {
+    let (window, view) = open_speechtt_window(cx);
+
+    cx.update_window(window.into(), |_, window, cx| {
+        assert!(!view.update(cx, |view, cx| view.continue_to_end(cx)));
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).view_state(), ViewState::Mode);
+        assert!(!view.read(cx).is_awaiting_continue());
     })
     .unwrap();
 }

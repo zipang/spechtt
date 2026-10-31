@@ -1250,7 +1250,7 @@ fn the_app_event_pump_updates_the_caption_and_copy_uses_the_clipboard(
     );
     assert_eq!(
         cx.update(|cx| view.read(cx).view_state()),
-        ViewState::Stopped
+        ViewState::SessionEnd
     );
     // The composed Start came from persisted settings, not the form labels.
     let commands = sink_handle.commands();
@@ -1567,7 +1567,11 @@ fn a_file_path_starts_a_take_without_audio(cx: &mut gpui_kit::TestAppContext) {
     })
     .unwrap();
 
-    assert_eq!(cx.update(|cx| view.read(cx).view_state()), ViewState::Live);
+    // A file take has its own transcription screen, never the live one.
+    assert_eq!(
+        cx.update(|cx| view.read(cx).view_state()),
+        ViewState::Transcription
+    );
 
     let commands = sink.take();
     assert_eq!(commands.len(), 1, "{commands:?}");
@@ -1597,7 +1601,9 @@ fn a_file_path_starts_a_take_without_audio(cx: &mut gpui_kit::TestAppContext) {
 }
 
 #[gpui_kit::test]
-fn a_progress_event_drives_the_elapsed_read_out(cx: &mut gpui_kit::TestAppContext) {
+fn a_progress_event_reports_the_file_position_without_touching_the_clock(
+    cx: &mut gpui_kit::TestAppContext,
+) {
     let dir = TempDir::new("file-progress");
     let media = dir.path().join("lecture.m4a");
     std::fs::write(&media, b"RIFF0000WAVE").expect("temp media");
@@ -1619,7 +1625,17 @@ fn a_progress_event_drives_the_elapsed_read_out(cx: &mut gpui_kit::TestAppContex
         .expect("send progress");
     cx.run_until_parked();
 
-    assert_eq!(cx.update(|cx| view.read(cx).elapsed_seconds()), 12);
+    // The decoded position drives the progress row…
+    let (processed, total) = cx
+        .update(|cx| view.read(cx).file_progress())
+        .expect("progress");
+    assert_eq!(processed, 12.6);
+    assert_eq!(total, Some(340.25));
+    // …while the corner clock times the take, not the position in the file.
+    assert!(
+        cx.update(|cx| view.read(cx).elapsed_seconds()) < 12,
+        "the elapsed read-out must not jump to the decoded index"
+    );
 }
 
 #[gpui_kit::test]
@@ -1671,4 +1687,75 @@ fn picking_a_non_media_file_returns_to_the_welcome_screen(cx: &mut gpui_kit::Tes
         Some(AppError::UnsupportedFileType)
     );
     assert!(sink.take().is_empty(), "no take may start");
+}
+
+// ----- The file transcription screen -----------------------------------
+
+/// A finished file take stays on the transcription screen: the worker's
+/// `Stopped` is finalization, not navigation.
+#[gpui_kit::test]
+fn a_finished_file_take_waits_on_the_transcription_screen(cx: &mut gpui_kit::TestAppContext) {
+    let dir = TempDir::new("transcription-screen");
+    let media = dir.path().join("panel.m4a");
+    std::fs::write(&media, b"RIFF0000WAVE").expect("temp media");
+
+    let (window, view, sender, sink) = ready_app_for_files(cx);
+    let _ = sink.take();
+
+    cx.update_window(window.into(), |_, window, cx| {
+        view.update(cx, |app, cx| app.start_file_from_path(&media, cx));
+        window.render_frame(cx);
+    })
+    .unwrap();
+
+    sender
+        .send_blocking(Ok(SttEvent::Committed {
+            session_id: "take-1".into(),
+            text: "decoded by the worker".into(),
+        }))
+        .expect("send committed");
+    sender
+        .send_blocking(Ok(SttEvent::Stopped {
+            session_id: "take-1".into(),
+            full_text: "decoded by the worker".into(),
+        }))
+        .expect("send stopped");
+    cx.run_until_parked();
+
+    let _ = sink.take();
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+    })
+    .unwrap();
+
+    assert_eq!(
+        cx.update(|cx| view.read(cx).view_state()),
+        ViewState::Transcription,
+        "the app never navigates away from the transcription screen"
+    );
+    assert!(
+        !cx.update(|cx| view.read(cx).is_file_take()),
+        "the decode has ended"
+    );
+    assert!(sink.take().is_empty(), "no Stop for a natural completion");
+
+    // Continue is the only way onward.
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            assert!(app.continue_to_end(cx));
+        });
+    });
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+    })
+    .unwrap();
+
+    assert_eq!(
+        cx.update(|cx| view.read(cx).view_state()),
+        ViewState::SessionEnd
+    );
+    assert_eq!(
+        cx.update(|cx| view.read(cx).transcript_committed().to_owned()),
+        "decoded by the worker"
+    );
 }

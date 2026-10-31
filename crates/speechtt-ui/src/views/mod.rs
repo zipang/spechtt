@@ -9,6 +9,7 @@
 
 pub(crate) mod dialogs;
 pub(crate) mod recording;
+pub(crate) mod session_end;
 pub(crate) mod session_setup;
-pub(crate) mod stopped;
+pub(crate) mod session_transcription;
 pub(crate) mod welcome;

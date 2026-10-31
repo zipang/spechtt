@@ -8,7 +8,7 @@
 //!        press the mic                    press it again
 //! idle ─────────────────▶ recording ⇄────────────────▶ paused
 //!                            │  └───────────────────────┘
-//!                            └── Stop ──▶ Stopped
+//!                            └── Stop ──▶ session end
 //! ```
 //!
 //! The footer uses the shared three zones: Cancel (back to the mode chooser) on
@@ -34,13 +34,10 @@ pub(crate) fn render(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyEle
     let state = app.session_state();
     let recording = state == SessionState::Recording;
     let active = state.is_active();
-    // A file take is decoded by the worker: there is no microphone to switch.
-    let file_take = controller.is_file_take();
     let elapsed = controller.elapsed_seconds();
     let bars = controller.waveform_bars();
     let committed = controller.transcript_committed();
     let live = controller.transcript_live();
-    let progress = controller.progress();
 
     let badge = match state {
         SessionState::Recording => StatusBadge::tone("RECORDING", BadgeTone::Recording),
@@ -56,7 +53,6 @@ pub(crate) fn render(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyEle
         IconName::Mic,
         ToggleState::from_active(recording),
     )
-    .disabled(file_take)
     .on_press(cx.listener(|this, _event: &MouseDownEvent, _window, cx| {
         this.ripple("btn-record", cx);
     }))
@@ -77,7 +73,7 @@ pub(crate) fn render(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyEle
         .body(CaptionWell::new(committed, live));
 
     if active {
-        shell = shell.header_trailing(TransportHeader::new(elapsed, progress));
+        shell = shell.header_trailing(TransportHeader::new(elapsed));
     }
 
     let mut footer = ScreenFooter::new()
@@ -92,12 +88,11 @@ pub(crate) fn render(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyEle
         )
         .primary(record);
 
-    // Reset clears the take and stays here; it is refused in idle and for a
-    // file take, where there is no local take to clear.
+    // Reset clears the take and stays here; it is inert in idle.
     footer = footer.trailing(
         IconAction::new("btn-reset", IconName::RotateCcw)
             .label("Reset")
-            .disabled(!active || file_take)
+            .disabled(!active)
             .on_click(cx.listener(|this, _event, _window, cx| {
                 this.reset_take(cx);
             })),

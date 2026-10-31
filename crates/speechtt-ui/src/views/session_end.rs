@@ -1,4 +1,4 @@
-//! Stopped screen: the finished take and its save state.
+//! Session end: the finished take and its save state.
 //!
 //! An unsaved take (live or file) starts with Copy/Save: nothing is written
 //! automatically. After Save the screen shows the written path and an Open
@@ -10,7 +10,8 @@
 //! failure is ever implied.
 //!
 //! Going home is the shared footer's back action, in the same place as on every
-//! other screen.
+//! other screen. The screen carries no status pill: the take is over, and what is
+//! left to do is copy or save.
 
 use gpui_kit::assets::IconName;
 use gpui_kit::base::h_flex;
@@ -18,7 +19,7 @@ use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, Context};
 
 use crate::app::SpeechTtApp;
-use crate::components::{CaptionWell, IconAction, Label, ScreenFooter, StatusBadge};
+use crate::components::{CaptionWell, IconAction, Label, ScreenFooter};
 use crate::layout::{ScreenShell, SurfaceBox};
 use crate::tokens::space;
 
@@ -26,7 +27,7 @@ use crate::tokens::space;
 /// unsaved take exposes copy/save.
 pub(crate) fn render(app: &mut SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyElement {
     let Some(result) = app.controller().finished_take() else {
-        return StatusBadge::new("STOPPED").into_any_element();
+        return ScreenShell::headerless().into_any_element();
     };
 
     let empty = app.controller().finished_take_is_empty();
@@ -80,7 +81,7 @@ pub(crate) fn render(app: &mut SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> An
         CaptionWell::new(committed, live).into_any_element()
     };
 
-    let mut shell = ScreenShell::new(StatusBadge::new("STOPPED"))
+    let mut shell = ScreenShell::headerless()
         .gap(space::SM)
         .body_gap(space::SM)
         .body(body);

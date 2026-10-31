@@ -108,6 +108,7 @@ Decisions, deviations, verification output.
 | [T0022](done/T0022-live-take-screen-record-control.md) | Live take screen: microphone record control, cancel and reset | Rust UI + core + design |
 | [T0023](done/T0023-file-mode-setup-and-segmented-model.md) | File sessions must choose a non-streaming model in the setup form | Rust UI + core + Bun worker |
 | [T0024](done/T0024-media-only-file-picker.md) | Accept only media files for file transcription | Rust core + UI |
+| [T0025](done/T0025-file-transcription-view.md) | Dedicated transcription screen for file takes | Rust UI (controller + views + components + design system) |
 
 ### In Progress
 
@@ -122,4 +123,3 @@ _(none)_
 | Ticket | Title | Track | Depends on |
 |---|---|---|---|
 | [T0016](planned/T0016-dependency-bootstrap-script.md) | Dependency bootstrap for Bun and ffmpeg | Tooling (TypeScript/Bun) | — |
-| [T0025](planned/T0025-file-take-progression-view.md) | Dedicated progression screen for file takes | Rust UI (controller + views + components + design system) | T0015, T0021, T0022, T0023 |

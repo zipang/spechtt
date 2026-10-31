@@ -5,7 +5,9 @@
 //! ```text
 //! Mode → (setup form when needed) → Live take (idle ⇄ recording ⇄ paused)
 //!   ↑                                    │
-//!   └────────── Back (every screen) ── Stopped ← Stop
+//!   │                                 Session end ← Stop
+//!   │
+//!   └── (file) → Transcription (decoding → Continue) → Session end
 //! ```
 //!
 //! This module owns the window shell, the workflow state and the public
@@ -320,6 +322,27 @@ impl SpeechTtApp {
 
     pub fn finished_take(&self) -> Option<&FinishedTake> {
         self.controller.finished_take()
+    }
+
+    /// Decoded position of the current file take, in seconds:
+    /// `(processed, total)`, where `total` is absent when the probe failed.
+    pub fn file_progress(&self) -> Option<(f32, Option<f32>)> {
+        self.controller.progress()
+    }
+
+    /// Whether a file take is decoding right now.
+    pub fn is_file_take(&self) -> bool {
+        self.controller.is_file_take()
+    }
+
+    /// Whether the finished file take was ended by the user before the end.
+    pub fn file_take_stopped_early(&self) -> bool {
+        self.controller.file_take_stopped_early()
+    }
+
+    /// Whether a finished file take waits behind Continue.
+    pub fn is_awaiting_continue(&self) -> bool {
+        self.controller.is_awaiting_continue()
     }
 
     pub fn transcript_committed(&self) -> &str {
@@ -640,6 +663,14 @@ impl SpeechTtApp {
         }
         cx.notify();
         reset
+    }
+
+    /// Open the finished file take's transcript (the transcription screen's
+    /// Continue).
+    pub fn continue_to_end(&mut self, cx: &mut Context<Self>) -> bool {
+        let continued = self.controller.continue_to_end();
+        cx.notify();
+        continued
     }
 
     /// Leave the take screen for the mode chooser, discarding an open take
@@ -1263,7 +1294,8 @@ impl gpui_kit::Render for SpeechTtApp {
             ViewState::Mode => views::welcome::render(self, cx),
             ViewState::Form => views::session_setup::render(self, cx),
             ViewState::Live => views::recording::render(self, cx),
-            ViewState::Stopped => views::stopped::render(self, cx),
+            ViewState::Transcription => views::session_transcription::render(self, cx),
+            ViewState::SessionEnd => views::session_end::render(self, cx),
         }));
 
         // The press wave is painted last, above the screen. It is the button's

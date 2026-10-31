@@ -14,6 +14,12 @@ pub enum BadgeTone {
     Ready,
     Recording,
     Paused,
+    /// A file take whose worker is decoding the audio.
+    InProgress,
+    /// A file take whose worker has finished.
+    Done,
+    /// A file take the user ended before the worker reached the end.
+    Stopped,
 }
 
 impl BadgeTone {
@@ -27,28 +33,32 @@ impl BadgeTone {
             BadgeTone::Ready => Some(color::SUCCESS),
             BadgeTone::Paused => Some(color::WARNING),
             BadgeTone::Recording => Some(color::DANGER),
+            BadgeTone::InProgress => Some(color::WARNING),
+            BadgeTone::Done => Some(color::SUCCESS),
+            BadgeTone::Stopped => Some(color::DANGER),
         }
     }
 
-    /// Dot colour. Ready is the one "you may start" state, so it wears the
-    /// success role — the same mint that means "saved" and "connected". It adds
-    /// no colour: `--color-action-success` already exists.
+    /// Dot colour, one role per state: success for ready and done, danger for
+    /// recording and for a take ended early, warning for paused and for a decode
+    /// in progress. Each role already exists in the token set.
     fn dot(self) -> Hsla {
         match self {
-            BadgeTone::Ready => gpui_kit::rgb(color::SUCCESS).into(),
-            BadgeTone::Recording => gpui_kit::rgb(color::DANGER).into(),
-            BadgeTone::Paused => gpui_kit::rgb(color::WARNING).into(),
+            BadgeTone::Ready | BadgeTone::Done => gpui_kit::rgb(color::SUCCESS).into(),
+            BadgeTone::Recording | BadgeTone::Stopped => gpui_kit::rgb(color::DANGER).into(),
+            BadgeTone::Paused | BadgeTone::InProgress => gpui_kit::rgb(color::WARNING).into(),
         }
     }
 
-    /// Label colour: the state's own role, so the pill reads as one signal
-    /// (green ready, red recording, amber paused) rather than a coloured dot
-    /// beside neutral text.
+    /// Label colour: a working state keeps muted text beside its coloured dot
+    /// (recording, decoding), while a resting state colours the label too
+    /// (ready, done, paused, stopped), so the pill reads as one signal.
     fn label_color(self, cx: &App) -> Hsla {
         match self {
-            BadgeTone::Ready => gpui_kit::rgb(color::SUCCESS).into(),
-            BadgeTone::Recording => cx.theme().muted_foreground,
+            BadgeTone::Ready | BadgeTone::Done => gpui_kit::rgb(color::SUCCESS).into(),
+            BadgeTone::Recording | BadgeTone::InProgress => cx.theme().muted_foreground,
             BadgeTone::Paused => gpui_kit::rgb(color::WARNING).into(),
+            BadgeTone::Stopped => gpui_kit::rgb(color::DANGER).into(),
         }
     }
 }
@@ -125,14 +135,50 @@ mod tests {
         assert_eq!(BadgeTone::Recording.role_rgb(), Some(color::DANGER));
     }
 
-    /// The three transport states must never share a colour.
+    /// The live transport states must never share a colour.
     #[test]
-    fn every_transport_state_has_its_own_colour() {
+    fn every_live_state_has_its_own_colour() {
         let tones = [BadgeTone::Ready, BadgeTone::Recording, BadgeTone::Paused];
         for (index, left) in tones.iter().enumerate() {
             for right in &tones[index + 1..] {
                 assert_ne!(left.role_rgb(), right.role_rgb(), "{left:?} vs {right:?}");
             }
         }
+    }
+
+    /// A take the user ended early wears the danger role, so an interrupted
+    /// transcription never reads as a completed one.
+    #[test]
+    fn a_take_ended_early_is_danger() {
+        assert_eq!(BadgeTone::Stopped.role_rgb(), Some(color::DANGER));
+        assert_ne!(
+            BadgeTone::Stopped.role_rgb(),
+            BadgeTone::Done.role_rgb(),
+            "an interrupted take must not read as done"
+        );
+        assert_eq!(
+            BadgeTone::Stopped.role_rgb(),
+            BadgeTone::Recording.role_rgb(),
+            "the same danger the recording state uses"
+        );
+    }
+
+    /// A decode borrows the paused amber while it runs and the success green
+    /// once it is done.
+    #[test]
+    fn a_file_decode_is_amber_while_running_and_green_when_done() {
+        assert_eq!(BadgeTone::InProgress.role_rgb(), Some(color::WARNING));
+        assert_eq!(BadgeTone::Done.role_rgb(), Some(color::SUCCESS));
+        assert_eq!(
+            BadgeTone::InProgress.role_rgb(),
+            BadgeTone::Paused.role_rgb(),
+            "the working amber"
+        );
+        assert_eq!(
+            BadgeTone::Done.role_rgb(),
+            BadgeTone::Ready.role_rgb(),
+            "the resting success green"
+        );
+        assert_ne!(BadgeTone::InProgress.role_rgb(), BadgeTone::Done.role_rgb());
     }
 }

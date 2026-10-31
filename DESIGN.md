@@ -111,12 +111,12 @@ near-black charcoal panel, warm off-white text, and one decisive, deep
 orange is the product's signature — everything else is quiet so the recording
 state reads at a glance.
 
-The widget has three screen states — the **mode chooser**, the **setup form**
-and the **take screen** — plus the **stopped** result and the floating
-**Settings** and **Help** dialogs. The take screen itself has three take
-states: **idle**, **recording** and **paused**. Recording and Paused must be
-distinguishable from across the room, so status is carried by color, label,
-dot, and waveform shape all at once — never by color alone.
+The widget has five screens — the **mode chooser**, the **setup form**, the
+**take screen**, the **file transcription** screen and the **session end**
+result — plus the floating **Settings** and **Help** dialogs. The take screen
+has three take states: **idle**, **recording** and **paused**. Recording and
+Paused must be distinguishable from across the room, so status is carried by
+color, label, dot, and waveform shape all at once — never by color alone.
 
 ## Colors
 
@@ -341,7 +341,7 @@ The take screen's footer puts this control in the centre zone:
 | Leading | `ArrowBigLeft`, "Cancel" | discards an open take, stops capture, returns to the mode chooser |
 | Primary | `ToggleRoundButton` (mic) | off → starts or resumes; on → pauses |
 | Trailing | `RotateCcw`, "Reset" | clears the take and stays on the screen; dimmed when idle or for a file take |
-| Trailing | `ArrowBigRight`, "Stop" | ends the take and shows the Stopped screen; live whenever a take is open, no pause first |
+| Trailing | `ArrowBigRight`, "Stop" | ends the take and shows the session end screen; live whenever a take is open, no pause first |
 
 The trailing Stop is a **forward arrow**, the mirror of the footer's back arrow:
 ending the take is going forward, to the transcript. No playback glyph (play,
@@ -355,6 +355,41 @@ The top-right corner of the take screen holds **one** read-out: the elapsed
 `mm:ss` timer, or the decoded position in seconds for a file take. The
 streaming/batched distinction belongs to the model picker, where a model is
 chosen.
+
+### File transcription
+
+A file take has no microphone and no live transcript, so it gets its own screen
+instead of the take screen. One quiet report, and three actions:
+
+| Band | Content |
+|---|---|
+| Header | `In progress` pill — `action.warning` dot, muted label — while the worker decodes; `Done` pill — `action.success` dot and label — once it has finished; `STOPPED` pill — `action.danger` dot and label — when the user ended the decode early. Trailing: the elapsed `mm:ss` read-out, in the same place and style as on the take screen |
+| Body | One `SurfaceBox` with the transcribed file's name (`Label`, mono) and a `ProgressBar` |
+| Footer | Back (left) → mode chooser · Stop (centre) → end the decode early · Continue (right) → the session end screen |
+
+The corner read-out times the **take**, not the file: the clock starts when the
+transcription starts and stops when the worker finishes, exactly like a live
+take. The position inside the file is the progress row's business.
+
+`components::ProgressBar` reports that position with the same vocabulary as the
+live waveform: a dense sine wave of 80 rounded bars tracing ten complete
+oscillations, each period rising from a trough to a peak and back, in the same
+bar band the waveform uses. The row is revealed from the left as the worker
+advances. Revealed bars are
+`brand.primary`, the remainder stays on the theme's border colour, so the full
+length is always visible and the reveal reads as a fill. Below the row sits a
+`Label` read-out of the decoded position: `12 / 60 s` when the worker reported the
+duration, `12 s` when it did not. An unknown duration leaves the row unrevealed
+and only the read-out advances.
+
+The screen never navigates on its own. When the file ends, Stop becomes inert
+and Continue enables; the user decides when to open the transcript. Stop pressed
+mid-decode keeps the text produced so far and lands in the same state, with the
+pill reading `STOPPED` so an interrupted transcription never reads as a
+completed one. Back discards the take from either state.
+
+The session end screen carries **no status pill**: the take is over, and what is
+left to do is copy or save.
 
 ### Waveform
 
@@ -375,19 +410,23 @@ the newest line; a soft fade at the top edge hints at earlier text.
 
 Small pill (`rounded.full`) at the top-left of the transcript section: a 8px
 dot plus an uppercase `mono` label at `--font-size-xs`,
-`--letter-spacing-wide`. The pill is one signal: dot and label share the state's
-role colour.
+`--letter-spacing-wide`. A resting state colours dot and label alike; a working
+state (recording, decoding) keeps its label muted beside a coloured dot, so the
+pill reads as one signal without shouting.
 
 | State | Dot | Label |
 |---|---|---|
 | idle (take screen, ready to record) | `action.success` (mint) | `action.success` |
 | recording | `action.danger` (red) | `text.muted` |
 | paused | `action.warning` (amber) | `action.warning` |
+| decoding a file | `action.warning` (amber) | `text.muted` |
+| file decoded | `action.success` (mint) | `action.success` |
+| file take ended early | `action.danger` (red) | `action.danger` |
 
-Green says "the microphone is free, press it"; red and amber own the two live
-states. No colour is invented for this: the mint is the existing
-`--color-action-success` role that also means *saved* and *connected*. Colour is
-never the only signal — the label spells the state out.
+Green says "the microphone is free, press it" or "the file is transcribed"; red
+is capture, amber is a held or working state. No colour is invented for this: the
+mint is the existing `--color-action-success` role that also means *saved* and
+*connected*. Colour is never the only signal — the label spells the state out.
 
 ### Action buttons
 
@@ -426,7 +465,8 @@ forward is dimmed until the step is complete.
 | `welcome` (mode chooser) | — | — | — (no footer) |
 | `session_setup` | Back → mode chooser (drops the draft and any pending file) | — | Forward (`ArrowBigRight`, disabled until the draft is complete) → starts the take |
 | `recording` (live take) | Back → mode chooser | take control | Stop |
-| `stopped` | Back → mode chooser | — | Copy + Save, or Open file |
+| `session_end` | Back → mode chooser | — | Copy + Save, or Open file |
+| `session_transcription` | Back → mode chooser | Stop | Continue |
 
 Back means the same thing everywhere: one step towards the mode chooser, with
 no stale draft, pending file, finished take, output status or error strip left
