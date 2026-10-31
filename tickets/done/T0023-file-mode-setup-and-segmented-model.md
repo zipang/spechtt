@@ -1,8 +1,9 @@
 # T0023 — File sessions must choose a non-streaming model in the setup form
 
 - **Track**: Rust UI + Rust core + TypeScript/Bun worker
-- **Owner**: coder sub-agent (supervised by CTO)
+- **Owner**: CTO agent
 - **Started**: 2026-10-31
+- **Closed**: 2026-10-31
 - **Wave**: 2 (integration)
 - **Depends on**: T0015 (file transcription), T0020 (typed errors + diagnostics),
   T0011 (capability catalogue with `TranscriptionMode`)
@@ -319,3 +320,11 @@ bun check src/stt                             → No type errors in 23 files
 bun run design:validate                       → 66 tokens, 0 errors
 ```
 
+
+### Review
+
+Closed by CEO decision on 2026-10-31 without an independent reviewer pass: the
+`coder` and `reviewer` sub-agents were both unavailable (usage limit), so the
+implementation and the self-audit were done by the CTO agent. The audit covered
+every path that assigns `draft.model`, the live-mode equivalence of
+`is_draft_complete`, the worker guard ordering, and secret/path leakage.

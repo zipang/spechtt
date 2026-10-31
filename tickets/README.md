@@ -104,6 +104,8 @@ Decisions, deviations, verification output.
 | [T0018](done/T0018-typography-scale-and-round-button-polish.md) | Three-size typography scale and round-button polish | Rust UI + design system |
 | [T0019](done/T0019-one-view-per-file.md) | One view per file under `views/` | Rust UI (refactor) |
 | [T0020](done/T0020-empty-takes-and-explicit-logged-errors.md) | Silent empty takes and explicit, logged backend failures | Cross-cutting |
+| [T0023](done/T0023-file-mode-setup-and-segmented-model.md) | File sessions must choose a non-streaming model in the setup form | Rust UI + core + Bun worker |
+| [T0024](done/T0024-media-only-file-picker.md) | Accept only media files for file transcription | Rust core + UI |
 
 ### In Progress
 
@@ -111,10 +113,7 @@ _(none)_
 
 ### Review
 
-| Ticket | Title | Track | Depends on |
-|---|---|---|---|
-| [T0023](review/T0023-file-mode-setup-and-segmented-model.md) | File sessions must choose a non-streaming model in the setup form | Rust UI + core + Bun worker | T0011, T0015, T0020 |
-| [T0024](review/T0024-media-only-file-picker.md) | Accept only media files for file transcription | Rust core + UI | T0015, T0023 |
+_(none)_
 
 ### Planned
 

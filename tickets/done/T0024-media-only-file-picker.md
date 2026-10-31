@@ -1,6 +1,9 @@
 # T0024 — Accept only media files for file transcription
 
 - **Track**: Rust core + Rust UI
+- **Owner**: CTO agent
+- **Started**: 2026-10-31
+- **Closed**: 2026-10-31
 - **Wave**: 2 (integration)
 - **Depends on**: T0015 (file transcription), T0023 (file entry order and the
   pending file)
@@ -213,3 +216,9 @@ Mutation check: forcing `is_media_extension` to return `true` fails 4 specs
 `a_path_without_an_extension_is_not_media`, `a_non_ascii_path_does_not_panic`),
 so the specs are not vacuous.
 
+
+### Review
+
+Closed by CEO decision on 2026-10-31 without an independent reviewer pass: the
+`coder` and `reviewer` sub-agents were both unavailable (usage limit). The audit
+was the CTO agent's, backed by the mutation check above.
