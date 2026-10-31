@@ -3,7 +3,8 @@
 - **Track**: Rust UI + Rust core + design system
 - **Wave**: 2 (integration)
 - **Depends on**: T0021 (shared footer, `ViewState::Live`), T0020 (empty takes)
-- **Blocks**: nothing
+- **Blocks**: T0025 (file takes get their own progression screen instead of
+  borrowing this one)
 - **References**: `DESIGN.md` §Round button / §Press wave / §Record & transport
   controls, `AGENTS.md` §2 (component rule), CEO decision of this ticket:
   *"the record button should feature a microphone icon, red and pulsating with
@@ -135,9 +136,10 @@ Uses T0021's `ScreenFooter`:
 - Cancel is always enabled, including mid-take.
 - Stop no longer requires a pause first: with the mic owning pause/resume, Stop
   is the only way to end the take and must be reachable while recording.
-- A **file take** renders the same screen with: mic disabled (a decode cannot
-  be paused), Reset disabled, Stop and Cancel enabled. Its progress and
-  transcript are unchanged.
+- A **file take** does not use this screen once **T0025** lands: it gets a
+  dedicated `views/session_progression.rs` with a progress bar and no
+  pause/resume or reset. T0022 still implements the live screen; T0025 removes
+  the temporary file-take branch.
 - Keyboard shortcuts keep their existing meanings (`StartRecording`,
   `PauseRecording`, `ResumeRecording`, `StopRecording`); on the idle Live
   screen `StartRecording` starts capture exactly like the mic press.
@@ -232,8 +234,8 @@ Uses T0021's `ScreenFooter`:
    the screen; Stop ends the take and shows the stopped screen.
 4. Cancel works mid-take; Reset is refused in idle; Stop works without pausing
    first.
-5. A file take shows the same screen with the microphone and Reset disabled and
-   Stop enabled.
+5. A file take is routed to its own progression screen by T0025; this live
+   take screen never shows for a running file.
 6. The record control never shows a play, pause or square glyph.
 7. All gates green with zero warnings — including `bun run design:validate` —
    and no animation, layout or screenshot test was added.
