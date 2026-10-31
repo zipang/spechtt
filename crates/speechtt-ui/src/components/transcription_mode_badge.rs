@@ -13,11 +13,12 @@ use gpui_kit::base::h_flex;
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::{Icon, Sizable as _, Size};
 use gpui_kit::prelude::*;
-use gpui_kit::{App, FontWeight, Hsla, IntoElement, RenderOnce, Window, div, px, rems};
+use gpui_kit::{App, Hsla, IntoElement, RenderOnce, Window, px};
 
 use speechtt_core::protocol::TranscriptionMode;
 
-use crate::tokens::{color, radius, rem};
+use crate::components::Label;
+use crate::tokens::{color, radius};
 
 /// Human-readable label for a transcription mode.
 #[must_use]
@@ -70,12 +71,6 @@ impl RenderOnce for TranscriptionModeBadge {
                     .with_size(Size::XSmall)
                     .text_color(tone),
             )
-            .child(
-                div()
-                    .text_size(rems(rem::XS))
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(tone)
-                    .child(mode_label(self.mode)),
-            )
+            .child(Label::new(mode_label(self.mode)).bold().tone(tone))
     }
 }

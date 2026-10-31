@@ -8,7 +8,9 @@
 use gpui_kit::base::h_flex;
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::prelude::*;
-use gpui_kit::{AnyElement, App, FontWeight, IntoElement, RenderOnce, SharedString, Window, div};
+use gpui_kit::{AnyElement, App, IntoElement, RenderOnce, SharedString, Window};
+
+use crate::components::Body;
 
 /// Top strip of an application window: title and trailing actions.
 #[derive(IntoElement)]
@@ -42,12 +44,7 @@ impl RenderOnce for AppHeader {
             .bg(cx.theme().title_bar)
             .border_b_1()
             .border_color(cx.theme().title_bar_border)
-            .child(
-                div()
-                    .id("app-title")
-                    .font_weight(FontWeight::BOLD)
-                    .child(self.title),
-            )
+            .child(Body::new(self.title).bold())
             .child(h_flex().gap_1().children(self.actions))
     }
 }

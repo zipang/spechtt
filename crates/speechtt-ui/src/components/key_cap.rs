@@ -4,9 +4,10 @@
 use gpui_kit::base::h_flex;
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::prelude::*;
-use gpui_kit::{App, FontWeight, IntoElement, RenderOnce, SharedString, Window, div, px, rems};
+use gpui_kit::{App, IntoElement, RenderOnce, SharedString, Window, div, px};
 
-use crate::tokens::{radius, rem};
+use crate::components::{Body, Label};
+use crate::tokens::radius;
 
 #[derive(IntoElement)]
 pub struct KeyCap {
@@ -26,12 +27,7 @@ impl RenderOnce for KeyCap {
         let mut row = h_flex().items_center().gap_2();
         for (index, key) in self.keys.into_iter().enumerate() {
             if index > 0 {
-                row = row.child(
-                    div()
-                        .text_size(rems(rem::SM))
-                        .text_color(cx.theme().muted_foreground)
-                        .child("+"),
-                );
+                row = row.child(Label::new("+").muted());
             }
             row = row.child(
                 div()
@@ -41,9 +37,7 @@ impl RenderOnce for KeyCap {
                     .border_1()
                     .border_color(cx.theme().border)
                     .bg(cx.theme().secondary)
-                    .text_size(rems(rem::MD))
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(key),
+                    .child(Body::new(key).bold()),
             );
         }
         row

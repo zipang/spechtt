@@ -19,7 +19,6 @@ use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::{Sizable as _, button::Button};
 use std::cell::Cell;
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -29,8 +28,7 @@ use std::time::{Duration, Instant};
 use gpui_kit::prelude::*;
 use gpui_kit::{
     AnyElement, AnyWindowHandle, App, Bounds, Context, Entity, PathPromptOptions, Pixels, Point,
-    SharedString, Size, Subscription, Task, Window, WindowBounds, WindowId, WindowKind,
-    WindowOptions, div, px, rems,
+    Size, Subscription, Task, Window, WindowBounds, WindowId, WindowKind, WindowOptions, div, px,
 };
 use speechtt_core::audio::{AudioError, AudioSource, CpalAudioSource, PcmChunk};
 use speechtt_core::backend::{BackendError, BunSubprocess, SttEventReceiver, SttSessionSink};
@@ -44,12 +42,14 @@ use speechtt_core::output::paste::{PasteSink, SystemPaste};
 use speechtt_core::session::{SessionField, SessionState};
 use speechtt_core::settings::{JsonFileStore, Settings, SettingsStore, WindowLayout};
 
-use crate::components::{ActionButton, AppFooter, AppHeader, IconButton};
+use crate::components::{
+    ActionButton, AppFooter, AppHeader, IconButton, Label, Ripple, RippleRing,
+};
 use crate::controller::{
     AppError, Clock, Dialog, ErrorAction, FinishedTake, HelpTab, SAMPLE_RATE, SessionController,
     SessionMode, SettingsChange, SettingsDraft, SystemClock, ViewState,
 };
-use crate::tokens::{color, rem};
+use crate::tokens::color;
 use crate::views;
 use crate::views::dialogs::{
     DIALOG_WIDTH, DialogWindow, HELP_DIALOG_HEIGHT, SETTINGS_DIALOG_HEIGHT,
@@ -83,7 +83,9 @@ pub struct SpeechTtApp {
     controller: SessionController,
     /// Monotonic click counters for round-button ripples, keyed by element id.
     /// `u64` because the view only needs "this changed", not a timestamp.
-    pulses: BTreeMap<SharedString, u64>,
+    /// The press ripple, drawn at the window root so it survives navigation.
+    ripple: Option<Ripple>,
+    ripple_seq: u64,
     settings_api_key: Entity<InputState>,
     settings_key_revealed: bool,
     /// The open dialog window, if any. Dialogs are separate floating windows.
@@ -222,7 +224,8 @@ impl SpeechTtApp {
 
         let mut app = Self {
             controller,
-            pulses: BTreeMap::new(),
+            ripple: None,
+            ripple_seq: 0,
             settings_api_key,
             settings_key_revealed: false,
             dialog_window: None,
@@ -474,16 +477,31 @@ impl SpeechTtApp {
         cx.notify();
     }
 
-    /// Bump the ripple counter for `id` (the click landed).
-    pub fn pulse(&mut self, id: &str) {
-        let counter = self.pulses.entry(SharedString::from(id)).or_insert(0);
-        *counter += 1;
+    /// Starts the press ripple of round button `id` and repaints.
+    ///
+    /// The wave is concentric with the button, not with the pointer, so the
+    /// anchor recorded while the button prepainted is the origin. The ring is
+    /// owned by the window rather than by the pressed button: every round
+    /// action navigates, so a ring drawn inside the pressed screen would vanish
+    /// on release. Recording it here lets it finish after the screen changes.
+    pub fn ripple(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(anchor) = crate::components::button_anchor(id, cx) else {
+            return;
+        };
+        self.ripple_seq += 1;
+        self.ripple = Some(Ripple::new(
+            self.ripple_seq,
+            f32::from(anchor.center.x),
+            f32::from(anchor.center.y),
+            anchor.tone,
+        ));
+        cx.notify();
     }
 
-    /// Ripple counter for `id`; `0` means no click yet.
+    /// The ripple currently animating, if any.
     #[must_use]
-    pub fn pulse_count(&self, id: &str) -> u64 {
-        self.pulses.get(id).copied().unwrap_or(0)
+    pub fn current_ripple(&self) -> Option<Ripple> {
+        self.ripple
     }
 
     pub fn start_recording(&mut self, cx: &mut Context<Self>) {
@@ -1058,13 +1076,28 @@ impl SpeechTtApp {
     ///
     /// Maximized/fullscreen windows are ignored: restoring a maximized flag is
     /// out of scope, and the windowed rectangle stays the useful one.
-    fn observe_window_bounds(&mut self, window: &Window) {
+    fn observe_window_bounds(&mut self, window: &mut Window) {
         let WindowBounds::Windowed(bounds) = window.window_bounds() else {
             return;
         };
+
+        // Not every window manager honours the min-size hint, and the window
+        // must never be smaller than the content it holds (the chooser's two
+        // cards would truncate and collide with the description). Push the
+        // window back up to the floor and record the clamped size, so the
+        // persisted geometry can never fall below it either.
+        let minimum = crate::minimum_window_size();
+        let size = Size {
+            width: bounds.size.width.max(minimum.width),
+            height: bounds.size.height.max(minimum.height),
+        };
+        if size != bounds.size {
+            window.resize(size);
+        }
+
         let layout = WindowLayout::new(
-            f32::from(bounds.size.width).round() as u32,
-            f32::from(bounds.size.height).round() as u32,
+            f32::from(size.width).round() as u32,
+            f32::from(size.height).round() as u32,
             f32::from(bounds.origin.x).round() as i32,
             f32::from(bounds.origin.y).round() as i32,
         );
@@ -1124,24 +1157,25 @@ impl gpui_kit::Render for SpeechTtApp {
         let mut root = v_flex()
             .size_full()
             .bg(cx.theme().background)
-            .text_color(cx.theme().foreground)
-            .child(
-                AppHeader::new(APP_TITLE)
-                    .action(
-                        IconButton::new("btn-help", IconName::CircleQuestionMark)
-                            .label("Open help and shortcuts")
-                            .on_click(
-                                cx.listener(|this, _event, window, cx| this.open_help(window, cx)),
-                            ),
-                    )
-                    .action(
-                        IconButton::new("btn-settings", IconName::Settings)
-                            .label("Open settings")
-                            .on_click(cx.listener(|this, _event, window, cx| {
-                                this.open_settings(window, cx)
-                            })),
-                    ),
-            );
+            .text_color(cx.theme().foreground);
+
+        root = root.child(
+            AppHeader::new(APP_TITLE)
+                .action(
+                    IconButton::new("btn-help", IconName::CircleQuestionMark)
+                        .label("Open help and shortcuts")
+                        .on_click(
+                            cx.listener(|this, _event, window, cx| this.open_help(window, cx)),
+                        ),
+                )
+                .action(
+                    IconButton::new("btn-settings", IconName::Settings)
+                        .label("Open settings")
+                        .on_click(
+                            cx.listener(|this, _event, window, cx| this.open_settings(window, cx)),
+                        ),
+                ),
+        );
 
         // The error strip sits above the body and below the header, so it
         // never replaces or moves the transport controls.
@@ -1175,6 +1209,15 @@ impl gpui_kit::Render for SpeechTtApp {
         // stay pinned while the two setting rows scroll.
         if state == ViewState::Form {
             root = root.child(self.render_form_footer(cx));
+        }
+
+        // The press wave is painted last, above the screen. It is the button's
+        // own colour, so the part over the button is invisible and only the
+        // sliver that grows past the button edge reads — a wave emerging from
+        // behind the button face. It belongs to the window rather than to the
+        // pressed screen so it also outlives the navigation its click starts.
+        if let Some(ripple) = self.ripple {
+            root = root.child(RippleRing::new(ripple));
         }
 
         self.observe_window_bounds(window);
@@ -1221,14 +1264,7 @@ impl SpeechTtApp {
                     .rounded(px(3.))
                     .bg(gpui_kit::rgb(color::DANGER)),
             )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_size(rems(rem::SM))
-                    .text_color(cx.theme().foreground)
-                    .child(error.message()),
-            );
+            .child(div().flex_1().min_w_0().child(Label::new(error.message())));
 
         row = match action {
             ErrorAction::OpenSettings => row.child(
@@ -1247,12 +1283,7 @@ impl SpeechTtApp {
                     .label("Retry")
                     .on_click(cx.listener(|this, _event, _window, cx| this.retry_backend(cx))),
             ),
-            ErrorAction::SettingsHint => row.child(
-                div()
-                    .text_size(rems(rem::XS))
-                    .text_color(cx.theme().muted_foreground)
-                    .child("Open settings"),
-            ),
+            ErrorAction::SettingsHint => row.child(Label::new("Open settings").muted()),
             ErrorAction::Dismiss => row,
         };
 

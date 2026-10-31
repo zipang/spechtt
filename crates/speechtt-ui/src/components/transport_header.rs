@@ -6,14 +6,12 @@
 //! transcription-mode badge rides along whenever the take has a model.
 
 use gpui_kit::base::h_flex;
-use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::prelude::*;
-use gpui_kit::{App, IntoElement, RenderOnce, Window, div, rems};
+use gpui_kit::{App, IntoElement, RenderOnce, Window};
 
 use speechtt_core::protocol::TranscriptionMode;
 
-use crate::components::{ElapsedTimer, TranscriptionModeBadge};
-use crate::tokens::rem;
+use crate::components::{ElapsedTimer, Label, TranscriptionModeBadge};
 
 /// Decoded file position: `(processed, total)` seconds, `total` unknown until
 /// the probe returns.
@@ -37,7 +35,7 @@ impl TransportHeader {
 }
 
 impl RenderOnce for TransportHeader {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
         let mut row = h_flex().gap_2().items_center();
         row = match self.progress {
             Some((processed, total)) => {
@@ -45,12 +43,7 @@ impl RenderOnce for TransportHeader {
                     Some(total) => format!("{processed:.0} / {total:.0} s"),
                     None => format!("{processed:.0} s"),
                 };
-                row.child(
-                    div()
-                        .font_family(cx.theme().mono_font_family.clone())
-                        .text_size(rems(rem::SM))
-                        .child(label),
-                )
+                row.child(Label::new(label).mono())
             }
             None => row.child(ElapsedTimer::new(self.elapsed)),
         };

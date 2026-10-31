@@ -3,11 +3,10 @@
 use gpui_kit::base::h_flex;
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::prelude::*;
-use gpui_kit::{
-    App, FontWeight, Hsla, IntoElement, RenderOnce, SharedString, Window, div, px, rems,
-};
+use gpui_kit::{App, Hsla, IntoElement, RenderOnce, SharedString, Window, px};
 
-use crate::tokens::{color, radius, rem};
+use crate::components::{Label, StatusDot};
+use crate::tokens::{color, radius};
 
 /// Which transport state a badge describes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,13 +86,7 @@ impl RenderOnce for StatusBadge {
             .py_1()
             .rounded(px(radius::MD))
             .bg(cx.theme().secondary)
-            .child(div().size(px(6.)).rounded(px(3.)).bg(dot))
-            .child(
-                div()
-                    .text_size(rems(rem::XS))
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(label_color)
-                    .child(self.label),
-            )
+            .child(StatusDot::new(dot))
+            .child(Label::new(self.label).bold().tone(label_color))
     }
 }

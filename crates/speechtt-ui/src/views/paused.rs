@@ -3,13 +3,14 @@
 use gpui_kit::assets::IconName;
 use gpui_kit::base::h_flex;
 use gpui_kit::prelude::*;
-use gpui_kit::{AnyElement, Context, rems};
+use gpui_kit::{AnyElement, Context};
 
 use crate::app::SpeechTtApp;
 use crate::components::{
     BadgeTone, CaptionWell, RoundButton, StatusBadge, StopControl, TransportHeader, Waveform,
 };
 use crate::layout::ScreenShell;
+use crate::tokens::space;
 
 pub(crate) fn render(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyElement {
     let controller = app.controller();
@@ -22,8 +23,8 @@ pub(crate) fn render(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyEle
 
     ScreenShell::new(StatusBadge::tone("PAUSED", BadgeTone::Paused))
         .header_trailing(TransportHeader::new(elapsed, progress, mode))
-        .gap(rems(0.25))
-        .body_gap(rems(0.25))
+        .gap(space::XS)
+        .body_gap(space::XS)
         .body(Waveform::new(bars, false))
         .body(CaptionWell::new(committed, live))
         .footer(
@@ -33,7 +34,11 @@ pub(crate) fn render(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyEle
                 .gap_6()
                 .child(
                     RoundButton::new("btn-resume", IconName::Play)
-                        .pulse(app.pulse_count("btn-resume"))
+                        .on_press(cx.listener(
+                            |this, _event: &gpui_kit::MouseDownEvent, _window, cx| {
+                                this.ripple("btn-resume", cx);
+                            },
+                        ))
                         .on_click(
                             cx.listener(|this, _event, _window, cx| this.resume_recording(cx)),
                         ),

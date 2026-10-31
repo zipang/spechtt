@@ -7,15 +7,15 @@
 
 use gpui_kit::assets::IconName;
 use gpui_kit::base::h_flex;
+use gpui_kit::component::Sizable as _;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::{ActiveTheme as _, Sizable as _};
 use gpui_kit::prelude::*;
-use gpui_kit::{AnyElement, Context, FontWeight, div, rems};
+use gpui_kit::{AnyElement, Context};
 
 use crate::app::SpeechTtApp;
-use crate::components::{CaptionWell, IconAction, StatusBadge};
+use crate::components::{CaptionWell, IconAction, Label, StatusBadge};
 use crate::layout::{ScreenShell, SurfaceBox};
-use crate::tokens::rem;
+use crate::tokens::space;
 
 /// Finished take. A written take exposes the path and an open action; an
 /// unsaved take exposes copy/save.
@@ -65,21 +65,8 @@ pub(crate) fn render(app: &mut SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> An
 
     let body = if written {
         SurfaceBox::new()
-            .child(
-                div()
-                    .text_size(rems(rem::XS))
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(cx.theme().muted_foreground)
-                    .child("TRANSCRIPT WRITTEN TO"),
-            )
-            .child(
-                div()
-                    .id("result-path")
-                    .font_family(cx.theme().mono_font_family.clone())
-                    .text_size(rems(rem::SM))
-                    .text_color(cx.theme().foreground)
-                    .child(path),
-            )
+            .child(Label::new("TRANSCRIPT WRITTEN TO").bold().muted())
+            .child(Label::new(path).mono())
             .into_any_element()
     } else {
         CaptionWell::new(committed, live).into_any_element()
@@ -95,17 +82,12 @@ pub(crate) fn render(app: &mut SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> An
 
     let mut shell = ScreenShell::new(StatusBadge::new("STOPPED"))
         .header_trailing(new_take)
-        .gap(rems(0.5))
-        .body_gap(rems(0.5))
+        .gap(space::SM)
+        .body_gap(space::SM)
         .body(body);
 
     if let Some(status) = status {
-        shell = shell.body(
-            div()
-                .text_size(rems(rem::XS))
-                .text_color(cx.theme().muted_foreground)
-                .child(status),
-        );
+        shell = shell.body(Label::new(status).muted());
     }
 
     shell

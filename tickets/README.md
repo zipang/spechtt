@@ -101,13 +101,12 @@ Decisions, deviations, verification output.
 | [T0014](done/T0014-help-model-catalogue-tab.md) | Help dialog model-catalogue tab and a single gateway provider | Bun worker + Rust core/UI |
 | [T0015](done/T0015-transcribe-local-media-file.md) | Transcribe a local audio or video file | Bun worker + Rust core/UI |
 | [T0017](done/T0017-mode-chooser-and-nameless-sessions.md) | Mode chooser and nameless sessions | Rust core/UI + design system |
+| [T0018](done/T0018-typography-scale-and-round-button-polish.md) | Three-size typography scale and round-button polish | Rust UI + design system |
 | [T0019](done/T0019-one-view-per-file.md) | One view per file under `views/` | Rust UI (refactor) |
 
 ### In Progress
 
-| Ticket | Title | Track | Depends on |
-|---|---|---|---|
-| [T0018](in_progress/T0018-typography-scale-and-round-button-polish.md) | Three-size typography scale and round-button polish | Rust UI + design system | T0017 |
+_(none)_
 
 ### Review
 

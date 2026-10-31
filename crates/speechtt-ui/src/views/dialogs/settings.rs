@@ -4,17 +4,19 @@
 //! stages a `SettingsChange` through `SpeechTtApp::apply_settings_change`.
 //! T0009 replaces that hook with the Rust settings store.
 
-use gpui_kit::assets::IconName;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::button::Button;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::Input;
-use gpui_kit::component::{ActiveTheme as _, Disableable as _, Icon, Sizable as _};
+use gpui_kit::component::{ActiveTheme as _, Disableable as _, Sizable as _};
 use gpui_kit::prelude::*;
-use gpui_kit::{AnyElement, Context, FontWeight, IntoElement, div, px, rems};
+use gpui_kit::{AnyElement, Context, IntoElement};
 
-use crate::components::{ActionButton, AppFooter, SettingRow, StatusBadge, TranscriptionModeBadge};
-use crate::tokens::{color, radius, rem};
+use crate::components::{
+    ActionButton, AppFooter, Body, InfoNote, Label, SettingRow, StatusBadge, StatusDot,
+    TranscriptionModeBadge,
+};
+use crate::tokens::color;
 use crate::views::dialogs::{DialogShell, DialogWindow};
 
 pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> AnyElement {
@@ -112,18 +114,11 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
         h_flex()
             .gap_1p5()
             .items_center()
+            .child(StatusDot::new(gpui_kit::rgb(color::SUCCESS).into()))
             .child(
-                div()
-                    .size(px(5.))
-                    .rounded(px(2.5))
-                    .bg(gpui_kit::rgb(color::SUCCESS)),
-            )
-            .child(
-                div()
-                    .text_size(rems(rem::XS))
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(gpui_kit::rgb(color::SUCCESS))
-                    .child("CONNECTED"),
+                Label::new("CONNECTED")
+                    .bold()
+                    .tone(gpui_kit::rgb(color::SUCCESS).into()),
             )
             .into_any_element()
     } else {
@@ -160,19 +155,8 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
                         .flex_shrink_1()
                         .min_w_0()
                         .gap_1()
-                        .child(
-                            div()
-                                .text_size(rems(rem::MD))
-                                .font_weight(FontWeight::MEDIUM)
-                                .child("API key"),
-                        )
-                        .child(
-                            div()
-                                .font_family(cx.theme().mono_font_family.clone())
-                                .text_size(rems(rem::MD))
-                                .text_color(cx.theme().muted_foreground)
-                                .child(key_env),
-                        ),
+                        .child(Body::new("API key").bold())
+                        .child(Body::new(key_env).mono().muted()),
                 )
                 .child(badge),
         )
@@ -184,48 +168,18 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
         );
 
     if let Some(stored_key) = stored_key_label {
-        let mut stored = v_flex().gap_1().child(
-            div()
-                .font_family(cx.theme().mono_font_family.clone())
-                .text_size(rems(rem::SM))
-                .text_color(cx.theme().foreground)
-                .child(stored_key),
-        );
+        let mut stored = v_flex().gap_1().child(Label::new(stored_key).mono());
         if let Some(hint) = stored_key_hint {
-            stored = stored.child(
-                div()
-                    .text_size(rems(rem::XS))
-                    .text_color(cx.theme().muted_foreground)
-                    .child(hint),
-            );
+            stored = stored.child(Label::new(hint).muted());
         }
         api_key = api_key.child(stored);
     }
 
-    let note = h_flex()
-        .w_full()
-        .items_start()
-        .gap_2()
-        .p_2()
-        .rounded(px(radius::MD))
-        .bg(cx.theme().secondary)
-        .child(
-            Icon::new(IconName::Info)
-                .small()
-                .text_color(gpui_kit::rgb(color::INFO)),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .text_size(rems(rem::XS))
-                .text_color(cx.theme().muted_foreground)
-                .child(if unavailable {
-                    "This provider is not connected. Add an API key to enable it."
-                } else {
-                    "No API key? SpeechTT falls back to a local model and keeps working fully offline."
-                }),
-        );
+    let note = InfoNote::new(if unavailable {
+        "This provider is not connected. Add an API key to enable it."
+    } else {
+        "No API key? SpeechTT falls back to a local model and keeps working fully offline."
+    });
 
     let footer = AppFooter::new()
         .action(

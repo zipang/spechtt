@@ -118,8 +118,11 @@ pub fn restored_window_bounds(
 }
 
 /// The widget's minimum window size: the mode chooser must never be squeezed.
+///
+/// This is the single source of truth for the floor, shared by the window
+/// options and by the runtime clamp in [`app::SpeechTtApp`].
 #[must_use]
-fn minimum_window_size() -> Size<Pixels> {
+pub fn minimum_window_size() -> Size<Pixels> {
     Size {
         width: px(tokens::MIN_WINDOW_WIDTH),
         height: px(tokens::MIN_WINDOW_HEIGHT),

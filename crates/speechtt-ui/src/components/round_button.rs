@@ -1,31 +1,47 @@
 //! The circular action used by the mode chooser and every transport screen.
 //!
-//! One diameter everywhere (56 px, from `mockups/app-window/new-session.png`),
-//! two tones, and a single expanding ring on click. The ring is what tells the
-//! user their click landed before the screen changes, so it is driven by a
-//! monotonic counter owned by the view (`SpeechTtApp::pulse_count`) and is
-//! therefore testable without inspecting paint output.
+//! One diameter everywhere (56 px, from `mockups/app-window/new-session.png`)
+//! and two tones. The press ripple is **not** drawn here: the ring is owned by
+//! the window ([`crate::components::RippleRing`]) because every round action
+//! navigates, and a ring drawn inside the pressed screen would be destroyed the
+//! moment the screen changed. This module keeps the geometry
+//! ([`ripple_frame`]), the tone's fill colour and the duration the window wave
+//! uses.
 
 use std::time::Duration;
 
 use gpui_kit::assets::IconName;
-use gpui_kit::base::{h_flex, v_flex};
+use gpui_kit::base::h_flex;
 use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, Size};
 use gpui_kit::prelude::*;
-use gpui_kit::{Animation, AnimationExt as _, App, ClickEvent, ElementId, IntoElement};
-use gpui_kit::{RenderOnce, Window, div, ease_out_quint, px};
+use gpui_kit::{
+    App, ClickEvent, ElementId, IntoElement, MouseDownEvent, RenderOnce, Window, div, px,
+};
+
+use crate::components::button_anchors::record_button_anchor;
 
 /// The one round-button diameter, matching the mockup's `w-14` (56 px).
 pub const ROUND_BUTTON_SIZE: f32 = 56.0;
 
-/// Ring diameter at the end of the ripple.
-const RIPPLE_MAX_SIZE: f32 = 84.0;
+/// How far the wave travels before it is gone.
+///
+/// The circle starts at exactly the button diameter, so it is hidden behind the
+/// button, and grows by this much while fading to transparent. Twenty pixels is
+/// enough for the edge to appear around the button and vanish again quickly.
+pub const RIPPLE_TRAVEL: f32 = 20.0;
 
-/// Ring alpha at the start of the ripple.
-const RIPPLE_ALPHA: f32 = 0.55;
+/// Diameter the wave starts at: the button's own diameter.
+pub const RIPPLE_START_SIZE: f32 = ROUND_BUTTON_SIZE;
 
-/// How long the ring takes to expand and fade.
-const RIPPLE_DURATION: Duration = Duration::from_millis(400);
+/// Diameter at which the wave has fully faded.
+pub const RIPPLE_MAX_SIZE: f32 = ROUND_BUTTON_SIZE + RIPPLE_TRAVEL;
+
+/// Debug selector prefix of the window wave.
+pub const RIPPLE_SELECTOR: &str = "ripple-ring";
+
+/// How long the wave takes to grow and fade. Short on purpose: the wave is
+/// feedback that the press landed, not an animation to watch.
+pub const RIPPLE_DURATION: Duration = Duration::from_millis(450);
 
 /// Emphasis of a [`RoundButton`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -37,20 +53,34 @@ pub enum RoundTone {
     Secondary,
 }
 
-type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+impl RoundTone {
+    /// The colour this tone paints its face with — and therefore the colour of
+    /// its ripple, which is the same disc seen spreading past the button edge.
+    #[must_use]
+    pub fn fill(self, theme: &gpui_kit::component::Theme) -> gpui_kit::Hsla {
+        match self {
+            RoundTone::Primary => theme.primary,
+            RoundTone::Secondary => theme.background,
+        }
+    }
+}
 
-/// Ring geometry for an eased progress value: `(diameter, border alpha)`.
+type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+type PressHandler = Box<dyn Fn(&MouseDownEvent, &mut Window, &mut App) + 'static>;
+
+/// Wave geometry for a progress value: `(diameter, opacity)`.
 ///
-/// The diameter grows from [`ROUND_BUTTON_SIZE`] to [`RIPPLE_MAX_SIZE`] and the
-/// alpha fades to zero. `delta` outside `0..=1` is clamped, so a paused or
-/// over-running animation frame can never paint an inverted ring.
+/// The diameter grows from [`RIPPLE_START_SIZE`] (the button's own diameter) to
+/// [`RIPPLE_MAX_SIZE`], and the opacity falls from fully opaque to zero over
+/// exactly that travel. `delta` outside `0..=1` is clamped, so a paused or
+/// over-running animation frame can never paint an inverted wave.
 #[must_use]
 pub fn ripple_frame(delta: f32) -> (f32, f32) {
     let delta = delta.clamp(0.0, 1.0);
-    (
-        ROUND_BUTTON_SIZE + (RIPPLE_MAX_SIZE - ROUND_BUTTON_SIZE) * delta,
-        RIPPLE_ALPHA * (1.0 - delta),
-    )
+    // Diameter and opacity advance together: the circle is opaque at the button
+    // diameter and fully transparent at `RIPPLE_MAX_SIZE`, so the wave's
+    // visibility is exactly its travelled radius.
+    (RIPPLE_START_SIZE + RIPPLE_TRAVEL * delta, 1.0 - delta)
 }
 
 /// A circular icon action with an optional click ripple.
@@ -59,7 +89,7 @@ pub struct RoundButton {
     id: ElementId,
     icon: IconName,
     tone: RoundTone,
-    pulse: u64,
+    on_press: Option<PressHandler>,
     on_click: Option<ClickHandler>,
 }
 
@@ -69,7 +99,7 @@ impl RoundButton {
             id: id.into(),
             icon,
             tone: RoundTone::default(),
-            pulse: 0,
+            on_press: None,
             on_click: None,
         }
     }
@@ -79,15 +109,20 @@ impl RoundButton {
         self
     }
 
-    /// Monotonic click counter from [`crate::app::SpeechTtApp::pulse_count`].
-    /// `0` means "no ripple yet"; every later value starts exactly one ring.
-    pub fn pulse(mut self, pulse: u64) -> Self {
-        self.pulse = pulse;
+    /// Runs on press (mouse down), before the click completes — this is where
+    /// the window records the ripple, so the ring starts while the pointer is
+    /// down and keeps animating after the click navigates.
+    pub fn on_press(
+        mut self,
+        handler: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_press = Some(Box::new(handler));
         self
     }
 
-    /// Without a handler the button is visual only (inside a [`Card`] that owns
-    /// the click): no hover, no cursor, no click.
+    /// Without a handler the button runs no command of its own (inside a
+    /// [`Card`] that owns the click), but it still shows the hover and press
+    /// treatment so the affordance reads as one control.
     pub fn on_click(
         mut self,
         handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
@@ -99,25 +134,25 @@ impl RoundButton {
 
 impl RenderOnce for RoundButton {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let interactive = self.on_click.is_some();
         let theme = cx.theme();
 
-        // `(background, hover background, icon colour, ripple colour)`.
-        let (bg, hover_bg, fg, ripple) = match self.tone {
-            RoundTone::Primary => (
-                theme.primary,
-                theme.primary_active,
-                theme.primary_foreground,
-                theme.primary,
-            ),
-            RoundTone::Secondary => (
-                theme.background,
-                theme.secondary_active,
-                theme.foreground,
-                theme.border,
-            ),
+        // `(background at rest, background on hover)`.
+        let (bg, hover_bg) = match self.tone {
+            RoundTone::Primary => (theme.primary, theme.primary_active),
+            RoundTone::Secondary => (theme.background, theme.secondary_active),
         };
-        let hover_border = theme.primary.opacity(0.4);
+        // The glyph is always the warm off-white ink; a tone never tints it.
+        let fg = theme.foreground;
+        // The outline is always present and only changes colour, so hovering
+        // never nudges the layout.
+        let base_outline = match self.tone {
+            RoundTone::Primary => theme.primary,
+            RoundTone::Secondary => theme.border,
+        };
+        let hover_outline = theme.primary;
+
+        let anchor_key = element_key(&self.id);
+        let tone = self.tone;
 
         let mut face = h_flex()
             .id(self.id.clone())
@@ -127,65 +162,39 @@ impl RenderOnce for RoundButton {
             .justify_center()
             .items_center()
             .bg(bg)
-            .text_color(fg);
+            .border_2()
+            .border_color(base_outline)
+            .text_color(fg)
+            .cursor_pointer()
+            .hover(move |this| this.bg(hover_bg).border_color(hover_outline));
 
-        if self.tone == RoundTone::Secondary {
-            face = face.border_1().border_color(theme.border);
+        // Recorded only in test builds: lets a headless test measure the button.
+        let selector_key = anchor_key.clone();
+        face = face.debug_selector(move || selector_key.clone());
+
+        if let Some(handler) = self.on_press {
+            face = face.on_mouse_down(gpui_kit::MouseButton::Left, handler);
         }
-
-        if interactive {
-            face = face
-                .cursor_pointer()
-                .hover(move |this| this.bg(hover_bg).border_color(hover_border));
-            if let Some(handler) = self.on_click {
-                face = face.on_click(handler);
-            }
+        if let Some(handler) = self.on_click {
+            face = face.on_click(handler);
         }
 
         let face = face.child(Icon::new(self.icon).with_size(Size::Large));
 
-        let mut container = v_flex()
-            .relative()
-            .flex_none()
-            .size(px(ROUND_BUTTON_SIZE))
-            .justify_center()
-            .items_center();
-
-        if self.pulse > 0 {
-            let animation_id = format!("{}-ripple-{}", animation_key(&self.id), self.pulse);
-            let ring = div()
-                .rounded(px(ROUND_BUTTON_SIZE / 2.0))
-                .border_2()
-                .border_color(ripple.opacity(RIPPLE_ALPHA))
-                .with_animation(
-                    animation_id,
-                    Animation::new(RIPPLE_DURATION).with_easing(ease_out_quint()),
-                    move |ring, delta| {
-                        let (diameter, alpha) = ripple_frame(delta);
-                        ring.size(px(diameter))
-                            .rounded(px(diameter / 2.0))
-                            .border_color(ripple.opacity(alpha))
-                    },
-                );
-            container = container.child(
-                div()
-                    .absolute()
-                    .top_0()
-                    .left_0()
-                    .size_full()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(ring),
-            );
-        }
-
-        container.child(face)
+        // Record where this button landed, so a press anywhere inside it starts
+        // a wave concentric with the button (see `button_anchors`).
+        div()
+            .on_children_prepainted(move |bounds, _window, cx| {
+                if let Some(bounds) = bounds.first() {
+                    record_button_anchor(&anchor_key, *bounds, tone, cx);
+                }
+            })
+            .child(face)
     }
 }
 
-/// Stable string form of an element id, for deriving child animation ids.
-fn animation_key(id: &ElementId) -> String {
+/// Stable string form of an element id, used as the anchor key.
+fn element_key(id: &ElementId) -> String {
     match id {
         ElementId::Name(name) => format!("{name}"),
         ElementId::Integer(value) => format!("#{value}"),

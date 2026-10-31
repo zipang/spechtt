@@ -10,13 +10,15 @@ use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::tab::{Tab, TabBar};
 use gpui_kit::prelude::*;
-use gpui_kit::{AnyElement, App, Context, FontWeight, IntoElement, div, px, rems};
+use gpui_kit::{AnyElement, App, Context, IntoElement, div};
 
 use speechtt_core::protocol::{CapabilitySource, ModelCapabilityInfo};
 
-use crate::components::{ActionButton, AppFooter, KeyCap, TranscriptionModeBadge};
+use crate::components::{
+    ActionButton, AppFooter, Body, KeyCap, Label, StatusDot, TranscriptionModeBadge,
+};
 use crate::controller::{HelpTab, pricing_lines};
-use crate::tokens::{color, rem};
+use crate::tokens::color;
 use crate::views::dialogs::{DialogShell, DialogWindow};
 
 /// One row of the shortcuts reference. T0006 will drive this from the user's
@@ -64,29 +66,19 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
         .gap_2()
         .items_center()
         .child(
-            div()
-                .font_family(cx.theme().mono_font_family.clone())
-                .text_size(rems(rem::XS))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(cx.theme().muted_foreground)
-                .child(concat!("SPEECHTT V", env!("CARGO_PKG_VERSION"))),
+            Label::new(concat!("SPEECHTT V", env!("CARGO_PKG_VERSION")))
+                .mono()
+                .muted(),
         )
         .child(
             h_flex()
                 .gap_1p5()
                 .items_center()
+                .child(StatusDot::new(gpui_kit::rgb(color::SUCCESS).into()))
                 .child(
-                    div()
-                        .size(px(5.))
-                        .rounded(px(2.5))
-                        .bg(gpui_kit::rgb(color::SUCCESS)),
-                )
-                .child(
-                    div()
-                        .text_size(rems(rem::XS))
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(gpui_kit::rgb(color::SUCCESS))
-                        .child("GATEWAY CONNECTED"),
+                    Label::new("GATEWAY CONNECTED")
+                        .bold()
+                        .tone(gpui_kit::rgb(color::SUCCESS).into()),
                 ),
         );
 
@@ -114,13 +106,7 @@ fn shortcuts(cx: &App) -> AnyElement {
                 .py_2p5()
                 .border_b_1()
                 .border_color(cx.theme().border)
-                .child(
-                    div()
-                        .flex_shrink_1()
-                        .min_w_0()
-                        .text_size(rems(rem::MD))
-                        .child(*label),
-                )
+                .child(Body::new(*label))
                 .child(KeyCap::new(keys.iter().copied())),
         );
     }
@@ -144,26 +130,16 @@ fn models(
         .justify_between()
         .items_center()
         .gap_3()
-        .child(
-            div()
-                .font_weight(FontWeight::BOLD)
-                .text_size(rems(rem::MD))
-                .child(format!("{provider_label} models")),
-        )
-        .child(
-            div()
-                .text_size(rems(rem::XS))
-                .font_weight(FontWeight::BOLD)
-                .text_color(cx.theme().muted_foreground)
-                .child(source_label),
-        );
+        .child(Body::new(format!("{provider_label} models")).bold())
+        .child(Label::new(source_label).bold().muted());
 
     let body = if models.is_empty() {
         div()
             .py_4()
-            .text_size(rems(rem::SM))
-            .text_color(cx.theme().muted_foreground)
-            .child("No model metadata yet. Open Settings to refresh the catalogue.")
+            .child(
+                Label::new("No model metadata yet. Open Settings to refresh the catalogue.")
+                    .muted(),
+            )
             .into_any_element()
     } else {
         v_flex()
@@ -200,37 +176,16 @@ fn model_row(model: &ModelCapabilityInfo, cx: &App) -> AnyElement {
                 .gap_2()
                 .items_center()
                 .child(TranscriptionModeBadge::new(model.mode))
-                .child(
-                    div()
-                        .text_size(rems(rem::MD))
-                        .font_weight(FontWeight::MEDIUM)
-                        .child(model.label.clone()),
-                ),
+                .child(Body::new(model.label.clone()).bold()),
         )
-        .child(
-            div()
-                .font_family(cx.theme().mono_font_family.clone())
-                .text_size(rems(rem::XS))
-                .text_color(cx.theme().muted_foreground)
-                .child(model.id.clone()),
-        );
+        .child(Label::new(model.id.clone()).mono().muted());
 
     if let Some(description) = &model.description {
-        details = details.child(
-            div()
-                .text_size(rems(rem::SM))
-                .text_color(cx.theme().muted_foreground)
-                .child(description.clone()),
-        );
+        details = details.child(Body::new(description.clone()).muted());
     }
 
     for line in pricing_lines(&model.pricing) {
-        details = details.child(
-            div()
-                .text_size(rems(rem::SM))
-                .text_color(cx.theme().muted_foreground)
-                .child(line),
-        );
+        details = details.child(Label::new(line).muted());
     }
 
     h_flex()

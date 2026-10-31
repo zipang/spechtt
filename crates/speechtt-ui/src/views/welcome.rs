@@ -1,76 +1,66 @@
 //! Welcome screen: the mode chooser.
 //!
-//! Two equal cards, pinned to [`MODE_CARD_WIDTH`] and centered as a pair, so
-//! the free space grows around them instead of inside them. The live card goes
-//! to the Ready screen; the file card opens the picker. Whichever mode the user
-//! picks, the take itself is only a provider and a model — no name, no output
-//! target.
+//! One left-aligned spine: the screen title and its description sit on the same
+//! left edge as the two [`MODE_CARD_WIDTH`] cards, and the free space grows on
+//! the right instead of around them. The live card goes to the Ready screen;
+//! the file card opens the picker. Whichever mode the user picks, the take
+//! itself is only a provider and a model — no name, no output target.
 
 use gpui_kit::base::{h_flex, v_flex};
-use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::prelude::*;
-use gpui_kit::{AnyElement, Context, FontWeight, div, px, rems};
+use gpui_kit::{AnyElement, Context};
 
 use crate::app::SpeechTtApp;
-use crate::components::{Card, RoundButton};
+use crate::components::{Body, Card, Label, RoundButton, Title};
 use crate::controller::SessionMode;
 use crate::layout::ScreenShell;
-use crate::tokens::{MODE_CARD_WIDTH, rem};
+use crate::tokens::{MODE_CARD_WIDTH, space};
 
-pub(crate) fn render(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyElement {
-    let live_pulse = app.pulse_count("btn-mode-live");
-    let file_pulse = app.pulse_count("btn-mode-file");
-    let muted = cx.theme().muted_foreground;
-
+pub(crate) fn render(_app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyElement {
     let live_card = Card::new("mode-live")
-        .width(px(MODE_CARD_WIDTH))
+        .width(MODE_CARD_WIDTH)
+        .on_press(
+            cx.listener(|this, _event: &gpui_kit::MouseDownEvent, _window, cx| {
+                this.ripple("btn-mode-live", cx);
+            }),
+        )
         .on_click(cx.listener(|this, _event, _window, cx| this.choose_mode(SessionMode::Live, cx)))
-        .child(card_title("Live dictation"))
-        .child(card_description(
+        .child(card_copy(
+            "Live dictation",
             "Record and transcribe from your microphone in real time",
-            muted,
         ))
-        .child(div().flex_1().flex().items_center().justify_center().child(
-            RoundButton::new("btn-mode-live", gpui_kit::assets::IconName::Mic).pulse(live_pulse),
-        ))
-        .child(card_caption("Start"));
+        .child(card_action(
+            RoundButton::new("btn-mode-live", gpui_kit::assets::IconName::Mic),
+            "Start",
+        ));
 
     let file_card = Card::new("mode-file")
-        .width(px(MODE_CARD_WIDTH))
-        .on_click(cx.listener(|this, _event, _window, cx| this.choose_mode(SessionMode::File, cx)))
-        .child(card_title("From a file"))
-        .child(card_description(
-            "Import an audio or video recording",
-            muted,
-        ))
-        .child(
-            div().flex_1().flex().items_center().justify_center().child(
-                RoundButton::new("btn-mode-file", gpui_kit::assets::IconName::FileUp)
-                    .tone(crate::components::RoundTone::Secondary)
-                    .pulse(file_pulse),
-            ),
+        .width(MODE_CARD_WIDTH)
+        .on_press(
+            cx.listener(|this, _event: &gpui_kit::MouseDownEvent, _window, cx| {
+                this.ripple("btn-mode-file", cx);
+            }),
         )
-        .child(card_caption("Browse files"));
+        .on_click(cx.listener(|this, _event, _window, cx| this.choose_mode(SessionMode::File, cx)))
+        .child(card_copy(
+            "From a file",
+            "Import an audio or video recording",
+        ))
+        .child(card_action(
+            RoundButton::new("btn-mode-file", gpui_kit::assets::IconName::FileUp)
+                .tone(crate::components::RoundTone::Secondary),
+            "Browse files",
+        ));
 
     ScreenShell::headerless()
-        .body_gap(rems(0.75))
+        .body_gap(space::MD)
         .body(
             v_flex()
                 .w_full()
                 .gap_1()
-                .items_center()
-                .child(
-                    div()
-                        .text_size(rems(rem::LG))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child("Choose a mode"),
-                )
-                .child(
-                    div()
-                        .text_size(rems(rem::SM))
-                        .text_color(muted)
-                        .child("Select a transcription method"),
-                ),
+                .items_start()
+                .child(Title::new("Choose a mode"))
+                .child(Body::new("Select a transcription method").muted()),
         )
         .body(
             h_flex()
@@ -78,11 +68,11 @@ pub(crate) fn render(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyEle
                 .flex_1()
                 .min_h_0()
                 .items_center()
-                .justify_center()
+                .justify_start()
                 .child(
                     h_flex()
                         .items_stretch()
-                        .gap(rems(1.0))
+                        .gap_4()
                         .child(live_card)
                         .child(file_card),
                 ),
@@ -90,32 +80,26 @@ pub(crate) fn render(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyEle
         .into_any_element()
 }
 
-fn card_title(text: &'static str) -> AnyElement {
-    div()
+/// Title then description, centered.
+fn card_copy(title: &'static str, description: &'static str) -> AnyElement {
+    v_flex()
         .w_full()
-        .text_center()
-        .text_size(rems(rem::MD))
-        .font_weight(FontWeight::SEMIBOLD)
-        .child(text)
+        .gap_2()
+        .child(Title::new(title).center())
+        .child(Body::new(description).muted().center())
         .into_any_element()
 }
 
-fn card_description(text: &'static str, muted: gpui_kit::Hsla) -> AnyElement {
-    div()
+/// The round button plus its caption, in one block that sits at the card
+/// bottom so both cards share a button baseline however their copy wraps.
+fn card_action(button: RoundButton, caption: &'static str) -> AnyElement {
+    v_flex()
+        .flex_1()
         .w_full()
-        .text_center()
-        .text_size(rems(rem::SM))
-        .text_color(muted)
-        .child(text)
-        .into_any_element()
-}
-
-fn card_caption(text: &'static str) -> AnyElement {
-    div()
-        .w_full()
-        .text_center()
-        .text_size(rems(rem::XS))
-        .font_weight(FontWeight::MEDIUM)
-        .child(text)
+        .justify_end()
+        .items_center()
+        .gap_2()
+        .child(button)
+        .child(Label::new(caption))
         .into_any_element()
 }

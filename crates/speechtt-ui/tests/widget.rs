@@ -11,9 +11,13 @@
 //! registered at all.
 
 use gpui_kit::test::TestWindowExt;
-use gpui_kit::{App, AppContext as _, Entity, TestAppContext, Window};
+use gpui_kit::{
+    App, AppContext as _, Entity, Modifiers, MouseButton, TestAppContext, VisualTestContext, Window,
+};
 use speechtt_ui::app::SpeechTtApp;
-use speechtt_ui::components::{ROUND_BUTTON_SIZE, ripple_frame};
+use speechtt_ui::components::{
+    RIPPLE_MAX_SIZE, RIPPLE_START_SIZE, RIPPLE_TRAVEL, ROUND_BUTTON_SIZE, Ripple, ripple_frame,
+};
 use speechtt_ui::controller::{SessionMode, ViewState};
 
 mod common;
@@ -91,15 +95,28 @@ fn every_screen_renders_at_extreme_window_sizes(cx: &mut TestAppContext) {
 #[test]
 fn ripple_frames_expand_and_fade_monotonically() {
     let (start_diameter, start_alpha) = ripple_frame(0.0);
-    assert_eq!(start_diameter, ROUND_BUTTON_SIZE);
-    assert!(start_alpha > 0.0);
+    assert_eq!(
+        start_diameter, RIPPLE_START_SIZE,
+        "the wave starts at exactly the button diameter"
+    );
+    assert_eq!(
+        start_diameter, ROUND_BUTTON_SIZE,
+        "and the button diameter is its starting point"
+    );
+    assert_eq!(
+        start_alpha, 1.0,
+        "it starts fully opaque, hidden by the button"
+    );
 
     let mut previous = start_diameter;
     for step in 1..=10 {
         let delta = step as f32 / 10.0;
         let (diameter, alpha) = ripple_frame(delta);
         assert!(diameter > previous, "diameter must grow at {delta}");
-        assert!(diameter <= 84.0, "diameter must stay bounded at {delta}");
+        assert!(
+            diameter <= RIPPLE_MAX_SIZE,
+            "diameter must stay bounded at {delta}"
+        );
         assert!(
             alpha < ripple_frame(delta - 0.1).1,
             "alpha must fade at {delta}"
@@ -108,8 +125,17 @@ fn ripple_frames_expand_and_fade_monotonically() {
     }
 
     let (end_diameter, end_alpha) = ripple_frame(1.0);
-    assert_eq!(end_diameter, 84.0);
+    assert_eq!(end_diameter, RIPPLE_MAX_SIZE);
+    assert_eq!(
+        end_diameter,
+        ROUND_BUTTON_SIZE + RIPPLE_TRAVEL,
+        "it fades to transparent after travelling RIPPLE_TRAVEL"
+    );
     assert_eq!(end_alpha, 0.0);
+
+    // Opacity is the travelled radius: half-way through it is half transparent.
+    let (_, half_alpha) = ripple_frame(0.5);
+    assert_eq!(half_alpha, 0.5);
 }
 
 #[test]
@@ -118,58 +144,87 @@ fn ripple_frames_clamp_out_of_range_deltas() {
     assert_eq!(ripple_frame(2.0), ripple_frame(1.0));
 }
 
-#[gpui_kit::test]
-fn clicking_a_mode_card_bumps_its_pulse_counter(cx: &mut TestAppContext) {
-    let (window, view) = open_speechtt_window(cx);
-
-    let counts = |cx: &mut TestAppContext| {
-        cx.update(|cx| {
-            let app = view.read(cx);
-            (
-                app.pulse_count("btn-mode-live"),
-                app.pulse_count("btn-mode-file"),
-            )
-        })
-    };
-    assert_eq!(counts(cx), (0, 0));
-
-    view.update(cx, |view, _cx| view.pulse("btn-mode-live"));
-    assert_eq!(counts(cx), (1, 0));
-
-    view.update(cx, |view, _cx| view.pulse("btn-mode-live"));
-    assert_eq!(counts(cx), (2, 0));
-
-    // The chooser still renders with an active ripple.
-    cx.update_window(window.into(), |_, window, cx| {
-        window.render_frame(cx);
+/// `(ripple, state)` in one hop.
+fn snapshot(cx: &TestAppContext, view: &Entity<SpeechTtApp>) -> (Option<Ripple>, ViewState) {
+    cx.update(|app| {
+        let app = view.read(app);
+        (app.current_ripple(), app.view_state())
     })
-    .unwrap();
 }
 
+/// The ripple must be started by the real press, must keep animating after the
+/// screen changes, and must visibly grow. Each clause is a bug that shipped
+/// once: no ripple was ever drawn (dead counter), the ring was squeezed back to
+/// the button size (flex shrink), and the ring died on navigation (owned by the
+/// pressed screen).
 #[gpui_kit::test]
-fn the_ripple_renders_on_every_round_button(cx: &mut TestAppContext) {
+fn pressing_a_mode_card_starts_a_wave_centred_on_it_that_outlives_the_screen_change(
+    cx: &mut TestAppContext,
+) {
     let (window, view) = open_speechtt_window(cx);
+    let mut visual = VisualTestContext::from_window(window.into(), cx);
+    visual.run_until_parked();
 
-    view.update(cx, |view, cx| {
-        view.pulse("btn-mode-live");
-        view.pulse("btn-mode-file");
-        view.choose_mode(SessionMode::Live, cx);
-        view.cycle_provider(cx);
-        view.cycle_model(cx);
-        view.create_session(cx);
-        view.pulse("btn-record");
-    });
+    let (ripple, state) = snapshot(&visual.cx, &view);
+    assert_eq!(ripple, None, "no ripple before the first press");
+    assert_eq!(state, ViewState::Mode);
 
-    cx.update_window(window.into(), |_, window, cx| {
-        window.render_frame(cx);
-    })
-    .unwrap();
+    let card = visual.debug_bounds("mode-live").expect("live card bounds");
+    let button = visual
+        .debug_bounds("btn-mode-live")
+        .expect("live button bounds");
 
-    cx.update(|cx| {
-        let app = view.read(cx);
-        assert_eq!(app.pulse_count("btn-record"), 1);
-        assert_eq!(app.view_state(), ViewState::Ready);
-    });
+    // Press deliberately near the card's top-left corner, far from the button:
+    // the wave must still be centred on the button, not on the pointer.
+    let press_point = card.center() - gpui_kit::point(gpui_kit::px(60.0), gpui_kit::px(40.0));
+    assert!(
+        !button.contains(&press_point),
+        "the press point must be outside the button for this assertion to mean anything"
+    );
+
+    // Press only: the ripple starts, the mode has not been chosen yet.
+    visual.simulate_mouse_down(press_point, MouseButton::Left, Modifiers::none());
+    let (ripple, state) = snapshot(&visual.cx, &view);
+    let ripple = ripple.expect("pressing the card must start a ripple");
+    assert_eq!(
+        (ripple.x, ripple.y),
+        (f32::from(button.center().x), f32::from(button.center().y)),
+        "the wave is concentric with the button, not with the pointer"
+    );
+    assert_eq!(
+        state,
+        ViewState::Mode,
+        "the mode changes on click, not on press"
+    );
+
+    // The ring is in the painted frame at the button diameter, and growing.
+    // The wave is in the painted frame, at the button diameter — identical to
+    // the button, so it is hidden until it grows. Growth and the fade are the
+    // pure `ripple_frame` spec; this test owns the wiring.
+    let start = visual
+        .debug_bounds("ripple-ring")
+        .expect("the wave must be laid out after a press")
+        .size
+        .width;
+    assert_eq!(
+        f32::from(start),
+        RIPPLE_START_SIZE,
+        "the wave starts at the button diameter"
+    );
+
+    // Release: the command runs, and the ring is still there — it belongs to
+    // the window, so the screen change must not kill it.
+    visual.simulate_mouse_up(press_point, MouseButton::Left, Modifiers::none());
+    let (ripple, state) = snapshot(&visual.cx, &view);
+    assert_eq!(state, ViewState::Form);
+    assert!(ripple.is_some(), "the ring survives the screen change");
+    let after = visual
+        .debug_bounds("ripple-ring")
+        .expect("the ring keeps painting on the new screen");
+    assert!(
+        f32::from(after.size.width) >= RIPPLE_START_SIZE,
+        "the ring keeps its size on the new screen"
+    );
 }
 
 #[gpui_kit::test]

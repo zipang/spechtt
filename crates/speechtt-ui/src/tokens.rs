@@ -104,13 +104,15 @@ pub const WIDGET_HEIGHT: f32 = 460.0;
 
 /// Smallest window the widget accepts.
 ///
-/// The mode chooser needs it: its two cards, the gap between them and the body
-/// inset must never be squeezed, or the cards would overlap the welcome title.
-/// With the mockup's 272 px cards the minimum equals the default width, so the
-/// window can no longer be narrowed below 600 px. The window manager enforces
-/// it, and a remembered smaller geometry is raised to it on launch.
+/// The mode chooser sets it: its two 272 px cards, the gap between them and the
+/// body inset must never be squeezed, or the cards are truncated and overlap
+/// the description above. The minimum is the smallest box the chooser still
+/// renders intact — 600 x 378 px. It is enforced three ways: as the window's
+/// min-size hint, as a clamp on restored geometry, and at runtime by the app,
+/// which resizes the window back up whenever it is observed below the floor
+/// (some window managers ignore the hint).
 pub const MIN_WINDOW_WIDTH: f32 = 600.0;
-pub const MIN_WINDOW_HEIGHT: f32 = 360.0;
+pub const MIN_WINDOW_HEIGHT: f32 = 378.0;
 
 /// Width of one mode-chooser card.
 ///

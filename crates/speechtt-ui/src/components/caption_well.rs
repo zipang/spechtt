@@ -4,12 +4,11 @@
 //! Grows into the remaining screen height and clips overflow; the window
 //! decides how much of a long take is visible.
 
-use gpui_kit::component::ActiveTheme as _;
-use gpui_kit::prelude::*;
-use gpui_kit::{App, IntoElement, RenderOnce, SharedString, Window, div, rems};
+use gpui_kit::{App, IntoElement, RenderOnce, SharedString, Window};
 
+use crate::components::Label;
 use crate::layout::SurfaceBox;
-use crate::tokens::{color, rem};
+use crate::tokens::color;
 
 #[derive(IntoElement)]
 pub struct CaptionWell {
@@ -27,26 +26,15 @@ impl CaptionWell {
 }
 
 impl RenderOnce for CaptionWell {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let mono = cx.theme().mono_font_family.clone();
-        let text_size = rems(rem::SM);
-
+    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
         SurfaceBox::new()
             .flex_1()
             .clip()
+            .child(Label::new(self.committed).mono().muted())
             .child(
-                div()
-                    .font_family(mono.clone())
-                    .text_size(text_size)
-                    .text_color(cx.theme().muted_foreground)
-                    .child(self.committed),
-            )
-            .child(
-                div()
-                    .font_family(mono)
-                    .text_size(text_size)
-                    .text_color(gpui_kit::rgb(color::BRAND_ACCENT))
-                    .child(self.live),
+                Label::new(self.live)
+                    .mono()
+                    .tone(gpui_kit::rgb(color::BRAND_ACCENT).into()),
             )
     }
 }

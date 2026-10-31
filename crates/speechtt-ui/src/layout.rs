@@ -11,7 +11,7 @@
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::prelude::*;
-use gpui_kit::{AnyElement, App, DefiniteLength, IntoElement, RenderOnce, Window, px, rems};
+use gpui_kit::{AnyElement, App, IntoElement, RenderOnce, Window, px};
 
 use crate::tokens::radius;
 
@@ -24,8 +24,8 @@ pub struct ScreenShell {
     body: Vec<AnyElement>,
     footer: Option<AnyElement>,
     center_body: bool,
-    gap: DefiniteLength,
-    body_gap: DefiniteLength,
+    gap: f32,
+    body_gap: f32,
 }
 
 impl ScreenShell {
@@ -37,8 +37,8 @@ impl ScreenShell {
             body: Vec::new(),
             footer: None,
             center_body: false,
-            gap: rems(0.25).into(),
-            body_gap: rems(0.25).into(),
+            gap: 4.0,
+            body_gap: 4.0,
         }
     }
 
@@ -50,8 +50,8 @@ impl ScreenShell {
             body: Vec::new(),
             footer: None,
             center_body: false,
-            gap: rems(0.25).into(),
-            body_gap: rems(0.25).into(),
+            gap: 4.0,
+            body_gap: 4.0,
         }
     }
 
@@ -79,15 +79,15 @@ impl ScreenShell {
         self
     }
 
-    /// Gap between the three bands.
-    pub fn gap(mut self, gap: impl Into<DefiniteLength>) -> Self {
-        self.gap = gap.into();
+    /// Gap between the three bands, in logical pixels (a `tokens::space`).
+    pub fn gap(mut self, gap: f32) -> Self {
+        self.gap = gap;
         self
     }
 
-    /// Gap between children of the body band.
-    pub fn body_gap(mut self, gap: impl Into<DefiniteLength>) -> Self {
-        self.body_gap = gap.into();
+    /// Gap between children of the body band, in logical pixels.
+    pub fn body_gap(mut self, gap: f32) -> Self {
+        self.body_gap = gap;
         self
     }
 }
@@ -111,13 +111,13 @@ impl RenderOnce for ScreenShell {
             .flex_1()
             .min_h_0()
             .w_full()
-            .gap(self.body_gap)
+            .gap(px(self.body_gap))
             .children(self.body);
         if self.center_body {
             body = body.items_center().justify_center();
         }
 
-        let mut shell = v_flex().size_full().min_h_0().gap(self.gap);
+        let mut shell = v_flex().size_full().min_h_0().gap(px(self.gap));
         if has_header {
             shell = shell.child(header);
         }

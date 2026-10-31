@@ -174,16 +174,33 @@ downloaded face.
 
 The type scale is geometric with ratio 1.25 (Major Third):
 `size(step) = 1rem * 1.25^step`, so `md` is `1rem`, `lg` `1.25rem`, `xl`
-`1.5625rem`, and `2xl` `1.953rem`. Shortcut hints use the `mono` style with
-wide letter-spacing and uppercase labels. Font sizes are defined in the
-stylesheet only — they are not front-matter entries.
+`1.5625rem`, and `2xl` `1.953rem`.
+
+**The application uses three of those steps, and only three.** Every string is
+rendered by one of three components, so a role always looks the same on every
+screen:
+
+| Component | Role                       | Token            | Size   | Weight   |
+|-----------|----------------------------|------------------|--------|----------|
+| `Title`   | screen and card titles      | `--font-size-lg` | 20 px  | semibold |
+| `Body`    | body copy, settings rows    | `--font-size-md` | 16 px  | regular  |
+| `Label`   | captions, badges, hints     | `--font-size-sm` | 12.8 px| medium   |
+
+A view never passes a size or a weight: it picks the role, and may add only
+`.muted()`, `.tone(..)`, `.mono()`, `.bold()` (the single emphasis step above
+the role's weight) or `.center()`. `--font-size-xs`, `--font-size-xl` and
+`--font-size-2xl` stay in the token file as the stylesheet's record but are not
+used by the application; `crates/speechtt-ui/tests/design_system.rs` fails the
+build if a `text_size` or `font_weight` appears outside
+`components/text.rs`. Shortcut hints and read-outs use `.mono()` on one of the
+three roles, not a separate size.
 
 ## Layout
 
 A 4px linear spacing scale with `1rem` (16px) as the base step. The floating
 panel opens at 600 x 460 px (or the size and position remembered from the last
 run) with `--rounded-lg` corners and `--space-base` internal padding. It can
-never be resized below 600 x 360 px: that is the smallest box that fits the
+never be resized below 600 x 378 px: that is the smallest box that fits the
 mode chooser's two 272 px cards, the gap between them and the body inset, so
 the cards never collide with the welcome title and both descriptions stay on
 two lines. A remembered smaller geometry is
@@ -216,16 +233,37 @@ drag indicator.
 Rendered by `components::RoundButton` — never a raw `div` sized at the call
 site. Exactly one diameter (56 px, `rounded.full`), two tones:
 
-- `Primary`: `brand.primary` fill, `--color-on-primary` icon, hover
-  `brand.primary-active`.
-- `Secondary`: `surface` fill, 1px `brand.secondary` border, `text` icon,
-  hover `surface-alt-active` with a `brand.primary/40` border.
+- `Primary`: `brand.primary` fill with a `brand.primary` outline, hover
+  `brand.primary-active` with a `brand.primary` outline.
+- `Secondary`: `surface` fill with a 1px `brand.secondary` outline, hover
+  `surface-alt-active` with a `brand.primary` outline.
 
-A click expands a single 2px ring behind the button from 56 to 84 px while
-fading from 55% to 0% opacity over 400 ms (`ease-out-quint`). The ring never
-affects layout, and it is driven by the view's monotonic pulse counter so it
-restarts on every click. Inside a [`Card`] the round button is visual only —
-it has no hover, cursor or click — because the card owns the interaction.
+Both tones use the same ink for their glyph (`--color-text`): a tone never
+tints the icon. The 2px outline is always present and only changes colour —
+tone colour at rest, `brand.primary` on hover — so hovering never nudges the
+layout; the fill switches to the tone's active variant at the same time. There
+is no separate hover-only style for the card case: the round button always
+shows the hover and press treatment, which is what makes the whole card read
+as one control.
+
+### Press wave
+
+A press spreads one filled circle from the button. It is the **button's own
+colour**, starts at the **button's own diameter and centre**, and grows by
+`RIPPLE_TRAVEL` (20 px) while its opacity falls from 1 to 0 over exactly that
+travel — so at rest it is completely hidden behind the button face and all that
+is ever visible is a thin slice of the disc appearing at the edge and vanishing.
+It runs for 450 ms and never affects layout.
+
+Rendered by `components::RippleRing` at the **window root**, above the screen.
+Being the button's colour, the part that overlaps the button is invisible, which
+is what makes the wave read as emerging from behind the button rather than from
+on top of it. The window owns it — not the pressed screen — because every round
+action navigates (chooser → form, Ready → Recording, Pause → Paused); a wave
+drawn inside the pressed screen would be destroyed on release. Its centre comes
+from the anchor the button records while prepainting
+(`components::button_anchors`), so the wave is concentric with the button no
+matter where inside it the pointer landed.
 
 ### Card
 
@@ -240,15 +278,15 @@ show a pointer cursor, a `brand.primary/50` hover border and a
 ### Mode chooser
 
 The `Blank` screen: no status pill, `--space-lg` inset, title **Choose a
-mode** at `--font-size-lg` semibold, subtitle at `--font-size-sm` muted, then
-two equal cards (live dictation, from a file). Both cards are pinned to
-`MODE_CARD_WIDTH` (216 px), sit `--space-base` apart and are centered as a
-pair, so extra window space grows around the pair, never inside the cards.
-Each card centres a title
-(`--font-size-md` semibold), a wrapped description (`--font-size-sm`
-muted), a round button and an uppercase-free `--font-size-xs` medium caption
-(`Start`, `Browse files`). Captions align because the cards are the same
-height.
+mode** at `Title` (lg) semibold, description **Select a transcription method**
+at `Body` (md) muted, then two equal cards (live dictation, from a file). The
+title and description are left-aligned on the same left spine as the cards'
+left edge; free window space grows on the right, never inside the cards. Both
+cards are pinned to `MODE_CARD_WIDTH` (272 px) and sit `--space-base` apart.
+Each card centres a `Title` and a muted `Body` description, then pushes a
+`RoundButton` with its `Label` caption (`Start`, `Browse files`)
+`--space-sm` beneath it to the card bottom. Because the button block is pinned
+to the bottom, both buttons share one baseline however the descriptions wrap.
 
 ### Record / transport controls
 

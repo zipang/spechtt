@@ -11,16 +11,21 @@
 mod action_button;
 mod app_footer;
 mod app_header;
+mod button_anchors;
 mod caption_well;
 mod card;
 mod elapsed_timer;
 mod icon_action;
 mod icon_button;
+mod info_note;
 mod key_cap;
+mod ripple;
 mod round_button;
 mod setting_row;
 mod status_badge;
+mod status_dot;
 mod stop_control;
+mod text;
 mod transcription_mode_badge;
 mod transport_header;
 mod waveform;
@@ -28,16 +33,24 @@ mod waveform;
 pub use action_button::{ActionButton, ActionTone};
 pub use app_footer::AppFooter;
 pub use app_header::AppHeader;
+pub use button_anchors::{Anchor, button_anchor, record_button_anchor};
 pub use caption_well::CaptionWell;
 pub use card::Card;
 pub use elapsed_timer::ElapsedTimer;
 pub use icon_action::IconAction;
 pub use icon_button::IconButton;
+pub use info_note::InfoNote;
 pub use key_cap::KeyCap;
-pub use round_button::{ROUND_BUTTON_SIZE, RoundButton, RoundTone, ripple_frame};
+pub use ripple::{Ripple, RippleRing};
+pub use round_button::{
+    RIPPLE_DURATION, RIPPLE_MAX_SIZE, RIPPLE_SELECTOR, RIPPLE_START_SIZE, RIPPLE_TRAVEL,
+    ROUND_BUTTON_SIZE, RoundButton, RoundTone, ripple_frame,
+};
 pub use setting_row::SettingRow;
 pub use status_badge::{BadgeTone, StatusBadge};
+pub use status_dot::StatusDot;
 pub use stop_control::StopControl;
+pub use text::{Body, Label, TextRole, Title};
 pub use transcription_mode_badge::{TranscriptionModeBadge, mode_label};
 pub use transport_header::{Progress, TransportHeader};
 pub use waveform::Waveform;

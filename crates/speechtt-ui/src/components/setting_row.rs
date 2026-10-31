@@ -9,11 +9,9 @@
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::prelude::*;
-use gpui_kit::{
-    AnyElement, App, FontWeight, IntoElement, RenderOnce, SharedString, Window, div, rems,
-};
+use gpui_kit::{AnyElement, App, IntoElement, RenderOnce, SharedString, Window, rems};
 
-use crate::tokens::rem;
+use crate::components::{Body, Label};
 
 #[derive(IntoElement)]
 pub struct SettingRow {
@@ -58,25 +56,16 @@ impl RenderOnce for SettingRow {
             slot = slot.child(control);
         }
 
-        let title = if self.prominent {
-            div()
-                .text_size(rems(rem::MD))
-                .font_weight(FontWeight::MEDIUM)
-                .child(self.label)
+        let (title, description) = if self.prominent {
+            (
+                Body::new(self.label).bold().into_any_element(),
+                Body::new(self.description).muted().into_any_element(),
+            )
         } else {
-            div()
-                .text_size(rems(rem::XS))
-                .font_weight(FontWeight::BOLD)
-                .text_color(cx.theme().muted_foreground)
-                .child(self.label)
-        };
-        let description = if self.prominent {
-            div()
-                .text_size(rems(rem::MD))
-                .text_color(cx.theme().muted_foreground)
-                .child(self.description)
-        } else {
-            div().text_size(rems(rem::SM)).child(self.description)
+            (
+                Label::new(self.label).bold().muted().into_any_element(),
+                Label::new(self.description).into_any_element(),
+            )
         };
 
         let row = h_flex()
