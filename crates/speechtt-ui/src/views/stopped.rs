@@ -8,16 +8,17 @@
 //! A take that recorded nothing is a normal outcome: Copy and Save are
 //! disabled and a muted label replaces the transient status area, so no
 //! failure is ever implied.
+//!
+//! Going home is the shared footer's back action (T0021); the header no longer
+//! carries its own "New take" button.
 
 use gpui_kit::assets::IconName;
 use gpui_kit::base::h_flex;
-use gpui_kit::component::Sizable as _;
-use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, Context};
 
 use crate::app::SpeechTtApp;
-use crate::components::{CaptionWell, IconAction, Label, StatusBadge};
+use crate::components::{CaptionWell, IconAction, Label, ScreenFooter, StatusBadge};
 use crate::layout::{ScreenShell, SurfaceBox};
 use crate::tokens::space;
 
@@ -43,17 +44,18 @@ pub(crate) fn render(app: &mut SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> An
 
     let controls = if written {
         h_flex().gap_2().child(
-            IconAction::new("btn-open-file", IconName::FileText).on_click(cx.listener(
-                |this, _event, _window, cx| {
+            IconAction::new("btn-open-file", IconName::FileText)
+                .label("Open file")
+                .on_click(cx.listener(|this, _event, _window, cx| {
                     this.open_saved_file(cx);
-                },
-            )),
+                })),
         )
     } else {
         h_flex()
             .gap_2()
             .child(
                 IconAction::new("btn-copy", IconName::Copy)
+                    .label("Copy")
                     .disabled(empty)
                     .on_click(cx.listener(|this, _event, _window, cx| {
                         this.copy_transcript(cx);
@@ -61,6 +63,7 @@ pub(crate) fn render(app: &mut SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> An
             )
             .child(
                 IconAction::new("btn-save", IconName::HardDriveDownload)
+                    .label("Save")
                     .disabled(empty)
                     .on_click(cx.listener(|this, _event, _window, cx| {
                         this.save_transcript(cx);
@@ -77,16 +80,7 @@ pub(crate) fn render(app: &mut SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> An
         CaptionWell::new(committed, live).into_any_element()
     };
 
-    let new_take = Button::new("btn-new-take")
-        .secondary()
-        .small()
-        .label("New take")
-        .on_click(cx.listener(|this, _event, _window, cx| {
-            this.new_take(cx);
-        }));
-
     let mut shell = ScreenShell::new(StatusBadge::new("STOPPED"))
-        .header_trailing(new_take)
         .gap(space::SM)
         .body_gap(space::SM)
         .body(body);
@@ -98,6 +92,16 @@ pub(crate) fn render(app: &mut SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> An
     }
 
     shell
-        .footer(h_flex().items_end().justify_end().child(controls))
+        .footer(
+            ScreenFooter::new()
+                .back(
+                    "btn-new-take",
+                    "Back",
+                    cx.listener(|this, _event, _window, cx| {
+                        this.go_back(cx);
+                    }),
+                )
+                .trailing(controls),
+        )
         .into_any_element()
 }

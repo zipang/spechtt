@@ -3,9 +3,9 @@
 //! Phase 2 shell: header + body views derived from the session controller.
 //!
 //! ```text
-//! Mode   → (provider + model form) → Ready → Recording ⇄ Paused
-//!                   ↑                            │
-//!                   └──── "change mode" ──── Stopped ← Stop
+//! Mode → (setup form when needed) → Live take (idle ⇄ recording ⇄ paused)
+//!   ↑                                    │
+//!   └────────── Back (every screen) ── Stopped ← Stop
 //! ```
 //!
 //! This module owns the window shell, the workflow state and the public
@@ -42,9 +42,7 @@ use speechtt_core::output::paste::{PasteSink, SystemPaste};
 use speechtt_core::session::{SessionField, SessionState};
 use speechtt_core::settings::{JsonFileStore, Settings, SettingsStore, WindowLayout};
 
-use crate::components::{
-    ActionButton, AppFooter, AppHeader, IconButton, Label, Ripple, RippleRing,
-};
+use crate::components::{AppHeader, IconButton, Label, Ripple, RippleRing};
 use crate::controller::{
     AppError, Clock, Dialog, ErrorAction, FinishedTake, HelpTab, SAMPLE_RATE, SessionController,
     SessionMode, SettingsChange, SettingsDraft, SystemClock, ViewState,
@@ -449,10 +447,24 @@ impl SpeechTtApp {
         cx.notify();
     }
 
-    /// Back to the mode chooser (File Ready's "Change mode" link).
+    /// Back to the mode chooser (the file flow's exit, and the command under
+    /// the shared footer's back action).
     pub fn change_mode(&mut self, cx: &mut Context<Self>) {
         self.stop_audio_capture();
         self.controller.change_mode();
+        cx.notify();
+    }
+
+    /// The one back action every screen footer renders.
+    ///
+    /// Back always means "one step towards the mode chooser": the setup form
+    /// discards its draft, a finished take is cleared, and the take screen
+    /// returns home. Transient state (error strip, pending file, output status,
+    /// finished take) is dropped exactly as the underlying controller method
+    /// already does it, so no stale screen state survives the step (T0021).
+    pub fn go_back(&mut self, cx: &mut Context<Self>) {
+        self.stop_audio_capture();
+        self.controller.go_back();
         cx.notify();
     }
 
@@ -1210,32 +1222,17 @@ impl gpui_kit::Render for SpeechTtApp {
         }
 
         let state = self.view_state();
-        let mut body = v_flex()
-            .flex_1()
-            .min_h_0()
-            .w_full()
-            .overflow_hidden()
-            .justify_between();
-        // The setup form owns the dialog-like `p_5` body padding; every other
-        // screen keeps the compact widget inset.
-        if state != ViewState::Form {
-            body = body.px_5().py_2p5();
-        }
+        let body = v_flex().flex_1().min_h_0().w_full().overflow_hidden();
 
+        // Every screen fills the window body and owns its own header/body
+        // inset through `ScreenShell`; footers are part of the screen so they
+        // can run to the window edge.
         root = root.child(body.child(match state {
             ViewState::Mode => views::welcome::render(self, cx),
             ViewState::Form => views::session_setup::render(self, cx),
-            ViewState::Ready => views::ready::render(self, cx),
-            ViewState::Recording => views::recording::render(self, cx),
-            ViewState::Paused => views::paused::render(self, cx),
+            ViewState::Live => views::recording::render(self, cx),
             ViewState::Stopped => views::stopped::render(self, cx),
         }));
-
-        // The setup form's actions are full-bleed, exactly like AppHeader, and
-        // stay pinned while the two setting rows scroll.
-        if state == ViewState::Form {
-            root = root.child(self.render_form_footer(cx));
-        }
 
         // The press wave is painted last, above the screen. It is the button's
         // own colour, so the part over the button is invisible and only the
@@ -1252,22 +1249,6 @@ impl gpui_kit::Render for SpeechTtApp {
 }
 
 impl SpeechTtApp {
-    fn render_form_footer(&self, cx: &mut Context<Self>) -> AnyElement {
-        let can_create = self.controller().is_draft_complete();
-
-        AppFooter::new()
-            .action(
-                ActionButton::secondary("btn-cancel-session", "Cancel")
-                    .on_click(cx.listener(|this, _event, _window, cx| this.cancel_form(cx))),
-            )
-            .action(
-                ActionButton::primary("btn-create-session", "Continue")
-                    .disabled(!can_create)
-                    .on_click(cx.listener(|this, _event, _window, cx| this.create_session(cx))),
-            )
-            .into_any_element()
-    }
-
     fn render_error_strip(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let error = self.controller.app_error()?.clone();
         let action = error.action();

@@ -13,7 +13,14 @@ use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, App, IntoElement, RenderOnce, Window, px};
 
-use crate::tokens::radius;
+use crate::tokens::{radius, space};
+
+/// Vertical inset of a screen's header and body (the old `py_2p5`).
+///
+/// The horizontal inset is `space::LG`, the window gutter every screen used
+/// through `px_5`. Both belong to the shell rather than to the window so the
+/// footer can stay full-bleed at the bottom edge.
+const SCREEN_INSET_Y: f32 = 10.0;
 
 /// Three-band screen container: optional status header, flexible body,
 /// optional footer.
@@ -26,6 +33,7 @@ pub struct ScreenShell {
     center_body: bool,
     gap: f32,
     body_gap: f32,
+    inset: (f32, f32),
 }
 
 impl ScreenShell {
@@ -39,6 +47,7 @@ impl ScreenShell {
             center_body: false,
             gap: 4.0,
             body_gap: 4.0,
+            inset: (space::LG, SCREEN_INSET_Y),
         }
     }
 
@@ -52,7 +61,16 @@ impl ScreenShell {
             center_body: false,
             gap: 4.0,
             body_gap: 4.0,
+            inset: (space::LG, SCREEN_INSET_Y),
         }
+    }
+
+    /// Overrides the horizontal and vertical inset of the header and body.
+    ///
+    /// The footer is never inset: it spans the window edge.
+    pub fn inset(mut self, x: f32, y: f32) -> Self {
+        self.inset = (x, y);
+        self
     }
 
     /// Adds content to the trailing header edge (timer, "New take", …).
@@ -117,11 +135,22 @@ impl RenderOnce for ScreenShell {
             body = body.items_center().justify_center();
         }
 
-        let mut shell = v_flex().size_full().min_h_0().gap(px(self.gap));
+        // Header and body share one inset box; the footer sits below it so it
+        // can run to the window edge like the application header does.
+        let mut content = v_flex().flex_1().min_h_0().w_full().gap(px(self.gap));
         if has_header {
-            shell = shell.child(header);
+            content = content.child(header);
         }
-        let mut shell = shell.child(body);
+        content = content.child(body);
+        let content = v_flex()
+            .flex_1()
+            .min_h_0()
+            .w_full()
+            .px(px(self.inset.0))
+            .py(px(self.inset.1))
+            .child(content);
+
+        let mut shell = v_flex().size_full().min_h_0().child(content);
         if let Some(footer) = self.footer {
             shell = shell.child(footer);
         }

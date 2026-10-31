@@ -1203,7 +1203,7 @@ fn the_app_event_pump_updates_the_caption_and_copy_uses_the_clipboard(
         view.update(cx, |app, cx| {
             // Persisted settings resolve, so Live lands on Ready directly.
             app.choose_mode(SessionMode::Live, cx);
-            assert_eq!(app.view_state(), ViewState::Ready);
+            assert_eq!(app.view_state(), ViewState::Live);
         });
     })
     .unwrap();
@@ -1561,10 +1561,7 @@ fn a_file_path_starts_a_take_without_audio(cx: &mut gpui_kit::TestAppContext) {
     })
     .unwrap();
 
-    assert_eq!(
-        cx.update(|cx| view.read(cx).view_state()),
-        ViewState::Recording
-    );
+    assert_eq!(cx.update(|cx| view.read(cx).view_state()), ViewState::Live);
 
     let commands = sink.take();
     assert_eq!(commands.len(), 1, "{commands:?}");

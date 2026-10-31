@@ -21,6 +21,7 @@ mod info_note;
 mod key_cap;
 mod ripple;
 mod round_button;
+mod screen_footer;
 mod setting_row;
 mod status_badge;
 mod status_dot;
@@ -46,6 +47,7 @@ pub use round_button::{
     RIPPLE_DURATION, RIPPLE_MAX_SIZE, RIPPLE_SELECTOR, RIPPLE_START_SIZE, RIPPLE_TRAVEL,
     ROUND_BUTTON_SIZE, RoundButton, RoundTone, ripple_frame,
 };
+pub use screen_footer::{FooterZone, ScreenFooter};
 pub use setting_row::SettingRow;
 pub use status_badge::{BadgeTone, StatusBadge};
 pub use status_dot::StatusDot;

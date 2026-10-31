@@ -4,7 +4,7 @@ use gpui_kit::assets::IconName;
 use gpui_kit::base::h_flex;
 use gpui_kit::component::{ActiveTheme as _, Icon};
 use gpui_kit::prelude::*;
-use gpui_kit::{App, ClickEvent, ElementId, IntoElement, RenderOnce, Window, px};
+use gpui_kit::{App, ClickEvent, ElementId, IntoElement, RenderOnce, SharedString, Window, px};
 
 type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
@@ -13,6 +13,7 @@ type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 pub struct IconAction {
     id: ElementId,
     icon: IconName,
+    label: SharedString,
     disabled: bool,
     on_click: Option<ClickHandler>,
 }
@@ -22,9 +23,19 @@ impl IconAction {
         Self {
             id: id.into(),
             icon,
+            label: SharedString::default(),
             disabled: false,
             on_click: None,
         }
+    }
+
+    /// The accessible name announced for the action.
+    ///
+    /// The glyph is the only visible content, so every non-decorative
+    /// `IconAction` should name itself (Back, Reset, Stop…).
+    pub fn label(mut self, label: impl Into<SharedString>) -> Self {
+        self.label = label.into();
+        self
     }
 
     /// Dims the control and drops its cursor, hover and click behavior.
@@ -53,6 +64,10 @@ impl RenderOnce for IconAction {
             .bg(cx.theme().secondary)
             .text_color(cx.theme().muted_foreground)
             .opacity(if self.disabled { 0.35 } else { 1.0 });
+
+        if !self.label.is_empty() {
+            action = action.aria_label(self.label);
+        }
 
         if !self.disabled {
             action = action

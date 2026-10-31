@@ -34,6 +34,8 @@ gpui_kit::assets::icon_assets!(
         Square,
         Pause,
         Play,
+        ArrowBigLeft,
+        ArrowBigRight,
         Copy,
         HardDriveDownload,
         FileText,

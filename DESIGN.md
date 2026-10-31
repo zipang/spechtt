@@ -111,10 +111,12 @@ near-black charcoal panel, warm off-white text, and one decisive, deep
 orange is the product's signature — everything else is quiet so the recording
 state reads at a glance.
 
-The widget has four states: **Idle**, **Recording**, **Paused**, and
-**Settings**. Recording and Paused must be distinguishable from across the
-room, so status is carried by color, label, dot, and waveform shape all at
-once — never by color alone.
+The widget has three screen states — the **mode chooser**, the **setup form**
+and the **take screen** — plus the **stopped** result and the floating
+**Settings** and **Help** dialogs. The take screen itself has three take
+states: **idle**, **recording** and **paused**. Recording and Paused must be
+distinguishable from across the room, so status is carried by color, label,
+dot, and waveform shape all at once — never by color alone.
 
 ## Colors
 
@@ -259,8 +261,9 @@ Rendered by `components::RippleRing` at the **window root**, above the screen.
 Being the button's colour, the part that overlaps the button is invisible, which
 is what makes the wave read as emerging from behind the button rather than from
 on top of it. The window owns it — not the pressed screen — because every round
-action navigates (chooser → form, Ready → Recording, Pause → Paused); a wave
-drawn inside the pressed screen would be destroyed on release. Its centre comes
+action navigates (chooser → form, the form → the take screen, the take
+screen → the chooser); a wave drawn inside the pressed screen would be
+destroyed on release. Its centre comes
 from the anchor the button records while prepainting
 (`components::button_anchors`), so the wave is concentric with the button no
 matter where inside it the pointer landed.
@@ -299,11 +302,12 @@ component as-is: no new tone, size or spacing.
 
 ### Record / transport controls
 
-The round button is the hero of the recording screens at the same 56 px size
-as everywhere else: `Primary` with a mic glyph on Ready, a pause glyph while
-recording, a play glyph on Paused and a stop square (small square
-`IconAction`) beside them. Paused's Resume stays `Primary`; colour alone
-never distinguishes the states — the status pill and waveform do.
+The round button is the hero of the take screen at the same 56 px size as
+everywhere else: `Primary` with a mic glyph while idle, a pause glyph while
+recording, a play glyph while paused, and a stop square (small square
+`IconAction`) in the footer's trailing zone. A paused take's Resume stays
+`Primary`; colour alone never distinguishes the states — the status pill and
+waveform do.
 
 ### Waveform
 
@@ -334,7 +338,42 @@ Rendered by `components::ActionButton`, never a raw `Button` with a size set
 at the call site. One medium size everywhere: `--font-size-md`, 32px high,
 `--space-sm`/`--space-md` horizontal padding. `Primary` marks the single
 committing action in a group (Save, Continue, Got it); `Secondary` marks the
-dismissing or alternative action (Cancel, Back, Change mode). No other tones are needed.
+dismissing or alternative action (Back, Cancel). No other tones are needed.
+
+### Screen footer
+
+Every widget screen with actions renders the same footer, built by
+`components::ScreenFooter`. It is one strip at the bottom edge of the window —
+`title_bar`, a 1px `title_bar_border` hairline on top, `--space-lg` horizontal
+padding — split into three zones:
+
+| Zone | Meaning |
+|---|---|
+| Leading | **Back**, one step towards the mode chooser |
+| Primary | The screen's main action, centred on the footer's own axis |
+| Trailing | Secondary actions, left to right in insertion order |
+
+The side zones are equal flexible columns, so the primary action stays centred
+whether a side is empty or full. Back is an `IconAction` (34 px, the same
+square as every other secondary action) carrying `ArrowBigLeft`, so the 56 px
+round button is unmistakably the main one. A screen with no actions renders no
+footer at all.
+
+A step inside a flow pairs its exits as two arrows: back on the left and
+forward on the right, the same square, the same glyph family, opposite
+directions. That pairing says "you are between two steps" without a label, and
+forward is dimmed until the step is complete.
+
+| View | Leading | Primary | Trailing |
+|---|---|---|---|
+| `welcome` (mode chooser) | — | — | — (no footer) |
+| `session_setup` | Back → mode chooser (drops the draft and any pending file) | — | Forward (`ArrowBigRight`, disabled until the draft is complete) → starts the take |
+| `recording` (live take) | Back → mode chooser | take control | Stop |
+| `stopped` | Back → mode chooser | — | Copy + Save, or Open file |
+
+Back means the same thing everywhere: one step towards the mode chooser, with
+no stale draft, pending file, finished take, output status or error strip left
+behind.
 
 ### Icon buttons
 

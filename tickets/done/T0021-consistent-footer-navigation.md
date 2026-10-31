@@ -1,6 +1,9 @@
 # T0021 — One consistent footer and a live-first navigation flow
 
 - **Track**: Rust UI (views + components)
+- **Owner**: CTO agent
+- **Started**: 2026-10-31
+- **Closed**: 2026-10-31
 - **Wave**: 2 (integration)
 - **Depends on**: T0017 (mode chooser), T0019 (one view per file), T0020
   (empty takes; it rewrites `views/stopped.rs` and `controller.rs`), T0023
@@ -155,26 +158,26 @@ Rules:
 
 ## TDD Tasks
 
-- [ ] **T21.1 — Red first: view states.** `tests/session_flow.rs` and
+- [x] **T21.1 — Red first: view states.** `tests/session_flow.rs` and
       `tests/widget.rs`: choosing Live with a complete configuration reports
       `ViewState::Live` (never `Ready`) and does not send `Start`; choosing File
       keeps `ViewState::Mode` when the picker is cancelled and reports `Form`
       once a path is pending; every existing `ViewState::Ready` assertion is
       rewritten to `Live` or `Form` according to the mode.
-- [ ] **T21.2 — Red first: back contract.** For each of `Form`, `Live`,
+- [x] **T21.2 — Red first: back contract.** For each of `Form`, `Live`,
       `Stopped`, one test drives the back action and asserts the resulting
       `ViewState::Mode` plus cleared transient state (no error strip, no
       finished take, no output status, no pending file). These are behaviour
       tests; no positions, sizes or geometry are asserted.
-- [ ] **T21.3 — Implement `ScreenFooter`.** Golden-shape unit tests for the
+- [x] **T21.3 — Implement `ScreenFooter`.** Golden-shape unit tests for the
       builder (zones default to empty, back builds an `IconAction`, trailing
       keeps insertion order). No rendering geometry assertions.
-- [ ] **T21.4 — Migrate the views.** `session_setup`, `stopped`, and the
+- [x] **T21.4 — Migrate the views.** `session_setup`, `stopped`, and the
       current `recording` use the footer; `app.rs` drops the form's
       window-level footer; `welcome` stays headerless and footerless.
-- [ ] **T21.5 — Remove the Ready view.** Delete `views/ready.rs` and register
+- [x] **T21.5 — Remove the Ready view.** Delete `views/ready.rs` and register
       `ArrowBigLeft` in `AppIcons`. No file-mode holding screen replaces it.
-- [ ] **T21.6 — Docs + gates.** Update `DESIGN.md` (footer spec + per-view
+- [x] **T21.6 — Docs + gates.** Update `DESIGN.md` (footer spec + per-view
       action table + view list) and the board. Run `cargo fmt -- --check`,
       `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
       `bun check src/stt`, and `bun run design:validate` if any doc/token file
@@ -195,6 +198,97 @@ Rules:
    from where the back/home action sits.
 6. All gates green with zero warnings; no visual-layout test added.
 
+## Review
+
+Validated by the CEO on 2026-10-31 in the running widget: the footer placement,
+the live-first flow, and — after one requested revision — the setup form's
+paired Back/Forward arrows. No independent reviewer pass ran: the `reviewer`
+sub-agent was still unavailable (usage limit), so the audit was the CTO agent's,
+backed by the back-contract tests and the builder-shape tests.
+
 ## Implementation Notes
 
 _(added during work)_
+
+## Review
+
+Validated by the CEO on 2026-10-31 in the running widget: the footer placement,
+the live-first flow, and — after one requested revision — the setup form's
+paired Back/Forward arrows. No independent reviewer pass ran: the `reviewer`
+sub-agent was still unavailable (usage limit), so the audit was the CTO agent's,
+backed by the back-contract tests and the builder-shape tests.
+
+## Implementation Notes
+
+### Decisions
+
+- **The footer is a real strip at the window edge.** `ScreenShell` now owns
+  the screen inset (`inset(x, y)`, default `space::LG` × 10 px — the old
+  `px_5`/`py_2p5`) for the header and body only, and makes the footer its
+  sibling. `app.rs` no longer pads the window body for any screen, so a
+  `ScreenFooter` runs to the window edge exactly like `AppHeader`, including on
+  the setup form. The 10 px vertical inset is a named constant in `layout.rs`
+  because the design token scale has no 2.5 step; the rendered value is
+  unchanged from before.
+- **`ScreenFooter::back` names itself.** `IconAction` gained an optional
+  accessible `label` (its glyph is otherwise the only content), mirroring
+  `IconButton::label`. This is a small addition outside the ticket's file list,
+  without which the `label` argument of the contract would be dead and the back
+  control unnamed to assistive technology.
+- **One controller back verb.** `SessionController::go_back()` dispatches to
+  `cancel_form` / `new_take` / `change_mode` by `ViewState` and then clears the
+  error strip; `SpeechTtApp::go_back` stops capture and calls it. Keeping the
+  dispatch in the controller means the back contract is headless-testable
+  without a window, and `accept_picked_file` can keep calling `change_mode`
+  (which must not swallow the T0024 refusal strip).
+- **The two removed view states were merged into the take screen.**
+  `ViewState::Ready` and `ViewState::Paused` both disappeared, so `ready.rs` and
+  `paused.rs` had no reachable renderer. `recording.rs` now renders idle,
+  recording and paused by choosing the badge, the waveform argument and the take
+  glyph, and keeps the previous transport behaviour (pause/play, Stop enabled
+  only once paused). T0022 replaces those glyphs with the microphone control and
+  adds Cancel/Reset; no behaviour is lost in between.
+
+### CEO revision — the setup form's forward arrow
+
+During visual review the CEO asked for the setup form's Continue to move to the
+trailing zone and become an arrow pointing away from Back, "so it nicely shows
+that we are in the middle of something: go forward or go back". Implemented as
+specified by that instruction, which supersedes the ticket's original row for
+`session_setup`:
+
+| Zone | Before | After |
+|---|---|---|
+| Leading | Back (`ArrowBigLeft`) | unchanged |
+| Primary | `ActionButton::primary("Continue")` | **empty** |
+| Trailing | — | `IconAction` `ArrowBigRight`, label "Continue", disabled until the draft is complete |
+
+`ArrowBigRight` is registered in `AppIcons` (append-only). The centre zone stays
+empty on purpose: the two arrows are the screen's whole story, and the middle
+belongs to the take control on the next screen. `DESIGN.md` §Screen footer
+records the pair-of-arrows rule and the updated action table.
+
+### Deviations
+
+- **`views/paused.rs` is deleted here, not in T0022.** Leaving it registered
+  while nothing routes to it would be dead code. T0022's contract still lists
+  the deletion; it is already done.
+- **No pixel-shift claim for the stopped screen:** its actions used to sit
+  inside the body padding and now sit in the footer strip. The setup screen's
+  strip is unchanged in appearance because the same inset moved into the shell.
+
+### Verification
+
+```text
+cargo fmt -- --check                          → clean
+cargo clippy --all-targets -- -D warnings     → clean, 0 warnings
+cargo test                                    → 12 suites ok, 0 failed
+bun test                                      → 217 pass, 0 fail
+bun check src/stt                             → No type errors in 23 files
+bun run design:validate                       → 66 tokens, 0 errors
+```
+
+Tests added: the live-mode no-`Start` guarantee, one back test per view state
+(3 controller tests + a window test that walks Form → Live → Stopped), and the
+`ScreenFooter` builder shape (empty default, back in the leading zone, one
+element per zone). No layout, position or geometry is asserted.

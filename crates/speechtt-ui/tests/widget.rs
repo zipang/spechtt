@@ -16,7 +16,8 @@ use gpui_kit::{
 };
 use speechtt_ui::app::SpeechTtApp;
 use speechtt_ui::components::{
-    RIPPLE_MAX_SIZE, RIPPLE_START_SIZE, RIPPLE_TRAVEL, ROUND_BUTTON_SIZE, Ripple, ripple_frame,
+    FooterZone, RIPPLE_MAX_SIZE, RIPPLE_START_SIZE, RIPPLE_TRAVEL, ROUND_BUTTON_SIZE, Ripple,
+    ScreenFooter, ripple_frame,
 };
 use speechtt_ui::controller::{SessionMode, ViewState};
 
@@ -24,8 +25,10 @@ mod common;
 
 use common::{open_speechtt_window, open_speechtt_window_at, open_speechtt_window_with_events};
 
-/// Exercise every screen: mode → form → ready → recording → paused →
-/// stopped → mode. Renders a frame after each transition.
+/// Exercise every screen: mode → form → live (idle → recording → paused) →
+/// stopped → mode. Renders a frame after each transition. The live take screen
+/// is one screen in three states, so each step asserts the view state stays
+/// `Live` while the machine changes.
 fn drive_all_screens(view: &Entity<SpeechTtApp>, window: &mut Window, cx: &mut App) {
     // Blank → mode chooser.
     window.render_frame(cx);
@@ -43,18 +46,18 @@ fn drive_all_screens(view: &Entity<SpeechTtApp>, window: &mut Window, cx: &mut A
     });
     window.render_frame(cx);
 
-    // Form → ready → recording → paused.
+    // Form → live (idle) → recording → paused: one screen throughout (T0021).
     view.update(cx, |view, cx| view.create_session(cx));
     window.render_frame(cx);
-    assert_eq!(view.read(cx).view_state(), ViewState::Ready);
+    assert_eq!(view.read(cx).view_state(), ViewState::Live);
 
     view.update(cx, |view, cx| view.start_recording(cx));
     window.render_frame(cx);
-    assert_eq!(view.read(cx).view_state(), ViewState::Recording);
+    assert_eq!(view.read(cx).view_state(), ViewState::Live);
 
     view.update(cx, |view, cx| view.pause_recording(cx));
     window.render_frame(cx);
-    assert_eq!(view.read(cx).view_state(), ViewState::Paused);
+    assert_eq!(view.read(cx).view_state(), ViewState::Live);
 
     // Paused → stopped result → new take.
     view.update(cx, |view, cx| view.finish_take(cx));
@@ -357,4 +360,95 @@ fn restored_bounds_never_exceed_the_display() {
 
     assert_eq!(f32::from(bounds.size.width), 1920.0);
     assert_eq!(f32::from(bounds.size.height), 1080.0);
+}
+
+// ----- T21: the shared screen footer -----------------------------------
+
+#[test]
+fn a_fresh_screen_footer_is_empty() {
+    let footer = ScreenFooter::new();
+
+    assert!(footer.is_empty());
+    assert!(!footer.has_back());
+    assert_eq!(footer.back_label(), None);
+    for zone in [
+        FooterZone::Leading,
+        FooterZone::Primary,
+        FooterZone::Trailing,
+    ] {
+        assert_eq!(footer.zone_len(zone), 0, "{zone:?}");
+    }
+}
+
+#[test]
+fn back_fills_the_leading_zone() {
+    let footer = ScreenFooter::new().back("btn-back", "Back", |_, _, _| {});
+
+    assert!(footer.has_back());
+    assert_eq!(footer.back_label(), Some("Back"));
+    assert_eq!(footer.zone_len(FooterZone::Leading), 1);
+    assert_eq!(footer.zone_len(FooterZone::Primary), 0);
+    assert!(!footer.is_empty());
+}
+
+#[test]
+fn each_builder_fills_only_its_own_zone() {
+    let footer = ScreenFooter::new()
+        .leading(gpui_kit::div())
+        .primary(gpui_kit::div())
+        .trailing(gpui_kit::div())
+        .trailing(gpui_kit::div());
+
+    assert_eq!(footer.zone_len(FooterZone::Leading), 1);
+    assert_eq!(footer.zone_len(FooterZone::Primary), 1);
+    // Trailing actions keep insertion order by construction (a Vec).
+    assert_eq!(footer.zone_len(FooterZone::Trailing), 2);
+    assert!(!footer.has_back(), "a plain leading slot is not a back");
+}
+
+#[gpui_kit::test]
+fn back_returns_to_the_mode_chooser_from_every_screen(cx: &mut TestAppContext) {
+    let (window, view) = open_speechtt_window(cx);
+
+    cx.update_window(window.into(), |_, window, cx| {
+        // Mode → form: back discards the draft.
+        view.update(cx, |view, cx| view.choose_mode(SessionMode::Live, cx));
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).view_state(), ViewState::Form);
+        view.update(cx, |view, cx| view.go_back(cx));
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).view_state(), ViewState::Mode);
+        assert!(!view.read(cx).is_draft_complete());
+
+        // Mode → live idle: back returns home without starting a take.
+        view.update(cx, |view, cx| {
+            view.choose_mode(SessionMode::Live, cx);
+            view.cycle_provider(cx);
+            view.cycle_model(cx);
+            view.create_session(cx);
+        });
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).view_state(), ViewState::Live);
+        view.update(cx, |view, cx| view.go_back(cx));
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).view_state(), ViewState::Mode);
+
+        // A finished take: back clears it instead of showing it again.
+        view.update(cx, |view, cx| {
+            view.choose_mode(SessionMode::Live, cx);
+            view.cycle_provider(cx);
+            view.cycle_model(cx);
+            view.create_session(cx);
+            view.start_recording(cx);
+            view.pause_recording(cx);
+            view.finish_take(cx);
+        });
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).view_state(), ViewState::Stopped);
+        view.update(cx, |view, cx| view.go_back(cx));
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).view_state(), ViewState::Mode);
+        assert!(view.read(cx).finished_take().is_none());
+    })
+    .unwrap();
 }

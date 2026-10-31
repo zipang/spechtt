@@ -499,13 +499,15 @@ pub enum SessionMode {
 
 /// What the widget is currently displaying. Derived from the machine, the
 /// setup screen and the finished-take overlay.
+///
+/// There is deliberately no `Ready` and no `Paused` screen: a complete
+/// configuration shows the live take screen directly, and pause/resume are
+/// states of that one screen (T0021/T0022).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViewState {
     Mode,
     Form,
-    Ready,
-    Recording,
-    Paused,
+    Live,
     Stopped,
 }
 
@@ -868,11 +870,12 @@ impl SessionController {
             (SessionState::Blank, Screen::Mode) => ViewState::Mode,
             (SessionState::Blank, Screen::Form) => ViewState::Form,
             // File mode has no holding screen (T0023): with no take running,
-            // the setup form is the only thing to show.
+            // the setup form is the only thing to show. A running file take
+            // borrows the live take screen until T0025 gives it its own.
             (SessionState::Ready, _) if self.mode == SessionMode::File => ViewState::Form,
-            (SessionState::Ready, _) => ViewState::Ready,
-            (SessionState::Recording, _) => ViewState::Recording,
-            (SessionState::Paused, _) => ViewState::Paused,
+            (SessionState::Ready | SessionState::Recording | SessionState::Paused, _) => {
+                ViewState::Live
+            }
         }
     }
 
@@ -1737,6 +1740,31 @@ impl SessionController {
         true
     }
 
+    /// The one back action every screen footer renders (T0021).
+    ///
+    /// Back always means "one step towards the mode chooser": the setup form
+    /// discards its draft, a finished take is cleared, and the take screen
+    /// returns home. Whichever path runs, the step leaves no stale error strip
+    /// behind. Sending a take back to the chooser is refused while it is still
+    /// active; T0022 makes that step discard the take instead.
+    pub fn go_back(&mut self) -> bool {
+        let stepped = match self.view_state() {
+            ViewState::Form => {
+                self.cancel_form();
+                true
+            }
+            ViewState::Stopped => {
+                self.new_take();
+                true
+            }
+            ViewState::Mode | ViewState::Live => self.change_mode(),
+        };
+        if stepped {
+            self.dismiss_error();
+        }
+        stepped
+    }
+
     /// Pre-fill the New Session form from the persisted default provider and
     /// model, but only when both exist in the current catalogue. A fresh
     /// controller (no settings, or no model configured) starts empty.
@@ -1772,10 +1800,17 @@ impl SessionController {
         self.draft.model = Some(settings.model);
     }
 
+    /// Leave the setup form for the mode chooser, discarding the draft, the
+    /// pending file, any finished take and the error strip.
     pub fn cancel_form(&mut self) {
         self.screen = Screen::Mode;
         self.draft = SessionDraft::default();
         self.pending_file = None;
+        self.result = None;
+        self.last_error = None;
+        self.app_error = None;
+        self.output_status = None;
+        self.written_path = None;
     }
 
     pub fn cycle_provider(&mut self) {

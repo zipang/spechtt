@@ -8,8 +8,6 @@
 //! [`crate::components`], never in a sibling view file.
 
 pub(crate) mod dialogs;
-pub(crate) mod paused;
-pub(crate) mod ready;
 pub(crate) mod recording;
 pub(crate) mod session_setup;
 pub(crate) mod stopped;

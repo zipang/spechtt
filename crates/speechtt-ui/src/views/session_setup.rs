@@ -3,7 +3,13 @@
 //! Shown only when the persisted settings do not resolve to a real
 //! provider/model pair. These are the only two fields a take has; the saved
 //! file gives the take its name, so there is no name or output row.
+//!
+//! Back and Continue live in the shared [`ScreenFooter`] as one symmetric pair
+//! of arrows: back on the left, forward on the right. The centre stays empty —
+//! on this screen the two arrows *are* the story, "go back or go forward" — and
+//! the middle is reserved for the take control the next screen owns.
 
+use gpui_kit::assets::IconName;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::button::Button;
 use gpui_kit::component::button::ButtonVariants as _;
@@ -13,14 +19,12 @@ use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, Context};
 
 use crate::app::SpeechTtApp;
-use crate::components::{InfoNote, SettingRow, TranscriptionModeBadge};
+use crate::components::{IconAction, InfoNote, ScreenFooter, SettingRow, TranscriptionModeBadge};
 use crate::controller::SessionMode;
+use crate::layout::ScreenShell;
 
-/// Cancel / Continue live in the window-level [`crate::components::AppFooter`]
-/// sibling, so the actions never scroll away and are separated from the body
-/// by the same hairline as `AppHeader`.
 pub(crate) fn render(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyElement {
-    let (provider_label, model_label, model_mode, has_provider, file_mode) = {
+    let (provider_label, model_label, model_mode, has_provider, file_mode, can_create) = {
         let controller = app.controller();
         let has_provider = controller.has_provider();
         (
@@ -33,6 +37,7 @@ pub(crate) fn render(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyEle
             controller.draft_model_mode(),
             has_provider,
             controller.mode() == SessionMode::File,
+            controller.is_draft_complete(),
         )
     };
 
@@ -58,7 +63,9 @@ pub(crate) fn render(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyEle
         row
     };
 
-    v_flex()
+    // The form owns its own padding (`p_5`, as before) and the shell adds
+    // none, so the footer below it stays full-bleed at the window edge.
+    let body = v_flex()
         .size_full()
         .flex_1()
         .min_h_0()
@@ -83,6 +90,28 @@ pub(crate) fn render(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyEle
             SettingRow::new("Model", "Used for this session")
                 .prominent()
                 .control(model_control),
+        );
+
+    ScreenShell::headerless()
+        .inset(0.0, 0.0)
+        .body(body)
+        .footer(
+            ScreenFooter::new()
+                .back(
+                    "btn-cancel-session",
+                    "Back",
+                    cx.listener(|this, _event, _window, cx| {
+                        this.go_back(cx);
+                    }),
+                )
+                // Forward mirrors back: the same square icon action, pointing
+                // the other way, disabled until the two fields are set.
+                .trailing(
+                    IconAction::new("btn-create-session", IconName::ArrowBigRight)
+                        .label("Continue")
+                        .disabled(!can_create)
+                        .on_click(cx.listener(|this, _event, _window, cx| this.create_session(cx))),
+                ),
         )
         .into_any_element()
 }

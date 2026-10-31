@@ -2,9 +2,9 @@
 //!
 //! One left-aligned spine: the screen title and its description sit on the same
 //! left edge as the two [`MODE_CARD_WIDTH`] cards, and the free space grows on
-//! the right instead of around them. The live card goes to the Ready screen;
-//! the file card opens the picker. Whichever mode the user picks, the take
-//! itself is only a provider and a model — no name, no output target.
+//! the right instead of around them. The live card opens the take screen
+//! directly; the file card opens the picker. Whichever mode the user picks, the
+//! take itself is only a provider and a model — no name, no output target.
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::prelude::*;

@@ -11,7 +11,7 @@
 
 use speechtt_core::session::{SessionField, SessionState};
 use speechtt_core::settings::Settings;
-use speechtt_ui::controller::{SessionController, SessionMode, ViewState};
+use speechtt_ui::controller::{AppError, SessionController, SessionMode, ViewState};
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -178,16 +178,22 @@ fn choosing_a_mode_without_settings_opens_the_two_field_form() {
 }
 
 #[test]
-fn choosing_live_with_configured_settings_goes_straight_to_ready() {
+fn choosing_live_with_configured_settings_opens_the_take_screen_directly() {
     let mut controller = catalogued();
     controller.apply_settings(configured_settings("openai/gpt-4o-transcribe"));
+    let sink = RecordingSink::default();
+    controller.set_sink(Box::new(sink.clone()));
 
     assert!(controller.choose_mode(SessionMode::Live));
 
-    assert_eq!(controller.view_state(), ViewState::Ready);
+    // No Ready holding screen (T0021): the configuration is complete, so the
+    // take screen is what the user sees. Capture is started by its own
+    // control, never by the mode choice.
+    assert_eq!(controller.view_state(), ViewState::Live);
     assert_eq!(controller.mode(), SessionMode::Live);
     assert_eq!(controller.session_state(), SessionState::Ready);
     assert!(controller.session_missing().is_empty());
+    assert!(sink.take().is_empty(), "no command may start the take");
 }
 
 #[test]
@@ -430,7 +436,7 @@ fn create_is_inert_until_the_two_fields_are_set() {
     // Model completes the form.
     controller.cycle_model();
     assert!(controller.create_session());
-    assert_eq!(controller.view_state(), ViewState::Ready);
+    assert_eq!(controller.view_state(), ViewState::Live);
 }
 
 #[test]
@@ -466,7 +472,7 @@ fn change_mode_clears_the_machine_and_returns_to_the_chooser() {
     let mut controller = ready_live();
     assert_eq!(controller.session_state(), SessionState::Ready);
 
-    assert!(controller.change_mode());
+    assert!(controller.go_back());
 
     assert_eq!(controller.view_state(), ViewState::Mode);
     assert_eq!(controller.session_state(), SessionState::Blank);
@@ -487,8 +493,70 @@ fn change_mode_is_inert_while_a_take_is_active() {
 
     assert!(!controller.change_mode());
 
-    assert_eq!(controller.view_state(), ViewState::Recording);
+    assert_eq!(controller.view_state(), ViewState::Live);
     assert_eq!(controller.session_state(), SessionState::Recording);
+}
+
+// ----- Back contract (T0021) ------------------------------------------
+
+#[test]
+fn back_from_the_setup_form_returns_to_the_chooser_with_nothing_left() {
+    let mut controller = catalogued();
+    controller.choose_mode(SessionMode::File);
+    controller
+        .set_pending_file(PathBuf::from("/tmp/interview.mp4"))
+        .expect("a media path");
+    controller.cycle_provider();
+    controller.report_error(AppError::FileDialogFailed);
+
+    // Back on the footer: one step towards the chooser.
+    assert!(controller.go_back());
+
+    assert_eq!(controller.view_state(), ViewState::Mode);
+    assert_eq!(controller.session_state(), SessionState::Blank);
+    assert_eq!(controller.pending_file(), None, "the file is forgotten");
+    assert!(!controller.has_provider(), "the draft is discarded");
+    assert!(controller.app_error().is_none(), "no stale error strip");
+    assert!(controller.finished_take().is_none());
+    assert!(controller.output_status().is_none());
+}
+
+#[test]
+fn back_from_the_idle_live_screen_returns_to_the_chooser() {
+    let mut controller = ready_live();
+    controller.report_error(AppError::BackendUnavailable);
+
+    assert!(controller.go_back());
+
+    assert_eq!(controller.view_state(), ViewState::Mode);
+    assert_eq!(controller.session_state(), SessionState::Blank);
+    assert!(controller.app_error().is_none(), "no stale error strip");
+    assert!(controller.finished_take().is_none());
+    assert!(controller.pending_file().is_none());
+}
+
+#[test]
+fn back_from_the_stopped_screen_clears_the_finished_take() {
+    let mut controller = ready_live();
+    assert!(controller.start_recording());
+    controller.handle_stt_event(SttEvent::Committed {
+        session_id: "take-1".into(),
+        text: "a finished line".into(),
+    });
+    assert!(controller.pause_recording());
+    assert!(controller.finish_take());
+    controller.report_error(AppError::PasteFailed);
+    assert_eq!(controller.view_state(), ViewState::Stopped);
+
+    // Back on the stopped footer clears the finished take.
+    assert!(controller.go_back());
+
+    assert_eq!(controller.view_state(), ViewState::Mode);
+    assert_eq!(controller.session_state(), SessionState::Blank);
+    assert!(controller.finished_take().is_none(), "the take is gone");
+    assert!(controller.app_error().is_none(), "no stale error strip");
+    assert!(controller.output_status().is_none());
+    assert_eq!(controller.transcript_committed(), "");
 }
 
 // ----- Transport ------------------------------------------------------
@@ -508,13 +576,13 @@ fn recording_pauses_resumes_and_finishes_a_take() {
     let mut controller = ready_live();
 
     assert!(controller.start_recording());
-    assert_eq!(controller.view_state(), ViewState::Recording);
+    assert_eq!(controller.view_state(), ViewState::Live);
 
     assert!(controller.pause_recording());
-    assert_eq!(controller.view_state(), ViewState::Paused);
+    assert_eq!(controller.view_state(), ViewState::Live);
 
     assert!(controller.resume_recording());
-    assert_eq!(controller.view_state(), ViewState::Recording);
+    assert_eq!(controller.view_state(), ViewState::Live);
 
     assert!(controller.pause_recording());
     assert!(controller.finish_take());
@@ -772,8 +840,6 @@ fn the_elapsed_clock_resets_when_a_new_take_starts() {
 
 // ----- File transcription --------------------------------------------
 
-use speechtt_ui::controller::AppError;
-
 /// A real file that is removed when the test ends.
 struct TempFile {
     path: std::path::PathBuf,
@@ -920,7 +986,7 @@ fn file_session_sends_a_transcribe_file_command_and_enters_recording() {
 
     controller.start_file_session(&file.path).expect("starts");
 
-    assert_eq!(controller.view_state(), ViewState::Recording);
+    assert_eq!(controller.view_state(), ViewState::Live);
     assert_eq!(controller.session_state(), SessionState::Recording);
     assert_eq!(controller.session_label(), "take-1");
     assert!(controller.is_file_take());

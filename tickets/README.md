@@ -104,6 +104,7 @@ Decisions, deviations, verification output.
 | [T0018](done/T0018-typography-scale-and-round-button-polish.md) | Three-size typography scale and round-button polish | Rust UI + design system |
 | [T0019](done/T0019-one-view-per-file.md) | One view per file under `views/` | Rust UI (refactor) |
 | [T0020](done/T0020-empty-takes-and-explicit-logged-errors.md) | Silent empty takes and explicit, logged backend failures | Cross-cutting |
+| [T0021](done/T0021-consistent-footer-navigation.md) | One consistent footer and a live-first navigation flow | Rust UI |
 | [T0023](done/T0023-file-mode-setup-and-segmented-model.md) | File sessions must choose a non-streaming model in the setup form | Rust UI + core + Bun worker |
 | [T0024](done/T0024-media-only-file-picker.md) | Accept only media files for file transcription | Rust core + UI |
 
@@ -120,6 +121,5 @@ _(none)_
 | Ticket | Title | Track | Depends on |
 |---|---|---|---|
 | [T0016](planned/T0016-dependency-bootstrap-script.md) | Dependency bootstrap for Bun and ffmpeg | Tooling (TypeScript/Bun) | — |
-| [T0021](planned/T0021-consistent-footer-navigation.md) | One consistent footer and a live-first navigation flow | Rust UI | T0017, T0019, T0020, T0023 |
 | [T0022](planned/T0022-live-take-screen-record-control.md) | Live take screen: microphone record control, cancel and reset | Rust UI + core + design | T0020, T0021 |
 | [T0025](planned/T0025-file-take-progression-view.md) | Dedicated progression screen for file takes | Rust UI (controller + views + components + design system) | T0015, T0021, T0022, T0023 |

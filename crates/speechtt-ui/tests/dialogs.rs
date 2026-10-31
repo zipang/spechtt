@@ -197,7 +197,7 @@ fn opening_a_dialog_does_not_disturb_the_recording_session() {
     assert_eq!(controller.session_state(), state);
     assert_eq!(
         controller.view_state(),
-        speechtt_ui::controller::ViewState::Recording
+        speechtt_ui::controller::ViewState::Live
     );
 }
 
