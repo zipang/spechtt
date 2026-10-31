@@ -103,6 +103,13 @@ pub enum AppError {
     ClipboardFailed,
     PasteFailed,
     ProtocolError(String),
+    /// Worker reported a failure that is not one of the canonical buckets.
+    BackendFailed {
+        code: String,
+        detail: String,
+    },
+    /// Copy/save was requested for an empty take; informational, not an error.
+    NothingRecorded,
     /// The file picked for transcription no longer exists.
     FileNotFound,
     /// The picked path is a directory, unreadable, or not decodable.
@@ -128,28 +135,48 @@ pub enum ErrorAction {
 
 impl AppError {
     /// Short, user-facing message. Never contains key material or transcript
-    /// text.
+    /// text. Dynamic causes are sanitized and the whole line stays within the
+    /// 160-character strip budget.
     #[must_use]
-    pub fn message(&self) -> &'static str {
-        match self {
+    pub fn message(&self) -> String {
+        let message = match self {
             Self::MicPermissionDenied => {
                 "Microphone access is denied. Open your system sound settings to allow it."
+                    .to_owned()
             }
-            Self::NoInputDevice => "No microphone is available.",
-            Self::MissingApiKey { .. } => "Add an API key for this provider in Settings.",
-            Self::BackendUnavailable => "The transcription backend is unavailable.",
-            Self::BackendTimeout => "The transcription backend did not respond in time.",
-            Self::ProviderAuthFailed => "The provider rejected the API key. Update it in Settings.",
-            Self::NetworkLost => "The network connection was lost.",
-            Self::SaveFailed(_) => "Could not save the transcript.",
-            Self::ClipboardFailed => "Could not copy the transcript.",
-            Self::PasteFailed => "Could not paste the transcript.",
-            Self::ProtocolError(_) => "The transcription backend sent an unexpected message.",
-            Self::FileNotFound => "That file no longer exists. Pick another one.",
-            Self::FileUnreadable => "That file could not be read. Pick an audio or video file.",
-            Self::FfmpegMissing => "Transcribing files needs ffmpeg. Install it, then try again.",
-            Self::FileDialogFailed => "Could not open the file picker.",
-        }
+            Self::NoInputDevice => "No microphone is available.".to_owned(),
+            Self::MissingApiKey { .. } => {
+                "Add an API key for this provider in Settings.".to_owned()
+            }
+            Self::BackendUnavailable => "The transcription backend is unavailable.".to_owned(),
+            Self::BackendTimeout => "The transcription backend did not respond in time.".to_owned(),
+            Self::ProviderAuthFailed => {
+                "The provider rejected the API key. Update it in Settings.".to_owned()
+            }
+            Self::NetworkLost => "The network connection was lost.".to_owned(),
+            Self::SaveFailed(cause) => {
+                format!("Could not save the transcript: {}.", sentence(cause))
+            }
+            Self::ClipboardFailed => "Could not copy the transcript.".to_owned(),
+            Self::PasteFailed => "Could not paste the transcript.".to_owned(),
+            Self::ProtocolError(detail) => format!(
+                "The transcription backend sent an unexpected message: {}.",
+                sentence(detail)
+            ),
+            Self::BackendFailed { detail, .. } => {
+                format!("The transcription backend failed: {}.", sentence(detail))
+            }
+            Self::NothingRecorded => "Nothing was recorded.".to_owned(),
+            Self::FileNotFound => "That file no longer exists. Pick another one.".to_owned(),
+            Self::FileUnreadable => {
+                "That file could not be read. Pick an audio or video file.".to_owned()
+            }
+            Self::FfmpegMissing => {
+                "Transcribing files needs ffmpeg. Install it, then try again.".to_owned()
+            }
+            Self::FileDialogFailed => "Could not open the file picker.".to_owned(),
+        };
+        clamp_message(message, 160)
     }
 
     /// The primary action the strip should offer.
@@ -166,6 +193,8 @@ impl AppError {
             | Self::ClipboardFailed
             | Self::PasteFailed
             | Self::ProtocolError(_)
+            | Self::BackendFailed { .. }
+            | Self::NothingRecorded
             | Self::FileNotFound
             | Self::FileUnreadable
             | Self::FfmpegMissing
@@ -173,11 +202,14 @@ impl AppError {
         }
     }
 
-    /// Optional diagnostic detail for logs; never rendered.
+    /// Optional diagnostic detail for logs; never rendered unsanitized.
     #[must_use]
-    pub fn detail(&self) -> Option<&str> {
+    pub fn detail(&self) -> Option<String> {
         match self {
-            Self::SaveFailed(detail) | Self::ProtocolError(detail) => Some(detail),
+            Self::SaveFailed(detail) | Self::ProtocolError(detail) => {
+                Some(non_empty_detail(detail))
+            }
+            Self::BackendFailed { detail, .. } => Some(non_empty_detail(detail)),
             _ => None,
         }
     }
@@ -202,7 +234,7 @@ impl AppError {
             BackendError::Io(_) | BackendError::Disconnected => Self::BackendUnavailable,
             BackendError::Spawn { .. } => Self::BackendUnavailable,
             BackendError::Encode(_) | BackendError::Decode(_) => {
-                Self::ProtocolError(error.to_string())
+                Self::ProtocolError(non_empty_detail(&error.to_string()))
             }
             // `BackendError` is `#[non_exhaustive]`: future transport
             // failures stay retryable until they get a specific mapping.
@@ -211,8 +243,8 @@ impl AppError {
     }
 
     /// Map one `SttEvent::Error` payload. Codes are canonical (see
-    /// `src/stt/protocol.ts`); the message is only inspected for the generic
-    /// `stream_failed` bucket, and is never copied into the error.
+    /// `src/stt/protocol.ts`); the sanitized worker message is retained as the
+    /// diagnostic detail so an unknown failure still names its cause.
     #[must_use]
     pub fn from_stt_error(code: &str, message: &str, provider: &str) -> Self {
         match code {
@@ -229,12 +261,13 @@ impl AppError {
             "file_not_found" => Self::FileNotFound,
             "unsupported_file" | "decode_failed" => Self::FileUnreadable,
             "ffmpeg_missing" => Self::FfmpegMissing,
+            "invalid_protocol" => Self::ProtocolError(non_empty_detail(message)),
             "stream_failed" => {
-                let message = message.to_ascii_lowercase();
-                if contains_any(&message, &["auth", "api key", "unauthorized", "forbidden"]) {
+                let lowered = message.to_ascii_lowercase();
+                if contains_any(&lowered, &["auth", "api key", "unauthorized", "forbidden"]) {
                     Self::ProviderAuthFailed
                 } else if contains_any(
-                    &message,
+                    &lowered,
                     &[
                         "network",
                         "socket",
@@ -246,10 +279,16 @@ impl AppError {
                 ) {
                     Self::NetworkLost
                 } else {
-                    Self::ProtocolError(code.to_owned())
+                    Self::BackendFailed {
+                        code: code.to_owned(),
+                        detail: non_empty_detail(message),
+                    }
                 }
             }
-            _ => Self::ProtocolError(code.to_owned()),
+            _ => Self::BackendFailed {
+                code: code.to_owned(),
+                detail: non_empty_detail(message),
+            },
         }
     }
 
@@ -258,12 +297,12 @@ impl AppError {
     pub fn from_settings(error: &SettingsError) -> Self {
         match error {
             SettingsError::Io { .. } | SettingsError::Encode(_) => {
-                Self::SaveFailed(error.to_string())
+                Self::SaveFailed(save_cause(&error.to_string()))
             }
             SettingsError::Corrupt { .. } | SettingsError::Invalid(_) => {
-                Self::ProtocolError(error.to_string())
+                Self::ProtocolError(non_empty_detail(&error.to_string()))
             }
-            _ => Self::SaveFailed(error.to_string()),
+            _ => Self::SaveFailed(save_cause(&error.to_string())),
         }
     }
 
@@ -273,12 +312,11 @@ impl AppError {
         match error {
             OutputError::Clipboard(_) => Self::ClipboardFailed,
             OutputError::Paste(_) => Self::PasteFailed,
-            // Only a save can surface this now: the finished take was blank.
-            OutputError::EmptyTranscript
-            | OutputError::UnsupportedFormat(_)
-            | OutputError::Write(_) => Self::SaveFailed(error.to_string()),
-            OutputError::OpenFile(detail) => {
-                Self::SaveFailed(format!("could not open file: {detail}"))
+            // An empty take is a normal outcome, not a save failure.
+            OutputError::EmptyTranscript => Self::NothingRecorded,
+            OutputError::UnsupportedFormat(_) => Self::SaveFailed("unsupported format".to_owned()),
+            OutputError::Write(detail) | OutputError::OpenFile(detail) => {
+                Self::SaveFailed(save_cause(&detail))
             }
         }
     }
@@ -286,7 +324,7 @@ impl AppError {
 
 impl fmt::Display for AppError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.message())
+        formatter.write_str(&self.message())
     }
 }
 
@@ -294,6 +332,139 @@ impl std::error::Error for AppError {}
 
 fn contains_any(haystack: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| haystack.contains(needle))
+}
+
+/// Reduce an untrusted detail to one safe, bounded line.
+///
+/// Whitespace and control characters collapse, credential patterns become
+/// `[REDACTED]`, and the result never exceeds 120 characters.
+#[must_use]
+pub fn sanitize_detail(raw: &str) -> String {
+    if raw.is_empty() {
+        return String::new();
+    }
+
+    let mut collapsed = String::with_capacity(raw.len());
+    let mut previous_was_space = false;
+    for character in raw.chars() {
+        if character.is_control() || character.is_whitespace() {
+            if !previous_was_space {
+                collapsed.push(' ');
+                previous_was_space = true;
+            }
+        } else {
+            collapsed.push(character);
+            previous_was_space = false;
+        }
+    }
+
+    let redacted = redact_secrets(collapsed.trim());
+    if redacted.is_empty() {
+        return "no detail provided".to_owned();
+    }
+    truncate_chars(&redacted, 120)
+}
+
+/// A sanitized detail without trailing terminal punctuation, so composing a
+/// message sentence never doubles the full stop.
+fn sentence(raw: &str) -> String {
+    let detail = non_empty_detail(raw);
+    detail
+        .trim_end_matches(|character: char| character == '.' || character.is_whitespace())
+        .to_owned()
+}
+
+/// A detail that was empty or fully redacted still names its absence.
+fn non_empty_detail(raw: &str) -> String {
+    let sanitized = sanitize_detail(raw);
+    if sanitized.is_empty() {
+        "no detail provided".to_owned()
+    } else {
+        sanitized
+    }
+}
+
+/// Short cause for a save failure, so a raw OS dump never reaches the strip.
+fn save_cause(raw: &str) -> String {
+    let lowered = raw.to_ascii_lowercase();
+    let cause = if contains_any(&lowered, &["permission denied", "os error 13"]) {
+        "permission denied"
+    } else if contains_any(&lowered, &["no space left", "os error 28"]) {
+        "no space left"
+    } else if contains_any(&lowered, &["read-only file system", "os error 30"]) {
+        "read-only file system"
+    } else if contains_any(&lowered, &["is a directory", "os error 21"]) {
+        "not a file"
+    } else {
+        return non_empty_detail(raw);
+    };
+    cause.to_owned()
+}
+
+/// Replace common credential shapes with `[REDACTED]`.
+fn redact_secrets(input: &str) -> String {
+    let lowered = input.to_ascii_lowercase();
+    let mut output = String::with_capacity(input.len());
+    let mut index = 0;
+
+    while index < input.len() {
+        let rest = &lowered[index..];
+        if rest.starts_with("authorization:") {
+            output.push_str("[REDACTED]");
+            index = input.len();
+        } else if rest.starts_with("bearer ") {
+            output.push_str("[REDACTED]");
+            index = skip_secret_value(input, index + "bearer ".len());
+        } else if rest.starts_with("api_key=") {
+            output.push_str("[REDACTED]");
+            index = skip_secret_value(input, index + "api_key=".len());
+        } else if rest.starts_with("key=") {
+            output.push_str("[REDACTED]");
+            index = skip_secret_value(input, index + "key=".len());
+        } else if rest.starts_with("sk-") {
+            output.push_str("[REDACTED]");
+            index = skip_secret_value(input, index);
+        } else {
+            let character = input[index..].chars().next().expect("non-empty tail");
+            output.push(character);
+            index += character.len_utf8();
+        }
+    }
+
+    output
+}
+
+/// End of a credential token: whitespace or common separator punctuation.
+fn skip_secret_value(input: &str, start: usize) -> usize {
+    let mut index = start;
+    for character in input[start..].chars() {
+        if character.is_whitespace()
+            || character.is_control()
+            || matches!(character, ',' | ';' | '&' | '\'' | '"' | ')' | ']')
+        {
+            break;
+        }
+        index += character.len_utf8();
+    }
+    index
+}
+
+/// Keep at most `max` characters, ending with `…` when truncation happened.
+fn truncate_chars(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text.to_owned();
+    }
+    let mut truncated: String = text.chars().take(max.saturating_sub(1)).collect();
+    truncated.push('…');
+    truncated
+}
+
+fn clamp_message(message: String, max: usize) -> String {
+    if message.chars().count() <= max {
+        message
+    } else {
+        truncate_chars(&message, max)
+    }
 }
 
 /// Which setup screen the body shows while the machine is `Blank`.
@@ -782,8 +953,9 @@ impl SessionController {
         self.app_error.as_ref().map(AppError::action)
     }
 
-    /// Record a typed failure for the strip.
+    /// Record a typed failure for the strip and write one redacted log line.
     pub fn report_error(&mut self, error: AppError) {
+        crate::diagnostics::log_error("controller", &error);
         self.last_error = Some(error.message().into());
         self.app_error = Some(error);
     }
@@ -817,6 +989,17 @@ impl SessionController {
 
     pub fn finished_take(&self) -> Option<&FinishedTake> {
         self.result.as_ref()
+    }
+
+    /// True when there is no finished take, or its joined text is blank.
+    #[must_use]
+    pub fn finished_take_is_empty(&self) -> bool {
+        let Some(result) = self.result.as_ref() else {
+            return true;
+        };
+        joined_text(&result.committed, &result.live)
+            .trim()
+            .is_empty()
     }
 
     pub fn has_provider(&self) -> bool {
@@ -1173,7 +1356,16 @@ impl SessionController {
 
         if let SttEvent::Error { code, message, .. } = &event {
             let provider = self.active_provider();
-            self.last_error = Some(format!("{code}: {message}").into());
+            // Log the worker-provided cause before mapping, so an unknown code
+            // reduced to a generic variant is still recoverable from stderr.
+            crate::diagnostics::log_error(
+                "stt_event",
+                &AppError::BackendFailed {
+                    code: code.clone(),
+                    detail: sanitize_detail(message),
+                },
+            );
+            self.last_error = Some(format!("{code}: {}", sanitize_detail(message)).into());
             self.app_error = Some(AppError::from_stt_error(code, message, &provider));
             return;
         }
@@ -1830,6 +2022,9 @@ impl SessionController {
         &mut self,
         clipboard: &mut dyn ClipboardSink,
     ) -> Result<CopySummary, AppError> {
+        if self.finished_take_is_empty() {
+            return Err(AppError::NothingRecorded);
+        }
         let Some(result) = self.result.as_ref() else {
             return Err(self.fail(AppError::ClipboardFailed));
         };
@@ -1857,6 +2052,9 @@ impl SessionController {
     /// already confirmed. The file's stem titles the document and names the
     /// take; its extension picks Markdown or plain text.
     pub fn save_finished_transcript_to(&mut self, path: &Path) -> Result<SavedFile, AppError> {
+        if self.finished_take_is_empty() {
+            return Err(AppError::NothingRecorded);
+        }
         let Some(result) = self.result.as_ref() else {
             return Err(self.fail(AppError::SaveFailed("no finished take".to_owned())));
         };
@@ -1905,7 +2103,7 @@ impl SessionController {
         clipboard: &mut dyn ClipboardSink,
         paste: &mut dyn PasteSink,
     ) -> Option<Result<(), AppError>> {
-        if !self.auto_paste_enabled() {
+        if !self.auto_paste_enabled() || self.finished_take_is_empty() {
             return None;
         }
         self.result.as_ref()?;

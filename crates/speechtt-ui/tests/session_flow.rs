@@ -836,19 +836,41 @@ fn saving_honours_a_text_extension() {
 }
 
 #[test]
-fn saving_without_a_finished_take_reports_an_error() {
+fn saving_without_a_finished_take_reports_nothing_recorded() {
     let directory = TempDir::new("save-none");
     let target = directory.path().join("notes.md");
     let mut controller = SessionController::new();
 
     let result = controller.save_finished_transcript_to(&target);
 
-    assert!(matches!(result, Err(AppError::SaveFailed(_))));
+    assert_eq!(result, Err(AppError::NothingRecorded));
     assert!(!target.exists());
+    assert!(controller.app_error().is_none());
 }
 
 #[test]
-fn saving_an_empty_transcript_reports_an_error() {
+fn saving_an_empty_transcript_is_informational_and_writes_nothing() {
+    use speechtt_core::output::clipboard::ClipboardSink;
+    use speechtt_core::output::paste::PasteSink;
+
+    #[derive(Default)]
+    struct RecordingClipboard(Arc<Mutex<Vec<String>>>);
+
+    impl ClipboardSink for RecordingClipboard {
+        fn copy(&mut self, text: &str) -> Result<(), speechtt_core::output::OutputError> {
+            self.0.lock().expect("clipboard lock").push(text.to_owned());
+            Ok(())
+        }
+    }
+
+    struct NeverPaste;
+
+    impl PasteSink for NeverPaste {
+        fn paste(&mut self) -> Result<(), speechtt_core::output::OutputError> {
+            panic!("an empty take must never paste");
+        }
+    }
+
     let directory = TempDir::new("save-empty");
     let target = directory.path().join("notes.md");
     // A real sink keeps the mock transcript out of the finished take.
@@ -861,10 +883,58 @@ fn saving_an_empty_transcript_reports_an_error() {
     assert!(controller.pause_recording());
     assert!(controller.finish_take());
 
-    let result = controller.save_finished_transcript_to(&target);
+    assert!(controller.finished_take_is_empty());
+    assert!(
+        controller.app_error().is_none(),
+        "no strip for an empty take"
+    );
 
-    assert!(matches!(result, Err(AppError::SaveFailed(_))));
+    let result = controller.save_finished_transcript_to(&target);
+    assert_eq!(result, Err(AppError::NothingRecorded));
     assert!(!target.exists());
+    assert!(
+        controller.app_error().is_none(),
+        "no strip for an empty take"
+    );
+    assert!(controller.output_status().is_none());
+
+    let mut clipboard = RecordingClipboard::default();
+    assert_eq!(
+        controller.copy_finished_transcript(&mut clipboard),
+        Err(AppError::NothingRecorded)
+    );
+    assert!(clipboard.0.lock().expect("clipboard lock").is_empty());
+    assert!(
+        controller.app_error().is_none(),
+        "no strip for an empty take"
+    );
+    assert!(controller.output_status().is_none());
+
+    assert!(
+        controller
+            .auto_paste_after_finish(&mut clipboard, &mut NeverPaste)
+            .is_none()
+    );
+}
+
+#[test]
+fn a_take_that_recorded_nothing_finishes_without_an_error() {
+    let (mut controller, _sink) = duplex_controller();
+    assert!(controller.start_recording());
+    assert!(controller.pause_recording());
+    assert!(controller.finish_take());
+
+    assert!(controller.finished_take_is_empty());
+    assert!(controller.app_error().is_none());
+    assert_eq!(controller.view_state(), ViewState::Stopped);
+
+    // A late empty flush must not introduce an error either.
+    controller.handle_stt_event(SttEvent::Stopped {
+        session_id: "take-1".into(),
+        full_text: String::new(),
+    });
+    assert!(controller.finished_take_is_empty());
+    assert!(controller.app_error().is_none());
 }
 
 #[test]

@@ -41,6 +41,37 @@ function errorMessage(error: unknown): string {
 	return "Transcription stream failed";
 }
 
+/**
+ * Provider phrasings that mean "the stream carried nothing to transcribe".
+ * A take that produced no text and failed this way is a normal, silent
+ * outcome: the provider did not fail, it simply had no speech to work on.
+ */
+const NOTHING_TO_TRANSCRIBE_PATTERNS = [
+	"no audio",
+	"no speech",
+	"no sound",
+	"no voice",
+	"no transcript",
+	"no transcription",
+	"nothing to transcribe",
+	"nothing was recorded",
+	"nothing recorded",
+	"empty audio",
+	"audio is empty",
+	"audio was empty",
+	"silent audio",
+	"no valid audio",
+	"must contain audio",
+];
+
+/** Whether a provider message reports an empty/voiceless input. */
+export function isEmptyInputFailure(message: string): boolean {
+	const lowered = message.toLowerCase();
+	return NOTHING_TO_TRANSCRIBE_PATTERNS.some((pattern) =>
+		lowered.includes(pattern),
+	);
+}
+
 /** Joins finalized segments with single spaces. */
 export function appendSegment(accumulated: string, text: string): string {
 	const trimmed = text.trim();
@@ -139,6 +170,9 @@ class VercelAiSdkSession implements SttSession {
 	private aborted = false;
 	private stoppedEmitted = false;
 	private errorEmitted = false;
+	/** A silent take must never surface a provider flush failure. */
+	private receivedAudio = false;
+	private producedText = false;
 
 	constructor(
 		readonly sessionId: string,
@@ -153,7 +187,12 @@ class VercelAiSdkSession implements SttSession {
 	}
 
 	pushAudio(pcm16Base64: string): void {
-		this.bridge.pushAudio(pcm16Base64);
+		if (pcm16Base64.length === 0) {
+			return;
+		}
+		if (this.bridge.pushAudio(pcm16Base64)) {
+			this.receivedAudio = true;
+		}
 	}
 
 	pause(): void {
@@ -193,6 +232,14 @@ class VercelAiSdkSession implements SttSession {
 		if (this.errorEmitted) {
 			return;
 		}
+		// A provider failure only matters once there was something to
+		// transcribe: no audio at all, or a silent take whose only text was
+		// the provider reporting that it had nothing to work on.
+		if (!this.producedText) {
+			if (!this.receivedAudio || isEmptyInputFailure(message)) {
+				return;
+			}
+		}
 		this.errorEmitted = true;
 		const event: OutboundEvent = {
 			type: "error",
@@ -212,6 +259,7 @@ class VercelAiSdkSession implements SttSession {
 
 				switch (part.type) {
 					case "transcript-partial":
+						this.producedText ||= part.text.trim().length > 0;
 						this.emit({
 							type: "partial",
 							sessionId: this.sessionId,
@@ -220,6 +268,7 @@ class VercelAiSdkSession implements SttSession {
 						break;
 
 					case "transcript-delta":
+						this.producedText ||= part.delta.trim().length > 0;
 						this.emit({
 							type: "delta",
 							sessionId: this.sessionId,
@@ -228,6 +277,7 @@ class VercelAiSdkSession implements SttSession {
 						break;
 
 					case "transcript-final":
+						this.producedText ||= part.text.trim().length > 0;
 						this.accumulated = appendSegment(
 							this.accumulated,
 							part.text,
@@ -253,6 +303,7 @@ class VercelAiSdkSession implements SttSession {
 			try {
 				const providerText = await result.text;
 				if (typeof providerText === "string" && providerText.length > 0) {
+					this.producedText = true;
 					finalText = providerText;
 				}
 			} catch {

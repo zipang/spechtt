@@ -207,6 +207,25 @@ describe("MistralAdapter", () => {
 		]);
 	});
 
+	test("an empty stop stays silent even if the provider would reject", async () => {
+		const transcribe: TranscribeFn = async () => {
+			throw new Error("nothing to transcribe");
+		};
+		const { events, emit } = collect();
+		const adapter = new MistralAdapter({
+			transcribe,
+			resolveModel: () => "test-model",
+		});
+
+		const session = await adapter.start(config, emit);
+		await expect(session.stop()).resolves.toBeUndefined();
+
+		expect(events).toEqual([
+			{ type: "started", sessionId: "session-1" },
+			{ type: "stopped", sessionId: "session-1", fullText: "" },
+		]);
+	});
+
 	test("drops audio pushed while paused", async () => {
 		let calls = 0;
 		const transcribe: TranscribeFn = async () => {

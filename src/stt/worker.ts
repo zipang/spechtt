@@ -31,6 +31,7 @@ import {
 import {
 	type InboundCommand,
 	type OutboundEvent,
+	type SttErrorCode,
 	type TranscribeFileCommand,
 	parseInboundLine,
 	serializeOutboundEvent,
@@ -66,6 +67,23 @@ function errorMessage(error: unknown): string {
 		return error;
 	}
 	return "STT worker failed";
+}
+
+/**
+ * Redacts credentials and transcript-bearing payloads from a diagnostic line.
+ * Diagnostics stay on `stderr`; `stdout` remains NDJSON-only.
+ */
+export function sanitizeDiagnostic(raw: string): string {
+	const collapsed = raw
+		.replace(/[\u0000-\u001f\u007f]+/g, " ")
+		.replace(/\s+/g, " ")
+		.trim();
+	const redacted = collapsed
+		.replace(/authorization:[^,;]*/gi, "[REDACTED]")
+		.replace(/bearer\s+\S+/gi, "[REDACTED]")
+		.replace(/sk-[a-z0-9_-]+/gi, "[REDACTED]")
+		.replace(/(api_key|key)=[^\s,;]+/gi, "[REDACTED]");
+	return redacted.length > 120 ? `${redacted.slice(0, 119)}…` : redacted;
 }
 
 /** Picks the streaming or segmented adapter from the model capability. */
@@ -142,6 +160,23 @@ export async function runWorkerLoop(
 	let activeKind: "live" | "file" | undefined;
 	let closed = false;
 
+	/** Emits one `error` event and exactly one redacted stderr diagnostic. */
+	const emitError = (
+		sessionId: string | undefined,
+		code: SttErrorCode,
+		message: string,
+	): void => {
+		console.error(
+			`[stt-worker] error code=${code} sessionId=${sessionId ?? "-"} message="${sanitizeDiagnostic(message)}"`,
+		);
+		emit({
+			type: "error",
+			...(sessionId === undefined ? {} : { sessionId }),
+			code,
+			message,
+		});
+	};
+
 	const stopActive = async (): Promise<void> => {
 		const session = active;
 		active = undefined;
@@ -153,12 +188,7 @@ export async function runWorkerLoop(
 		try {
 			await session.stop();
 		} catch (error) {
-			emit({
-				type: "error",
-				sessionId: session.sessionId,
-				code: "stream_failed",
-				message: errorMessage(error),
-			});
+			emitError(session.sessionId, "stream_failed", errorMessage(error));
 		}
 	};
 
@@ -183,12 +213,11 @@ export async function runWorkerLoop(
 		await stopActive();
 
 		if (getProvider(command.provider) === undefined) {
-			emit({
-				type: "error",
-				sessionId: command.sessionId,
-				code: "unsupported_provider",
-				message: `Unsupported STT provider: ${command.provider}`,
-			});
+			emitError(
+				command.sessionId,
+				"unsupported_provider",
+				`Unsupported STT provider: ${command.provider}`,
+			);
 			return;
 		}
 
@@ -199,12 +228,11 @@ export async function runWorkerLoop(
 		if (apiKey === undefined) {
 			const provider = getProvider(command.provider);
 			const envHint = provider?.envVars.join(" or ") ?? "the provider key";
-			emit({
-				type: "error",
-				sessionId: command.sessionId,
-				code: "missing_api_key",
-				message: `Missing API key for ${command.provider}; set ${envHint} or pass apiKey in start`,
-			});
+			emitError(
+				command.sessionId,
+				"missing_api_key",
+				`Missing API key for ${command.provider}; set ${envHint} or pass apiKey in start`,
+			);
 			return;
 		}
 
@@ -215,12 +243,7 @@ export async function runWorkerLoop(
 			activeKind = "live";
 		} catch (error) {
 			active = undefined;
-			emit({
-				type: "error",
-				sessionId: command.sessionId,
-				code: "stream_failed",
-				message: errorMessage(error),
-			});
+			emitError(command.sessionId, "stream_failed", errorMessage(error));
 		}
 	};
 
@@ -235,12 +258,11 @@ export async function runWorkerLoop(
 		await stopActive();
 
 		if (getProvider(command.provider) === undefined) {
-			emit({
-				type: "error",
-				sessionId: command.sessionId,
-				code: "unsupported_provider",
-				message: `Unsupported STT provider: ${command.provider}`,
-			});
+			emitError(
+				command.sessionId,
+				"unsupported_provider",
+				`Unsupported STT provider: ${command.provider}`,
+			);
 			return;
 		}
 
@@ -248,22 +270,20 @@ export async function runWorkerLoop(
 		if (apiKey === undefined) {
 			const provider = getProvider(command.provider);
 			const envHint = provider?.envVars.join(" or ") ?? "the provider key";
-			emit({
-				type: "error",
-				sessionId: command.sessionId,
-				code: "missing_api_key",
-				message: `Missing API key for ${command.provider}; set ${envHint} or pass apiKey in transcribeFile`,
-			});
+			emitError(
+				command.sessionId,
+				"missing_api_key",
+				`Missing API key for ${command.provider}; set ${envHint} or pass apiKey in transcribeFile`,
+			);
 			return;
 		}
 
 		if (files.findFfmpeg() === undefined) {
-			emit({
-				type: "error",
-				sessionId: command.sessionId,
-				code: "ffmpeg_missing",
-				message: `ffmpeg and ffprobe are required to transcribe files; ${ffmpegInstallHint()}`,
-			});
+			emitError(
+				command.sessionId,
+				"ffmpeg_missing",
+				`ffmpeg and ffprobe are required to transcribe files; ${ffmpegInstallHint()}`,
+			);
 			return;
 		}
 
@@ -280,12 +300,7 @@ export async function runWorkerLoop(
 			activeKind = "file";
 		} catch (error) {
 			active = undefined;
-			emit({
-				type: "error",
-				sessionId: command.sessionId,
-				code: "stream_failed",
-				message: errorMessage(error),
-			});
+			emitError(command.sessionId, "stream_failed", errorMessage(error));
 		}
 	};
 
@@ -369,23 +384,14 @@ export async function runWorkerLoop(
 	for await (const line of lines) {
 		const parsed = parseInboundLine(line);
 		if (!parsed.ok) {
-			emit({
-				type: "error",
-				code: parsed.code,
-				message: parsed.message,
-			});
+			emitError(undefined, parsed.code, parsed.message);
 			continue;
 		}
 
 		try {
 			await handleCommand(parsed.command);
 		} catch (error) {
-			emit({
-				type: "error",
-				sessionId: active?.sessionId,
-				code: "stream_failed",
-				message: errorMessage(error),
-			});
+			emitError(active?.sessionId, "stream_failed", errorMessage(error));
 		}
 	}
 

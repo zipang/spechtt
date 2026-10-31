@@ -1,4 +1,11 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	spyOn,
+	test,
+} from "bun:test";
 import { type OutboundEvent, serializeOutboundEvent } from "./protocol";
 import type {
 	EmitFn,
@@ -16,6 +23,7 @@ import {
 	type FileDeps,
 	defaultAdapterFactory,
 	runWorkerLoop,
+	sanitizeDiagnostic,
 } from "./worker";
 
 const START = JSON.stringify({
@@ -1081,5 +1089,153 @@ describe("runWorkerLoop transcribeFile", () => {
 			code: "stream_failed",
 			message: "session blew up",
 		});
+	});
+});
+
+describe("worker diagnostics", () => {
+	let errorSpy: ReturnType<typeof spyOn>;
+
+	beforeEach(() => {
+		errorSpy = spyOn(console, "error").mockImplementation(() => {});
+	});
+
+	afterEach(() => {
+		errorSpy.mockRestore();
+	});
+
+	test("a clean empty stop emits no error event and no diagnostic line", async () => {
+		const events: OutboundEvent[] = [];
+		const emptyFactory: SttAdapterFactory = (config) => ({
+			mode: "streaming",
+			start: (sessionConfig: SttSessionConfig, emit: EmitFn): SttSession => {
+				emit({ type: "started", sessionId: sessionConfig.sessionId });
+				return {
+					sessionId: sessionConfig.sessionId,
+					pushAudio: () => {},
+					pause: () => {},
+					resume: () => {},
+					stop: async () => {
+						emit({
+							type: "stopped",
+							sessionId: sessionConfig.sessionId,
+							fullText: "",
+						});
+					},
+					abort: async () => {},
+				};
+			},
+		});
+
+		await runWorkerLoop(
+			linesOf([START, JSON.stringify({ type: "stop" })]),
+			(event) => events.push(event),
+			emptyFactory,
+		);
+
+		expect(events).toEqual([
+			{ type: "ready" },
+			{ type: "started", sessionId: "session-1" },
+			{ type: "stopped", sessionId: "session-1", fullText: "" },
+		]);
+		expect(events.some((event) => event.type === "error")).toBe(false);
+		expect(errorSpy).not.toHaveBeenCalled();
+	});
+
+	test("the reported repro stays silent end to end through the real adapter", async () => {
+		const events: OutboundEvent[] = [];
+		const silentAudio = JSON.stringify({
+			type: "audio",
+			pcm16Base64: Buffer.alloc(640).toString("base64"),
+		});
+		// A provider stream that rejects an empty/voiceless take, the way the
+		// reporting provider did on stop.
+		const rejectingAdapter = new VercelAiSdkAdapter({
+			resolveModel: () => "test-model",
+			streamTranscribe: (options) => {
+				// Drain the audio first, then fail on the flush — exactly what
+				// the reporting provider did when the take was voiceless.
+				const fullStream = (async function* () {
+					for await (const _chunk of options.audio) {
+						// Keep reading until the session closes the stream.
+					}
+					throw new Error("Nothing was recorded.");
+				})();
+				return {
+					fullStream,
+					text: Promise.resolve(""),
+					segments: Promise.resolve([]),
+					language: Promise.resolve(undefined),
+					durationInSeconds: Promise.resolve(undefined),
+					warnings: Promise.resolve([]),
+					responses: Promise.resolve([]),
+					providerMetadata: Promise.resolve({}),
+				} as never;
+			},
+		});
+
+		await runWorkerLoop(
+			linesOf([
+				START,
+				silentAudio,
+				silentAudio,
+				JSON.stringify({ type: "stop" }),
+			]),
+			(event) => events.push(event),
+			() => rejectingAdapter,
+		);
+
+		expect(events).toEqual([
+			{ type: "ready" },
+			{ type: "started", sessionId: "session-1" },
+			{ type: "stopped", sessionId: "session-1", fullText: "" },
+		]);
+		expect(errorSpy).not.toHaveBeenCalled();
+	});
+
+	test("writes one redacted diagnostic per error without changing stdout", async () => {
+		const { factory, events } = fakeFactory();
+		const unknownProvider = JSON.stringify({
+			type: "start",
+			sessionId: "bad-provider",
+			provider: "acme",
+			model: "whatever",
+			sampleRate: 16000,
+			apiKey: "sk-super-secret",
+		});
+
+		await runWorkerLoop(
+			linesOf([unknownProvider]),
+			(event) => events.push(event),
+			factory,
+		);
+
+		expect(events).toEqual([
+			{ type: "ready" },
+			{
+				type: "error",
+				sessionId: "bad-provider",
+				code: "unsupported_provider",
+				message: expect.stringContaining("acme"),
+			},
+		]);
+		const lines = errorSpy.mock.calls.map((call: unknown[]) => String(call[0]));
+		expect(lines).toHaveLength(1);
+		expect(lines[0]).toContain("code=unsupported_provider");
+		expect(lines[0]).toContain("sessionId=bad-provider");
+		expect(lines[0]).not.toContain("sk-super-secret");
+	});
+
+	test("sanitizeDiagnostic collapses and redacts credential material", () => {
+		const raw =
+			"Authorization: Bearer sk-live-secret\napi_key=sk-other timeout\tkey=plain";
+		const sanitized = sanitizeDiagnostic(raw);
+
+		expect(sanitized).not.toContain("sk-live-secret");
+		expect(sanitized).not.toContain("sk-other");
+		expect(sanitized).not.toContain("plain");
+		expect(sanitized).not.toContain("Authorization");
+		expect(sanitized).not.toContain("\n");
+		expect(sanitized).toContain("[REDACTED]");
+		expect(sanitized.length).toBeLessThanOrEqual(120);
 	});
 });

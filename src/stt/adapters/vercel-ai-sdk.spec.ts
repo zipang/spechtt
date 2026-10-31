@@ -6,6 +6,7 @@ import type { SttSessionConfig } from "./types";
 import {
 	type StreamTranscribeFn,
 	VercelAiSdkAdapter,
+	isEmptyInputFailure,
 } from "./vercel-ai-sdk";
 
 const config: SttSessionConfig = {
@@ -15,6 +16,9 @@ const config: SttSessionConfig = {
 	sampleRate: 24000,
 	apiKey: "sk-test",
 };
+
+/** 40 ms of digital silence: what the capture layer sends when nothing is heard. */
+const SILENT_CHUNK = Buffer.alloc(640).toString("base64");
 
 interface FakeResultOptions {
 	parts?: TranscriptionStreamPart[];
@@ -176,6 +180,7 @@ describe("VercelAiSdkAdapter", () => {
 		});
 
 		const session = await adapter.start(config, emit);
+		session.pushAudio("QQ==");
 		await expect(session.stop()).resolves.toBeUndefined();
 
 		expect(events).toContainEqual({
@@ -190,6 +195,114 @@ describe("VercelAiSdkAdapter", () => {
 			sessionId: "session-1",
 			fullText: "",
 		});
+	});
+
+	test("a silent stop never surfaces a provider empty-input failure", async () => {
+		const streamTranscribe: StreamTranscribeFn = () =>
+			fakeResult({
+				failWith: new Error("no audio to transcribe"),
+			});
+		const { events, emit } = collect();
+		const adapter = new VercelAiSdkAdapter({
+			streamTranscribe,
+			resolveModel: () => "test-model",
+		});
+
+		const session = await adapter.start(config, emit);
+		await expect(session.stop()).resolves.toBeUndefined();
+
+		expect(events).toEqual([
+			{ type: "started", sessionId: "session-1" },
+			{ type: "stopped", sessionId: "session-1", fullText: "" },
+		]);
+		expect(events.some((event) => event.type === "error")).toBe(false);
+	});
+
+	test("a silent take never surfaces a provider empty-input failure", async () => {
+		const streamTranscribe: StreamTranscribeFn = () =>
+			fakeResult({ failWith: new Error("Nothing was recorded.") });
+		const { events, emit } = collect();
+		const adapter = new VercelAiSdkAdapter({
+			streamTranscribe,
+			resolveModel: () => "test-model",
+		});
+
+		const session = await adapter.start(config, emit);
+		// Silence still travels as PCM16 chunks, so the session did receive
+		// audio; the provider is the one reporting there was nothing to hear.
+		for (let index = 0; index < 5; index += 1) {
+			session.pushAudio(SILENT_CHUNK);
+		}
+		await expect(session.stop()).resolves.toBeUndefined();
+
+		expect(events).toEqual([
+			{ type: "started", sessionId: "session-1" },
+			{ type: "stopped", sessionId: "session-1", fullText: "" },
+		]);
+	});
+
+	test("a silent take still reports a genuine provider failure", async () => {
+		const streamTranscribe: StreamTranscribeFn = () =>
+			fakeResult({ failWith: new Error("provider down") });
+		const { events, emit } = collect();
+		const adapter = new VercelAiSdkAdapter({
+			streamTranscribe,
+			resolveModel: () => "test-model",
+		});
+
+		const session = await adapter.start(config, emit);
+		session.pushAudio(SILENT_CHUNK);
+		await session.stop();
+
+		expect(events.filter((event) => event.type === "error")).toHaveLength(1);
+		expect(events.at(-1)).toEqual({
+			type: "stopped",
+			sessionId: "session-1",
+			fullText: "",
+		});
+	});
+
+	test("an empty-input error after real text is still reported", async () => {
+		const streamTranscribe: StreamTranscribeFn = () =>
+			fakeResult({
+				parts: [{ type: "transcript-final", text: "hello" }],
+				failWith: new Error("Nothing was recorded."),
+			});
+		const { events, emit } = collect();
+		const adapter = new VercelAiSdkAdapter({
+			streamTranscribe,
+			resolveModel: () => "test-model",
+		});
+
+		const session = await adapter.start(config, emit);
+		session.pushAudio("UklGRg==");
+		await session.stop();
+
+		expect(events).toContainEqual({
+			type: "error",
+			sessionId: "session-1",
+			code: "stream_failed",
+			message: "Nothing was recorded.",
+		});
+	});
+
+	test("isEmptyInputFailure recognises empty-input provider messages", () => {
+		for (const message of [
+			"Nothing was recorded.",
+			"no speech detected",
+			"audio is empty",
+			"the request contained no audio",
+			"There is nothing to transcribe",
+		]) {
+			expect(isEmptyInputFailure(message)).toBe(true);
+		}
+		for (const message of [
+			"provider down",
+			"401 invalid api key",
+			"socket closed",
+		]) {
+			expect(isEmptyInputFailure(message)).toBe(false);
+		}
 	});
 
 	test("emits stream_failed when the SDK throws synchronously", async () => {

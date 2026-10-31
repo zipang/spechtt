@@ -4,6 +4,10 @@
 //! automatically. After Save the screen shows the written path and an Open
 //! File action backed by the injected opener. "Copied"/"Saved"/"Opened"
 //! feedback comes from the controller's transient output status.
+//!
+//! A take that recorded nothing is a normal outcome: Copy and Save are
+//! disabled and a muted label replaces the transient status area, so no
+//! failure is ever implied.
 
 use gpui_kit::assets::IconName;
 use gpui_kit::base::h_flex;
@@ -24,6 +28,7 @@ pub(crate) fn render(app: &mut SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> An
         return StatusBadge::new("STOPPED").into_any_element();
     };
 
+    let empty = app.controller().finished_take_is_empty();
     let written_path = app
         .controller()
         .written_path()
@@ -48,18 +53,18 @@ pub(crate) fn render(app: &mut SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> An
         h_flex()
             .gap_2()
             .child(
-                IconAction::new("btn-copy", IconName::Copy).on_click(cx.listener(
-                    |this, _event, _window, cx| {
+                IconAction::new("btn-copy", IconName::Copy)
+                    .disabled(empty)
+                    .on_click(cx.listener(|this, _event, _window, cx| {
                         this.copy_transcript(cx);
-                    },
-                )),
+                    })),
             )
             .child(
-                IconAction::new("btn-save", IconName::HardDriveDownload).on_click(cx.listener(
-                    |this, _event, _window, cx| {
+                IconAction::new("btn-save", IconName::HardDriveDownload)
+                    .disabled(empty)
+                    .on_click(cx.listener(|this, _event, _window, cx| {
                         this.save_transcript(cx);
-                    },
-                )),
+                    })),
             )
     };
 
@@ -86,7 +91,9 @@ pub(crate) fn render(app: &mut SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> An
         .body_gap(space::SM)
         .body(body);
 
-    if let Some(status) = status {
+    if empty {
+        shell = shell.body(Label::new("Nothing was recorded.").muted());
+    } else if let Some(status) = status {
         shell = shell.body(Label::new(status).muted());
     }
 

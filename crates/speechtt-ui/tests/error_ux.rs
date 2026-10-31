@@ -94,11 +94,28 @@ fn stt_error_codes_map_deterministically() {
     );
     assert_eq!(
         AppError::from_stt_error("stream_failed", "unexpected", "vercel"),
-        AppError::ProtocolError("stream_failed".into())
+        AppError::BackendFailed {
+            code: "stream_failed".into(),
+            detail: "unexpected".into(),
+        }
     );
     assert_eq!(
         AppError::from_stt_error("invalid_protocol", "bad line", "vercel"),
-        AppError::ProtocolError("invalid_protocol".into())
+        AppError::ProtocolError("bad line".into())
+    );
+    assert_eq!(
+        AppError::from_stt_error("new_worker_code", "provider said no", "vercel"),
+        AppError::BackendFailed {
+            code: "new_worker_code".into(),
+            detail: "provider said no".into(),
+        }
+    );
+    assert_eq!(
+        AppError::from_stt_error("new_worker_code", "", "vercel"),
+        AppError::BackendFailed {
+            code: "new_worker_code".into(),
+            detail: "no detail provided".into(),
+        }
     );
 }
 
@@ -155,10 +172,10 @@ fn output_errors_map_to_their_action_variants() {
         AppError::from_output(OutputError::UnsupportedFormat("pdf".into())),
         AppError::SaveFailed(_)
     ));
-    assert!(matches!(
+    assert_eq!(
         AppError::from_output(OutputError::EmptyTranscript),
-        AppError::SaveFailed(_)
-    ));
+        AppError::NothingRecorded
+    );
     assert!(matches!(
         AppError::from_output(OutputError::OpenFile("missing".into())),
         AppError::SaveFailed(_)
@@ -184,17 +201,112 @@ fn every_error_has_a_short_message_and_one_primary_action() {
         (AppError::ClipboardFailed, ErrorAction::Dismiss),
         (AppError::PasteFailed, ErrorAction::Dismiss),
         (AppError::ProtocolError("bad".into()), ErrorAction::Dismiss),
+        (
+            AppError::BackendFailed {
+                code: "stream_failed".into(),
+                detail: "provider down".into(),
+            },
+            ErrorAction::Dismiss,
+        ),
+        (AppError::NothingRecorded, ErrorAction::Dismiss),
     ];
 
     for (error, action) in cases {
         assert_eq!(error.action(), action, "{error:?}");
-        assert!(!error.message().is_empty(), "{error:?}");
+        let message = error.message();
+        assert!(!message.is_empty(), "{error:?}");
         assert!(
-            error.message().chars().count() <= 120,
-            "message is too long: {}",
-            error.message()
+            message.chars().count() <= 160,
+            "message is too long: {message}"
         );
     }
+}
+
+#[test]
+fn dynamic_messages_name_the_cause_and_stay_within_the_strip_budget() {
+    let backend = AppError::BackendFailed {
+        code: "stream_failed".into(),
+        detail: "provider down".into(),
+    };
+    assert_eq!(
+        backend.message(),
+        "The transcription backend failed: provider down."
+    );
+    assert_eq!(backend.detail().as_deref(), Some("provider down"));
+
+    let protocol = AppError::ProtocolError("bad line".into());
+    assert_eq!(
+        protocol.message(),
+        "The transcription backend sent an unexpected message: bad line."
+    );
+
+    let save = AppError::SaveFailed("permission denied".into());
+    assert_eq!(
+        save.message(),
+        "Could not save the transcript: permission denied."
+    );
+
+    let long = AppError::BackendFailed {
+        code: "stream_failed".into(),
+        detail: "x".repeat(500),
+    };
+    assert!(long.message().chars().count() <= 160, "{}", long.message());
+
+    // A provider message that already ends a sentence never doubles the stop.
+    let trailing = AppError::BackendFailed {
+        code: "stream_failed".into(),
+        detail: "Nothing was recorded.".into(),
+    };
+    assert_eq!(
+        trailing.message(),
+        "The transcription backend failed: Nothing was recorded."
+    );
+}
+
+#[test]
+fn sanitize_detail_collapses_controls_and_redacts_credentials() {
+    let sanitized = speechtt_ui::controller::sanitize_detail(
+        "  boom\n\tAuthorization: Bearer sk-live-secret api_key=sk-other key=plain  ",
+    );
+    for secret in ["sk-live-secret", "sk-other", "plain", "Authorization"] {
+        assert!(!sanitized.contains(secret), "{sanitized}");
+    }
+    assert!(!sanitized.contains('\n'), "{sanitized}");
+    assert!(sanitized.contains("[REDACTED]"), "{sanitized}");
+
+    let long = speechtt_ui::controller::sanitize_detail(&"a".repeat(500));
+    assert_eq!(long.chars().count(), 120, "{long}");
+    assert!(long.ends_with('…'));
+
+    assert_eq!(speechtt_ui::controller::sanitize_detail(""), "");
+    assert!(!speechtt_ui::controller::sanitize_detail("   \n\t").is_empty());
+}
+
+#[test]
+fn diagnostics_format_one_redacted_line_per_typed_error() {
+    use speechtt_ui::diagnostics::format_error_line;
+
+    let line = format_error_line(
+        "stt_event",
+        &AppError::BackendFailed {
+            code: "stream_failed".into(),
+            detail: "provider said sk-secret".into(),
+        },
+    );
+    assert!(line.starts_with("[speechtt] "), "{line}");
+    assert!(line.contains("context=stt_event"), "{line}");
+    assert!(line.contains("kind=BackendFailed"), "{line}");
+    assert!(line.contains("code=stream_failed"), "{line}");
+    assert!(
+        line.contains("detail=\"provider said [REDACTED]\""),
+        "{line}"
+    );
+    assert!(!line.contains("sk-secret"), "{line}");
+    assert_eq!(line.lines().count(), 1, "{line}");
+
+    let info = format_error_line("controller", &AppError::NothingRecorded);
+    assert!(info.contains("kind=NothingRecorded"), "{info}");
+    assert!(info.contains("code=-"), "{info}");
 }
 
 #[test]
@@ -246,6 +358,46 @@ fn controller_stores_and_dismisses_the_typed_error() {
 }
 
 #[test]
+fn inbound_stt_errors_name_their_code_and_sanitized_detail() {
+    use speechtt_ui::controller::sanitize_detail;
+    use speechtt_ui::diagnostics::format_error_line;
+
+    let mut controller = SessionController::new();
+    controller.set_sink(Box::new(NullSink));
+    controller.handle_stt_event(SttEvent::Error {
+        session_id: None,
+        code: "stream_failed".into(),
+        message: "upstream refused sk-live-secret".into(),
+    });
+
+    assert_eq!(
+        controller.app_error(),
+        Some(&AppError::BackendFailed {
+            code: "stream_failed".into(),
+            detail: "upstream refused [REDACTED]".into(),
+        })
+    );
+    let message = controller
+        .app_error()
+        .map(AppError::message)
+        .unwrap_or_default();
+    assert!(message.contains("upstream refused"), "{message}");
+    assert!(!message.contains("unexpected message"), "{message}");
+    assert!(!message.contains("sk-live-secret"), "{message}");
+
+    let line = format_error_line(
+        "stt_event",
+        &AppError::BackendFailed {
+            code: "stream_failed".into(),
+            detail: sanitize_detail("upstream refused sk-live-secret"),
+        },
+    );
+    assert!(line.contains("code=stream_failed"), "{line}");
+    assert!(line.contains("upstream refused [REDACTED]"), "{line}");
+    assert!(!line.contains("sk-live-secret"), "{line}");
+}
+
+#[test]
 fn stale_errors_from_another_take_do_not_replace_the_current_error() {
     let mut controller = SessionController::new();
     controller.set_sink(Box::new(NullSink));
@@ -264,6 +416,6 @@ fn stale_errors_from_another_take_do_not_replace_the_current_error() {
 
     assert_eq!(
         controller.app_error(),
-        Some(&AppError::ProtocolError("invalid_protocol".into()))
+        Some(&AppError::ProtocolError("bad".into()))
     );
 }
