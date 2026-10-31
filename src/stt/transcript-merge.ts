@@ -5,8 +5,6 @@
  * forced cut, so the same words can be transcribed twice. `mergeTranscript`
  * removes a genuine suffix/prefix word run at the junction while preserving
  * legitimate repetitions such as "very very".
- *
- * Pure and deterministic; see `tickets/done/T0012-silence-aligned-batch-segmentation.md`.
  */
 
 export interface MergeOptions {

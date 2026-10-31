@@ -21,8 +21,8 @@ use crate::controller::{HelpTab, pricing_lines};
 use crate::tokens::color;
 use crate::views::dialogs::{DialogShell, DialogWindow};
 
-/// One row of the shortcuts reference. T0006 will drive this from the user's
-/// bindings; keeping it in one table avoids prose drifting from behaviour.
+/// One row of the shortcuts reference: a description and its keys, in one
+/// table so the prose cannot drift from the behaviour.
 pub(crate) const HELP_SHORTCUTS: &[(&str, &[&str])] = &[
     ("Record · pause · resume", &["Ctrl", "Shift", "R"]),
     ("Stop recording", &["Ctrl", "Shift", "S"]),

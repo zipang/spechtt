@@ -20,7 +20,7 @@ use async_channel::{Receiver, Sender};
 
 use crate::protocol::{SttCommand, SttEvent};
 
-/// Worker entrypoint, relative to the repository root (see `specs/T0003.md`).
+/// Worker entrypoint, relative to the repository root.
 pub const WORKER_SCRIPT: &str = "src/stt/worker.ts";
 
 /// Events forwarded from a duplex backend. `Err` reports a transport or

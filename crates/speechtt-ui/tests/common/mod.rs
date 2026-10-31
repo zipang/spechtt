@@ -31,7 +31,7 @@ use speechtt_ui::app::{AppServices, SpeechTtApp};
 use speechtt_ui::controller::{SAMPLE_RATE, SystemClock};
 
 /// In-memory settings store. The initial key makes the widget's recording
-/// flow pass the T0009 missing-key guard without touching `$HOME`.
+/// flow passes the missing-key guard without touching `$HOME`.
 #[derive(Clone)]
 struct TestSettingsStore {
     settings: Arc<Mutex<Settings>>,

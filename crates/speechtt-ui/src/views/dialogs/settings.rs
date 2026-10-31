@@ -1,8 +1,8 @@
 //! Settings dialog, per `mockups/dialogs/settings.png`.
 //!
-//! The dialog edits a UI-only draft (see `controller::SettingsDraft`); saving
-//! stages a `SettingsChange` through `SpeechTtApp::apply_settings_change`.
-//! T0009 replaces that hook with the Rust settings store.
+//! The dialog edits a draft (see `controller::SettingsDraft`); saving stages a
+//! `SettingsChange` through `SpeechTtApp::apply_settings_change`, which writes
+//! it to the Rust settings store.
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::button::Button;

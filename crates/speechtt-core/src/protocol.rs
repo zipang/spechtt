@@ -1,4 +1,4 @@
-//! NDJSON wire protocol shared with the Bun STT worker (`specs/T0003.md`).
+//! NDJSON wire protocol shared with the Bun STT worker.
 //!
 //! Every message is one JSON object terminated by `\n`. Rust writes
 //! [`SttCommand`]s to the worker's `stdin` and reads [`SttEvent`]s from its

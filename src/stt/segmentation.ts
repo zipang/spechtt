@@ -6,8 +6,6 @@
  * phrases instead of arbitrary byte-count windows. It is pure and
  * deterministic: every decision depends on sample counts and frame energies,
  * never on the wall clock, randomness, or I/O.
- *
- * See `tickets/done/T0012-silence-aligned-batch-segmentation.md` (contract).
  */
 
 /** Analysis window. */

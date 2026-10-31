@@ -36,7 +36,7 @@ pub const PROVIDER_ALIASES: [(&str, &str); 2] = [
 
 /// Providers the UI offers. Keep in sync with `PROVIDERS` in
 /// `src/stt/registry.ts`: a provider is listed only after its API has been
-/// evaluated (see T0014).
+/// evaluated.
 pub const SUPPORTED_PROVIDERS: [&str; 1] = ["vercel-ai-gateway"];
 
 /// Resolves a legacy provider id to its canonical form.
