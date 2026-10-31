@@ -104,6 +104,14 @@ fn stt_error_codes_map_deterministically() {
         AppError::ProtocolError("bad line".into())
     );
     assert_eq!(
+        AppError::from_stt_error(
+            "unsupported_file_model",
+            "gpt-realtime cannot transcribe files",
+            "vercel"
+        ),
+        AppError::FileModelNotSupported
+    );
+    assert_eq!(
         AppError::from_stt_error("new_worker_code", "provider said no", "vercel"),
         AppError::BackendFailed {
             code: "new_worker_code".into(),
@@ -209,6 +217,11 @@ fn every_error_has_a_short_message_and_one_primary_action() {
             ErrorAction::Dismiss,
         ),
         (AppError::NothingRecorded, ErrorAction::Dismiss),
+        (AppError::FileModelNotSupported, ErrorAction::OpenSettings),
+        (AppError::FileNotFound, ErrorAction::Dismiss),
+        (AppError::FileUnreadable, ErrorAction::Dismiss),
+        (AppError::FfmpegMissing, ErrorAction::Dismiss),
+        (AppError::FileDialogFailed, ErrorAction::Dismiss),
     ];
 
     for (error, action) in cases {

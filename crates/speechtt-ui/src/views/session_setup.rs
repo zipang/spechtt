@@ -13,13 +13,14 @@ use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, Context};
 
 use crate::app::SpeechTtApp;
-use crate::components::{SettingRow, TranscriptionModeBadge};
+use crate::components::{InfoNote, SettingRow, TranscriptionModeBadge};
+use crate::controller::SessionMode;
 
 /// Cancel / Continue live in the window-level [`crate::components::AppFooter`]
 /// sibling, so the actions never scroll away and are separated from the body
 /// by the same hairline as `AppHeader`.
 pub(crate) fn render(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyElement {
-    let (provider_label, model_label, model_mode, has_provider) = {
+    let (provider_label, model_label, model_mode, has_provider, file_mode) = {
         let controller = app.controller();
         let has_provider = controller.has_provider();
         (
@@ -31,6 +32,7 @@ pub(crate) fn render(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyEle
             }),
             controller.draft_model_mode(),
             has_provider,
+            controller.mode() == SessionMode::File,
         )
     };
 
@@ -64,6 +66,11 @@ pub(crate) fn render(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyEle
         .gap_2()
         .p_5()
         .overflow_y_scrollbar()
+        .when(file_mode, |body| {
+            body.child(InfoNote::new(
+                "Files are transcribed in batches, so only non-streaming models are listed.",
+            ))
+        })
         .child(
             SettingRow::new(
                 "Transcription Service",

@@ -278,6 +278,18 @@ export async function runWorkerLoop(
 			return;
 		}
 
+		// A file take decodes locally and is transcribed in batches: a
+		// streaming-only model has no endpoint for it, so refuse before any
+		// session exists or ffmpeg is touched.
+		if (resolveModelCapability(command.provider, command.model)?.mode === "streaming") {
+			emitError(
+				command.sessionId,
+				"unsupported_file_model",
+				`${command.model} cannot transcribe files; choose a non-streaming model`,
+			);
+			return;
+		}
+
 		if (files.findFfmpeg() === undefined) {
 			emitError(
 				command.sessionId,

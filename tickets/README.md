@@ -111,14 +111,15 @@ _(none)_
 
 ### Review
 
-_(none)_
+| Ticket | Title | Track | Depends on |
+|---|---|---|---|
+| [T0023](review/T0023-file-mode-setup-and-segmented-model.md) | File sessions must choose a non-streaming model in the setup form | Rust UI + core + Bun worker | T0011, T0015, T0020 |
 
 ### Planned
 
 | Ticket | Title | Track | Depends on |
 |---|---|---|---|
 | [T0016](planned/T0016-dependency-bootstrap-script.md) | Dependency bootstrap for Bun and ffmpeg | Tooling (TypeScript/Bun) | — |
-| [T0023](planned/T0023-file-mode-setup-and-segmented-model.md) | File sessions must choose a non-streaming model in the setup form | Rust UI + core + Bun worker | T0011, T0015, T0020 |
 | [T0024](planned/T0024-media-only-file-picker.md) | Accept only media files for file transcription | Rust core + UI | T0015, T0023 |
 | [T0021](planned/T0021-consistent-footer-navigation.md) | One consistent footer and a live-first navigation flow | Rust UI | T0017, T0019, T0020, T0023 |
 | [T0022](planned/T0022-live-take-screen-record-control.md) | Live take screen: microphone record control, cancel and reset | Rust UI + core + design | T0020, T0021 |

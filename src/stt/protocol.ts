@@ -21,7 +21,9 @@ export type SttErrorCode =
 	/** ffmpeg started but failed mid-decode. */
 	| "decode_failed"
 	/** `ffmpeg`/`ffprobe` are not installed or not on PATH. */
-	| "ffmpeg_missing";
+	| "ffmpeg_missing"
+	/** The chosen model only streams: a file take needs a batch model. */
+	| "unsupported_file_model";
 
 export interface StartCommand {
 	type: "start";

@@ -1,6 +1,8 @@
 # T0023 — File sessions must choose a non-streaming model in the setup form
 
 - **Track**: Rust UI + Rust core + TypeScript/Bun worker
+- **Owner**: coder sub-agent (supervised by CTO)
+- **Started**: 2026-10-31
 - **Wave**: 2 (integration)
 - **Depends on**: T0015 (file transcription), T0020 (typed errors + diagnostics),
   T0011 (capability catalogue with `TranscriptionMode`)
@@ -74,20 +76,22 @@ component, no new colour, no new token, no visual-layout test.
 Entry order stays: **mode card → native picker → setup form → take**.
 
 - `SessionController::choose_mode(SessionMode::File)` sets the mode to `File`,
-  resets the draft, seeds it (see §2) and returns `false` (the form is
-  required). It does **not** open the picker itself and does not reach `Ready`.
+  clears the draft and pending file, **keeps `Screen::Mode`** and returns
+  `false`. Seeding is deferred: there is nothing to configure until a file has
+  been chosen. It does **not** open the picker itself and never reaches
+  `Ready`.
 - `app.rs::choose_mode(File)` keeps opening the picker exactly as today, after
   the controller call.
 - **Cancelling the picker is a full no-op on the flow.** The user stays on the
   welcome screen (`ViewState::Mode`), with no draft, no error strip and no
-  pending path. `change_mode()` is not needed because the controller never left
-  `Mode`.
-- **Choosing a file does not start a take.** The path is remembered as the
-  pending file (`SessionController::set_pending_file(path)`) and the view goes
-  to `SessionSetup`/`Form`, where the user picks the model.
+  pending path. The app calls `change_mode()` on that branch so the recorded
+  mode returns to its default.
+- **Choosing a file does not start a take.** `set_pending_file(path)` remembers
+  the path, resets and seeds the draft, and opens `Screen::Form`, where the user
+  picks the model.
 - **Continue starts the take for the pending file.** `app.rs::create_session`
-  commits the draft, then calls `start_file_from_path` with the remembered
-  path. The picker is not shown a second time.
+  captures the pending path, commits the draft, then calls
+  `start_file_from_path` with it. The picker is not shown a second time.
 - **Back / Cancel from the form discards the pending file** and returns to the
   welcome screen. No take starts, nothing is written.
 - `choose_mode(SessionMode::Live)` is unchanged: it returns `true` and reaches
@@ -190,45 +194,46 @@ FileModelNotSupported,
 
 ## TDD Tasks
 
-- [ ] **T23.1 — Red first: picker → form, never picker → take.**
-      `tests/session_flow.rs`: `choose_mode(File)` with configured **streaming**
-      settings returns `false`, reports `ViewState::Form`, keeps the mode, seeds
-      the provider and leaves the model `None` with `is_draft_complete() ==
-      false`. The same call with configured **segmented** settings also reports
-      `ViewState::Form` but leaves a complete draft. `choose_mode(Live)` keeps
-      its current "straight to Ready" result. The existing
+- [x] **T23.1 — Red first: picker → form, never picker → take.**
+      `tests/session_flow.rs`: `choose_mode(File)` returns `false` and reports
+      `ViewState::Mode` with no draft and no pending file, whatever the saved
+      settings say (the picker is still open at that point). `set_pending_file`
+      then reports `ViewState::Form`: with configured **segmented** settings it
+      seeds the provider and a complete draft; with configured **streaming**
+      settings it seeds the provider only, leaving `is_draft_complete()` false.
+      `choose_mode(Live)` keeps its current "straight to Ready" result. The old
       `choosing_file_with_configured_settings_goes_straight_to_ready` test is
       rewritten to the new contract.
-- [ ] **T23.2 — Red first: the pending file.** `set_pending_file` stores the
+- [x] **T23.2 — Red first: the pending file.** `set_pending_file` stores the
       path, keeps `session_state()` `Blank` and reports `Form`; `pending_file()`
       returns it; `clear_pending_file`, `change_mode`, `cancel_form` and
       `new_take` clear it; `create_session` clears it after committing; the path
       never appears in `AppError::detail()` or a diagnostic line.
-- [ ] **T23.3 — Red first: cancelling the picker is a no-op.**
+- [x] **T23.3 — Red first: cancelling the picker is a no-op.**
       `app.choose_mode(File)` followed by a cancelled selection leaves
       `view_state() == ViewState::Mode`, no pending file, no error strip and no
       `SttCommand`. This test drives the headless seam, not the OS dialog.
-- [ ] **T23.4 — Red first: the model list is filtered.** New controller specs:
+- [x] **T23.4 — Red first: the model list is filtered.** New controller specs:
       `selectable_model_ids` returns only `Segmented` ids in file mode, all ids
       in live mode, and an empty list for an unknown provider; `cycle_model`
       never lands on a streaming id in file mode (walk the full cycle and
       assert every visited id); cycling from a streaming current model lands on
       the first selectable id.
-- [ ] **T23.5 — Red first: commit refuses a streaming model.**
+- [x] **T23.5 — Red first: commit refuses a streaming model.**
       `is_draft_complete()` is `false` for a file draft pinned to a streaming
       model, even with a valid provider; `create_session()` returns `false` and
       leaves `session_state()` `Blank`. Live mode still accepts the same model.
-- [ ] **T23.6 — Red first: the take-start guard.**
+- [x] **T23.6 — Red first: the take-start guard.**
       `start_file_session` on a `Ready` file machine whose model is streaming
       returns `Err(AppError::FileModelNotSupported)`, sends no command and
       leaves `view_state()` unchanged. A segmented model still starts the take.
-- [ ] **T23.7 — Red first: worker refusal.** `worker.spec.ts`: a
+- [x] **T23.7 — Red first: worker refusal.** `worker.spec.ts`: a
       `transcribeFile` command naming a streaming model emits exactly one
       `unsupported_file_model` error, sends nothing to the provider, and never
       emits `started`/`stopped`. A segmented model keeps the existing happy
       path. `protocol.spec.ts` covers the new code's round trip if it is
       validated there.
-- [ ] **T23.8 — Routing + fixtures.** `tests/end_to_end.rs`: the file helper
+- [x] **T23.8 — Routing + fixtures.** `tests/end_to_end.rs`: the file helper
       walks the new order — `choose_mode(File)` (picker seam), then the form
       (`cycle_provider`, pick a segmented model, `create_session`) — and asserts
       the `TranscribeFile` command is sent only after Continue. The
@@ -236,10 +241,10 @@ FileModelNotSupported,
       with a segmented id. `tests/error_ux.rs` gains the new
       `FileModelNotSupported` row (message, action) and the
       `from_stt_error("unsupported_file_model", …)` mapping.
-- [ ] **T23.9 — Implement** until T23.1–T23.8 are green: the pending file,
+- [x] **T23.9 — Implement** until T23.1–T23.8 are green: the pending file,
       mode-aware seeding, `selectable_model_ids`, the completeness and commit
       rules, the `start_file_session` guard, the worker guard, the `InfoNote`.
-- [ ] **T23.10 — Docs + gates.** Update the setup-screen paragraph in
+- [x] **T23.10 — Docs + gates.** Update the setup-screen paragraph in
       `DESIGN.md` if the note changes the documented copy; update the board.
       Run `cargo fmt -- --check`, `cargo clippy --all-targets -- -D warnings`,
       `cargo test`, `bun test`, `bun check src/stt`. All green, zero warnings.
@@ -269,4 +274,48 @@ FileModelNotSupported,
 
 ## Implementation Notes
 
-_(added during work)_
+### Decisions
+
+- **Seeding is deferred to `set_pending_file`.** `choose_mode(File)` clears the
+  draft and keeps `Screen::Mode`, so cancelling the native picker leaves no
+  trace at all. The contract's §1 wording was corrected accordingly (it
+  previously said `choose_mode` seeds and shows the form).
+- **`create_session` consumes the pending path.** The app captures
+  `pending_file()` *before* calling `create_session`, because the commit clears
+  it; this keeps the "Continue starts the take without asking again" rule
+  without a second field.
+- **Cancel goes through `change_mode()`.** That resets the provisional
+  `SessionMode::File` back to the default and clears the draft, which is what
+  "no-op on the flow" means to an observer.
+- **File mode has no holding screen.** `view_state()` maps
+  `SessionState::Ready` in file mode to `ViewState::Form`; the old file "ready"
+  branch in `views/ready.rs` is now unreachable and is left for T0021, which
+  deletes that view.
+- **Seeding now fills the provider even when the saved model is unusable**
+  (missing from the catalogue, or streaming in file mode). Before, both fields
+  were left empty. The draft is still incomplete, so Continue stays disabled;
+  the user just picks a model from the right list instead of both fields.
+- **`start_file_session` guard is defensive only.** A normal flow cannot reach
+  it with a streaming model, so the test exercises the real-world case that
+  motivated it: a catalogue refresh reclassifying an already-committed model as
+  streaming (`set_capabilities` with a reclassified catalogue).
+
+### Deviations
+
+- **The picker-cancel e2e test is a controller-level test.** The gpui test
+  harness cannot answer or dismiss a native path prompt, so the behaviour is
+  pinned where it is decided: `choose_mode(File)` + `change_mode()` leave
+  `Mode` with no draft, no pending file and no command. The app's cancel branch
+  is a two-line call into exactly those methods.
+
+### Verification
+
+```text
+cargo fmt -- --check                          → clean
+cargo clippy --all-targets -- -D warnings     → clean, 0 warnings
+cargo test                                    → 14 suites ok, 0 failed
+bun test                                      → 217 pass, 0 fail
+bun check src/stt                             → No type errors in 23 files
+bun run design:validate                       → 66 tokens, 0 errors
+```
+

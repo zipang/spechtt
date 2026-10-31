@@ -1528,10 +1528,15 @@ fn ready_app_for_files(
 
     cx.update_window(window.into(), |_, window, cx| {
         view.update(cx, |app, cx| {
-            // The file card routes straight to the picker; this test starts the
-            // take from its headless seam instead, so ignore the pending prompt.
+            // The file card opens the native picker; this helper walks the form
+            // from its headless seams instead, so the pending prompt is ignored
+            // (T0023: picker -> form -> take).
             app.choose_mode(SessionMode::File, cx);
-            assert_eq!(app.view_state(), ViewState::Ready);
+            assert_eq!(app.view_state(), ViewState::Mode);
+            app.cycle_provider(cx);
+            app.cycle_model(cx);
+            app.create_session(cx);
+            assert_eq!(app.view_state(), ViewState::Form);
         });
         window.render_frame(cx);
     })
@@ -1628,7 +1633,8 @@ fn a_missing_file_shows_a_typed_error_and_keeps_the_ready_screen(
     })
     .unwrap();
 
-    assert_eq!(cx.update(|cx| view.read(cx).view_state()), ViewState::Ready);
+    // File mode has no holding screen; the form stays up (T0023).
+    assert_eq!(cx.update(|cx| view.read(cx).view_state()), ViewState::Form);
     assert_eq!(
         cx.update(|cx| view.read(cx).app_error().cloned()),
         Some(AppError::FileNotFound)

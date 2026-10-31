@@ -13,6 +13,7 @@ use speechtt_core::session::{SessionField, SessionState};
 use speechtt_core::settings::Settings;
 use speechtt_ui::controller::{SessionController, SessionMode, ViewState};
 
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use speechtt_core::backend::{BackendError, SttSessionSink};
@@ -81,6 +82,33 @@ fn catalogue() -> Vec<ProviderCapability> {
     }]
 }
 
+/// The same provider, but every model is streaming — what a catalogue refresh
+/// can do underneath an already-committed file draft.
+fn reclassified_catalogue() -> Vec<ProviderCapability> {
+    vec![ProviderCapability {
+        id: "vercel-ai-gateway".to_string(),
+        label: "Vercel AI Gateway".to_string(),
+        available: true,
+        key_env_vars: vec!["AI_GATEWAY_API_KEY".to_string()],
+        models: vec![
+            ModelCapabilityInfo {
+                id: "openai/gpt-4o-transcribe".to_string(),
+                label: "GPT-4o Transcribe".to_string(),
+                mode: TranscriptionMode::Streaming,
+                description: None,
+                pricing: std::collections::BTreeMap::new(),
+            },
+            ModelCapabilityInfo {
+                id: "openai/gpt-realtime-whisper".to_string(),
+                label: "gpt-realtime-whisper".to_string(),
+                mode: TranscriptionMode::Streaming,
+                description: None,
+                pricing: std::collections::BTreeMap::new(),
+            },
+        ],
+    }]
+}
+
 /// Settings that resolve against [`catalogue`].
 fn configured_settings(model: &str) -> Settings {
     Settings {
@@ -107,6 +135,9 @@ fn ready_live() -> SessionController {
 fn ready_file() -> SessionController {
     let mut controller = catalogued();
     assert!(!controller.choose_mode(SessionMode::File));
+    // The picker comes first in file mode (T0023): the form only exists once a
+    // file has been chosen.
+    controller.set_pending_file(PathBuf::from("/tmp/speechtt-ready.mp4"));
     controller.cycle_provider();
     controller.cycle_model();
     assert!(controller.create_session());
@@ -138,8 +169,9 @@ fn choosing_a_mode_without_settings_opens_the_two_field_form() {
     assert_eq!(controller.mode(), SessionMode::Live);
     assert!(!controller.is_draft_complete());
 
+    // File mode waits for the picker on the welcome screen (T0023).
     assert!(!controller.choose_mode(SessionMode::File));
-    assert_eq!(controller.view_state(), ViewState::Form);
+    assert_eq!(controller.view_state(), ViewState::Mode);
     assert_eq!(controller.mode(), SessionMode::File);
 }
 
@@ -157,14 +189,181 @@ fn choosing_live_with_configured_settings_goes_straight_to_ready() {
 }
 
 #[test]
-fn choosing_file_with_configured_settings_goes_straight_to_ready() {
+fn choosing_file_waits_for_the_picker_on_the_welcome_screen() {
     let mut controller = catalogued();
     controller.apply_settings(configured_settings("openai/gpt-4o-transcribe"));
 
-    assert!(controller.choose_mode(SessionMode::File));
+    assert!(!controller.choose_mode(SessionMode::File));
 
-    assert_eq!(controller.view_state(), ViewState::Ready);
+    // The native picker is open: the welcome screen stays up, and cancelling
+    // the dialog must be a no-op on the flow.
+    assert_eq!(controller.view_state(), ViewState::Mode);
     assert_eq!(controller.mode(), SessionMode::File);
+    assert_eq!(controller.pending_file(), None);
+    assert!(
+        !controller.has_provider(),
+        "no draft before a file is picked"
+    );
+    assert_eq!(controller.session_state(), SessionState::Blank);
+
+    // Cancelling the picker is what the app does: change back to the chooser.
+    assert!(controller.change_mode());
+    assert_eq!(controller.view_state(), ViewState::Mode);
+    assert_eq!(controller.pending_file(), None);
+    assert!(!controller.has_provider());
+}
+
+#[test]
+fn a_pending_file_opens_the_form_and_seeds_a_segmented_model() {
+    let mut controller = catalogued();
+    controller.apply_settings(configured_settings("openai/gpt-4o-transcribe"));
+    assert!(!controller.choose_mode(SessionMode::File));
+
+    controller.set_pending_file(PathBuf::from("/tmp/interview.mp4"));
+
+    assert_eq!(controller.view_state(), ViewState::Form);
+    assert_eq!(
+        controller.pending_file(),
+        Some(Path::new("/tmp/interview.mp4"))
+    );
+    assert!(controller.has_provider());
+    assert!(
+        controller.is_draft_complete(),
+        "segmented default is seeded"
+    );
+    assert_eq!(
+        controller.draft_model_mode(),
+        Some(TranscriptionMode::Segmented)
+    );
+}
+
+#[test]
+fn a_pending_file_does_not_seed_a_streaming_model() {
+    let mut controller = catalogued();
+    controller.apply_settings(configured_settings("openai/gpt-realtime-whisper"));
+    assert!(!controller.choose_mode(SessionMode::File));
+
+    controller.set_pending_file(PathBuf::from("/tmp/interview.mp4"));
+
+    assert_eq!(controller.view_state(), ViewState::Form);
+    assert!(controller.has_provider(), "the provider is still seeded");
+    assert!(!controller.has_model(), "a streaming model is not offered");
+    assert!(!controller.is_draft_complete());
+}
+
+#[test]
+fn the_pending_file_is_cleared_by_every_way_out() {
+    let mut controller = catalogued();
+    controller.choose_mode(SessionMode::File);
+    controller.set_pending_file(PathBuf::from("/tmp/a.mp4"));
+    controller.cancel_form();
+    assert_eq!(controller.pending_file(), None);
+
+    controller.choose_mode(SessionMode::File);
+    controller.set_pending_file(PathBuf::from("/tmp/b.mp4"));
+    controller.change_mode();
+    assert_eq!(controller.pending_file(), None);
+
+    // A finished take's "New take" also drops it.
+    controller.choose_mode(SessionMode::File);
+    controller.set_pending_file(PathBuf::from("/tmp/c.mp4"));
+    controller.cycle_provider();
+    controller.cycle_model();
+    assert!(controller.create_session());
+    controller.new_take();
+    assert_eq!(controller.pending_file(), None);
+}
+
+#[test]
+fn the_file_model_list_only_offers_segmented_models() {
+    let mut controller = catalogued();
+    controller.apply_settings(configured_settings("openai/gpt-4o-transcribe"));
+    controller.choose_mode(SessionMode::File);
+    controller.set_pending_file(PathBuf::from("/tmp/a.mp4"));
+
+    assert_eq!(
+        controller.selectable_model_ids("vercel-ai-gateway"),
+        vec!["openai/gpt-4o-transcribe".to_string()]
+    );
+    assert!(
+        controller
+            .selectable_model_ids("unknown/provider")
+            .is_empty(),
+        "an unknown provider offers nothing"
+    );
+
+    // Live mode keeps the whole list.
+    let mut live = catalogued();
+    live.choose_mode(SessionMode::Live);
+    assert_eq!(
+        live.selectable_model_ids("vercel-ai-gateway"),
+        vec![
+            "openai/gpt-4o-transcribe".to_string(),
+            "openai/gpt-realtime-whisper".to_string()
+        ]
+    );
+}
+
+#[test]
+fn file_mode_never_cycles_onto_a_streaming_model() {
+    let mut controller = catalogued();
+    controller.apply_settings(configured_settings("openai/gpt-realtime-whisper"));
+    controller.choose_mode(SessionMode::File);
+    controller.set_pending_file(PathBuf::from("/tmp/a.mp4"));
+    controller.cycle_provider();
+
+    // Walk a full cycle: no visited model may be streaming.
+    let mut seen = Vec::new();
+    for _ in 0..4 {
+        controller.cycle_model();
+        assert_eq!(
+            controller.draft_model_mode(),
+            Some(TranscriptionMode::Segmented),
+            "cycle landed on a streaming model"
+        );
+        seen.push(
+            controller
+                .model_label()
+                .expect("a selectable model")
+                .to_string(),
+        );
+    }
+    assert!(
+        seen.iter().all(|label| label == "GPT-4o Transcribe"),
+        "{seen:?}"
+    );
+}
+
+#[test]
+fn a_streaming_model_cannot_complete_a_file_draft() {
+    let mut controller = catalogued();
+    controller.apply_settings(configured_settings("openai/gpt-4o-transcribe"));
+    controller.choose_mode(SessionMode::File);
+    controller.set_pending_file(PathBuf::from("/tmp/a.mp4"));
+    assert!(controller.is_draft_complete(), "segmented to begin with");
+
+    // The catalogue reclassifies the model as streaming underneath the draft.
+    controller.set_capabilities(reclassified_catalogue());
+
+    assert!(!controller.is_draft_complete());
+    assert!(!controller.create_session());
+    assert_eq!(controller.view_state(), ViewState::Form);
+}
+
+#[test]
+fn a_file_take_refuses_a_streaming_model_before_reaching_the_worker() {
+    let mut controller = ready_file();
+    controller.set_capabilities(reclassified_catalogue());
+
+    let sink = RecordingSink::default();
+    controller.set_sink(Box::new(sink.clone()));
+    let file = TempFile::new("refused.mp4");
+
+    let result = controller.start_file_session(&file.path);
+
+    assert_eq!(result, Err(AppError::FileModelNotSupported));
+    assert!(sink.take().is_empty(), "no command may be sent");
+    assert_eq!(controller.session_state(), SessionState::Ready);
 }
 
 #[test]
@@ -183,10 +382,17 @@ fn create_session_commits_provider_and_model_and_keeps_the_mode() {
     let controller = ready_file();
 
     assert!(!controller.is_draft_complete(), "the draft is consumed");
-    assert_eq!(controller.view_state(), ViewState::Ready);
+    // File mode has no holding screen: with no take running the setup form is
+    // the only thing to show (T0023).
+    assert_eq!(controller.view_state(), ViewState::Form);
     assert_eq!(controller.mode(), SessionMode::File);
     assert_eq!(controller.session_state(), SessionState::Ready);
     assert!(controller.session_missing().is_empty());
+    assert_eq!(
+        controller.pending_file(),
+        None,
+        "Continue consumes the path"
+    );
 }
 
 #[test]
@@ -274,7 +480,8 @@ fn start_recording_is_refused_in_file_mode() {
     let mut controller = ready_file();
 
     assert!(!controller.start_recording());
-    assert_eq!(controller.view_state(), ViewState::Ready);
+    // File mode has no holding screen: the form is what the user sees.
+    assert_eq!(controller.view_state(), ViewState::Form);
     assert_eq!(controller.session_state(), SessionState::Ready);
 }
 

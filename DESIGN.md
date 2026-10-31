@@ -288,6 +288,15 @@ Each card centres a `Title` and a muted `Body` description, then pushes a
 `--space-sm` beneath it to the card bottom. Because the button block is pinned
 to the bottom, both buttons share one baseline however the descriptions wrap.
 
+### Session setup form
+
+Two `SettingRow`s: **Transcription Service** and **Model**, each owning a small
+select `Button`; the model row carries the `TranscriptionModeBadge` for the
+current draft. In **file** mode the body is preceded by an `InfoNote` reading
+*"Files are transcribed in batches, so only non-streaming models are listed."*,
+because a file take cannot use a streaming model. The note uses the existing
+component as-is: no new tone, size or spacing.
+
 ### Record / transport controls
 
 The round button is the hero of the recording screens at the same 56 px size

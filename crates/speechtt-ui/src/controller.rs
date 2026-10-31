@@ -110,6 +110,8 @@ pub enum AppError {
     },
     /// Copy/save was requested for an empty take; informational, not an error.
     NothingRecorded,
+    /// FileModelNotSupported: a streaming-only model was chosen for a file take.
+    FileModelNotSupported,
     /// The file picked for transcription no longer exists.
     FileNotFound,
     /// The picked path is a directory, unreadable, or not decodable.
@@ -167,6 +169,9 @@ impl AppError {
                 format!("The transcription backend failed: {}.", sentence(detail))
             }
             Self::NothingRecorded => "Nothing was recorded.".to_owned(),
+            Self::FileModelNotSupported => {
+                "File transcription needs a non-streaming model.".to_owned()
+            }
             Self::FileNotFound => "That file no longer exists. Pick another one.".to_owned(),
             Self::FileUnreadable => {
                 "That file could not be read. Pick an audio or video file.".to_owned()
@@ -183,7 +188,9 @@ impl AppError {
     #[must_use]
     pub fn action(&self) -> ErrorAction {
         match self {
-            Self::MissingApiKey { .. } | Self::ProviderAuthFailed => ErrorAction::OpenSettings,
+            Self::MissingApiKey { .. } | Self::ProviderAuthFailed | Self::FileModelNotSupported => {
+                ErrorAction::OpenSettings
+            }
             Self::BackendUnavailable | Self::BackendTimeout | Self::NetworkLost => {
                 ErrorAction::Retry
             }
@@ -260,6 +267,7 @@ impl AppError {
             "timeout" | "backend_timeout" => Self::BackendTimeout,
             "file_not_found" => Self::FileNotFound,
             "unsupported_file" | "decode_failed" => Self::FileUnreadable,
+            "unsupported_file_model" => Self::FileModelNotSupported,
             "ffmpeg_missing" => Self::FfmpegMissing,
             "invalid_protocol" => Self::ProtocolError(non_empty_detail(message)),
             "stream_failed" => {
@@ -722,6 +730,9 @@ pub struct SessionController {
     mode: SessionMode,
     screen: Screen,
     draft: SessionDraft,
+    /// File chosen in the picker, waiting for the setup form's Continue.
+    /// Cleared when the take starts or the flow is abandoned.
+    pending_file: Option<PathBuf>,
     /// Source-file stem of the finished take, when it came from a file. Titles
     /// the suggested save name; `None` for a live take.
     finished_file_stem: Option<String>,
@@ -770,6 +781,7 @@ impl fmt::Debug for SessionController {
             .field("mode", &self.mode)
             .field("screen", &self.screen)
             .field("draft", &self.draft)
+            .field("pending_file", &self.pending_file)
             .field("result", &self.result)
             .field("session_id", &self.session_id)
             .field("transcript", &self.transcript)
@@ -814,6 +826,7 @@ impl SessionController {
             mode: SessionMode::default(),
             screen: Screen::Mode,
             draft: SessionDraft::default(),
+            pending_file: None,
             finished_file_stem: None,
             result: None,
             session_id: 0,
@@ -849,6 +862,9 @@ impl SessionController {
         match (self.machine.state(), self.screen) {
             (SessionState::Blank, Screen::Mode) => ViewState::Mode,
             (SessionState::Blank, Screen::Form) => ViewState::Form,
+            // File mode has no holding screen (T0023): with no take running,
+            // the setup form is the only thing to show.
+            (SessionState::Ready, _) if self.mode == SessionMode::File => ViewState::Form,
             (SessionState::Ready, _) => ViewState::Ready,
             (SessionState::Recording, _) => ViewState::Recording,
             (SessionState::Paused, _) => ViewState::Paused,
@@ -981,10 +997,7 @@ impl SessionController {
     /// True when the draft names a provider and model that both exist in the
     /// current catalogue. That is the whole setup: a take has no other field.
     pub fn is_draft_complete(&self) -> bool {
-        let (Some(provider), Some(model)) = (&self.draft.provider, &self.draft.model) else {
-            return false;
-        };
-        self.provider_exists(provider) && self.model_exists(provider, model)
+        self.validate_draft().is_some()
     }
 
     pub fn finished_take(&self) -> Option<&FinishedTake> {
@@ -1636,9 +1649,15 @@ impl SessionController {
         Some(change)
     }
 
-    /// Enter the workflow for `mode`. Returns `true` when the persisted
-    /// settings already resolve (the machine goes straight to `Ready`), and
-    /// `false` when the two-field form is required.
+    /// Enter the workflow for `mode`.
+    ///
+    /// Live mode returns `true` when the persisted settings already resolve
+    /// (the machine goes straight to `Ready`) and `false` when the two-field
+    /// form is required.
+    ///
+    /// File mode always returns `false` and stays on the welcome screen: the
+    /// picker runs first, and [`Self::set_pending_file`] opens the form once a
+    /// file has been chosen (T0023).
     ///
     /// Refuses while a take is active: the setup is frozen then.
     pub fn choose_mode(&mut self, mode: SessionMode) -> bool {
@@ -1648,11 +1667,45 @@ impl SessionController {
         // A new take starts from scratch: drop whichever mode was configured.
         let _ = self.machine.reset();
         self.mode = mode;
+        self.draft = SessionDraft::default();
+        self.pending_file = None;
+        self.finished_file_stem = None;
+
+        if mode == SessionMode::File {
+            // The native picker is open; cancelling it must leave no trace.
+            self.screen = Screen::Mode;
+            return false;
+        }
+
+        self.screen = Screen::Form;
+        self.seed_draft_from_settings();
+        self.create_session()
+    }
+
+    /// Remember the file chosen in the picker and open the setup form.
+    ///
+    /// Nothing is transcribed yet: the take starts when [`Self::create_session`]
+    /// commits the form, so the user picks a model before any decoding happens.
+    pub fn set_pending_file(&mut self, path: PathBuf) {
+        self.pending_file = Some(path);
         self.screen = Screen::Form;
         self.draft = SessionDraft::default();
         self.finished_file_stem = None;
+        self.result = None;
+        self.output_status = None;
+        self.written_path = None;
         self.seed_draft_from_settings();
-        self.create_session()
+    }
+
+    /// The file waiting in the setup form, if any.
+    #[must_use]
+    pub fn pending_file(&self) -> Option<&Path> {
+        self.pending_file.as_deref()
+    }
+
+    /// Drop the pending file without starting a take.
+    pub fn clear_pending_file(&mut self) {
+        self.pending_file = None;
     }
 
     /// Back to the mode chooser, clearing the machine configuration.
@@ -1664,6 +1717,7 @@ impl SessionController {
         self.mode = SessionMode::default();
         self.screen = Screen::Mode;
         self.draft = SessionDraft::default();
+        self.pending_file = None;
         self.result = None;
         self.finished_file_stem = None;
         self.output_status = None;
@@ -1674,6 +1728,10 @@ impl SessionController {
     /// Pre-fill the New Session form from the persisted default provider and
     /// model, but only when both exist in the current catalogue. A fresh
     /// controller (no settings, or no model configured) starts empty.
+    ///
+    /// A file take can only be batched, so file mode seeds the model only when
+    /// it is segmented; the provider is still seeded so the user picks from the
+    /// right list (T0023).
     fn seed_draft_from_settings(&mut self) {
         // Never overwrite a choice the user already made in this draft.
         if self.draft.provider.is_some() {
@@ -1682,20 +1740,30 @@ impl SessionController {
         let Some(settings) = self.settings.clone() else {
             return;
         };
-        if settings.model.trim().is_empty() {
+        if !self.provider_exists(&settings.provider) {
             return;
         }
-        if self.provider_exists(&settings.provider)
-            && self.model_exists(&settings.provider, &settings.model)
+        self.draft.provider = Some(settings.provider.clone());
+
+        if settings.model.trim().is_empty()
+            || !self.model_exists(&settings.provider, &settings.model)
         {
-            self.draft.provider = Some(settings.provider);
-            self.draft.model = Some(settings.model);
+            return;
         }
+        if self.mode == SessionMode::File
+            && self.model_mode(&settings.provider, &settings.model)
+                != Some(TranscriptionMode::Segmented)
+        {
+            // Streaming models cannot transcribe files: force a choice.
+            return;
+        }
+        self.draft.model = Some(settings.model);
     }
 
     pub fn cancel_form(&mut self) {
         self.screen = Screen::Mode;
         self.draft = SessionDraft::default();
+        self.pending_file = None;
     }
 
     pub fn cycle_provider(&mut self) {
@@ -1712,11 +1780,34 @@ impl SessionController {
         let Some(provider) = self.draft.provider.clone() else {
             return;
         };
-        let ids = self.model_ids(&provider);
+        let ids = self.selectable_model_ids(&provider);
         let Some(next) = next_id(&ids, self.draft.model.as_deref()) else {
             return;
         };
         self.draft.model = Some(next);
+    }
+
+    /// Model ids the setup form may offer for `provider` in the current mode.
+    ///
+    /// A file take is decoded and sent in batches, so file mode only ever
+    /// offers [`TranscriptionMode::Segmented`] models (T0023). Live mode offers
+    /// the provider's whole list.
+    #[must_use]
+    pub fn selectable_model_ids(&self, provider: &str) -> Vec<String> {
+        self.capabilities
+            .as_ref()
+            .and_then(|providers| providers.iter().find(|option| option.id == provider))
+            .map(|option| {
+                option
+                    .models
+                    .iter()
+                    .filter(|model| {
+                        self.mode != SessionMode::File || model.mode == TranscriptionMode::Segmented
+                    })
+                    .map(|model| model.id.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Commit the draft to the machine. Returns `false` (and changes nothing)
@@ -1747,6 +1838,8 @@ impl SessionController {
 
         self.screen = Screen::Mode;
         self.draft = SessionDraft::default();
+        // The chosen path is consumed by the take that is about to start.
+        self.pending_file = None;
         true
     }
 
@@ -1838,6 +1931,13 @@ impl SessionController {
                 return Err(self.fail(AppError::MissingApiKey { provider }));
             }
         };
+
+        // A file take is batched. Defensive check: `is_draft_complete` already
+        // refuses this, but a catalogue refresh can reclassify a committed
+        // model, and this method is reachable from other callers (T0023).
+        if self.model_mode(&provider, &model) == Some(TranscriptionMode::Streaming) {
+            return Err(self.fail(AppError::FileModelNotSupported));
+        }
 
         let file_name = path.file_name().map_or_else(
             || display.clone(),
@@ -1955,6 +2055,7 @@ impl SessionController {
         self.mode = SessionMode::default();
         self.screen = Screen::Mode;
         self.draft = SessionDraft::default();
+        self.pending_file = None;
         self.finished_file_stem = None;
         self.transcript.clear();
         self.waveform_bars = idle_waveform();
@@ -2179,6 +2280,12 @@ impl SessionController {
         let provider = self.draft.provider.clone()?;
         let model = self.draft.model.clone()?;
         if !self.provider_exists(&provider) || !self.model_exists(&provider, &model) {
+            return None;
+        }
+        // A file take is batched: only a segmented model can serve it (T0023).
+        if self.mode == SessionMode::File
+            && self.model_mode(&provider, &model) != Some(TranscriptionMode::Segmented)
+        {
             return None;
         }
         Some(ValidatedDraft { provider, model })

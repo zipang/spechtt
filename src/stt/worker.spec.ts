@@ -966,6 +966,39 @@ describe("runWorkerLoop transcribeFile", () => {
 		expect(files.resolutions()).toBe(0);
 	});
 
+	test("refuses a streaming model without creating a session or touching ffmpeg", async () => {
+		const { factory, events } = fakeFactory();
+		const files = fakeFileDeps();
+
+		await runWorkerLoop(
+			linesOf([
+				JSON.stringify({
+					...JSON.parse(FILE_COMMAND),
+					model: "openai/gpt-realtime-whisper",
+				}),
+			]),
+			(event) => events.push(event),
+			factory,
+			undefined,
+			files.deps,
+		);
+
+		const types = events.map((event) => event.type);
+		expect(types).toEqual(["ready", "error"]);
+		expect(types).not.toContain("started");
+		expect(types).not.toContain("stopped");
+		expect(events[1]).toMatchObject({
+			type: "error",
+			sessionId: "file-1",
+			code: "unsupported_file_model",
+		});
+		expect((events[1] as { message: string }).message).toContain(
+			"openai/gpt-realtime-whisper",
+		);
+		expect(files.configs).toHaveLength(0);
+		expect(files.resolutions()).toBe(0);
+	});
+
 	test("reports a missing key and names the provider environment variables", async () => {
 		const { factory, events } = fakeFactory();
 		const files = fakeFileDeps();

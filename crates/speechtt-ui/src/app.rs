@@ -440,9 +440,10 @@ impl SpeechTtApp {
     // ----- Commands ----------------------------------------------------
 
     /// Enter the workflow for `mode`, then route: live goes to Ready, file
-    /// opens the picker straight away.
+    /// opens the picker straight away (the form follows the picked file).
     pub fn choose_mode(&mut self, mode: SessionMode, cx: &mut Context<Self>) {
-        if self.controller.choose_mode(mode) && mode == SessionMode::File {
+        self.controller.choose_mode(mode);
+        if mode == SessionMode::File {
             self.pick_transcription_file(cx);
         }
         cx.notify();
@@ -471,8 +472,13 @@ impl SpeechTtApp {
     }
 
     pub fn create_session(&mut self, cx: &mut Context<Self>) {
-        if self.controller.create_session() && self.controller.mode() == SessionMode::File {
-            self.pick_transcription_file(cx);
+        // A file take starts from the path already picked, so it is captured
+        // before the commit consumes it.
+        let pending = self.controller.pending_file().map(Path::to_path_buf);
+        if self.controller.create_session()
+            && let Some(path) = pending
+        {
+            self.start_file_from_path(&path, cx);
         }
         cx.notify();
     }
@@ -511,11 +517,12 @@ impl SpeechTtApp {
         cx.notify();
     }
 
-    /// Opens the native file picker, then transcribes the chosen file.
+    /// Opens the native file picker, then shows the setup form for the chosen
+    /// file.
     ///
-    /// The picker is the only platform-specific part: the controller validates
-    /// the path and the worker decodes the file itself, so no media crosses
-    /// the bridge. Cancelling the dialog is a silent no-op.
+    /// The picker is the only platform-specific part: the worker decodes the
+    /// file itself, so no media crosses the bridge. Cancelling the dialog is a
+    /// full no-op on the flow — the user stays on the welcome screen (T0023).
     pub fn pick_transcription_file(&mut self, cx: &mut Context<Self>) {
         let selection = cx.prompt_for_paths(PathPromptOptions {
             files: true,
@@ -529,12 +536,18 @@ impl SpeechTtApp {
                 Ok(Ok(Some(paths))) => {
                     if let Some(path) = paths.into_iter().next() {
                         let _ = this.update(cx, |this, cx| {
-                            this.start_file_from_path(&path, cx);
+                            this.controller.set_pending_file(path);
+                            cx.notify();
                         });
                     }
                 }
-                // The user closed the dialog.
-                Ok(Ok(None)) => {}
+                // The user closed the dialog: back to the chooser, no trace.
+                Ok(Ok(None)) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.controller.change_mode();
+                        cx.notify();
+                    });
+                }
                 Ok(Err(_)) | Err(_) => {
                     let _ = this.update(cx, |this, cx| {
                         this.controller.report_error(AppError::FileDialogFailed);
