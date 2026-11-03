@@ -406,6 +406,22 @@ Body text in `text` at `--font-size-sm`, line-height `regular`. Arriving words
 are briefly `text.accent`, settling to `text` after ~600ms. Auto-scrolls to
 the newest line; a soft fade at the top edge hints at earlier text.
 
+The transcript is the application's one selectable text. A drag across it
+selects the range under the pointer, from a single word to several sentences,
+and the operating system's copy shortcut puts that range on the clipboard:
+`Ctrl-C` on Linux, `Cmd-C` on macOS. Paste happens in whatever application the
+user pastes into — the widget gains no clipboard-reading path of its own.
+
+The selected range is washed with `brand.primary` at 30 % opacity, painted
+behind the glyphs. One role with an alpha rather than a new colour: it stays
+readable under both the muted ink of the committed text and the `brand.accent`
+of the live tail, so a selection that spans the two never hides the boundary it
+crossed. A drag that crosses the boundary copies the committed text first, then
+the live words, as one document read top to bottom.
+
+Nothing else is selectable. Titles, labels, badges, notes, buttons and dialog
+copy stay inert, so a drag that starts on a button is a click, not a selection.
+
 ### Status pill
 
 Small pill (`rounded.full`) at the top-left of the transcript section: a 8px

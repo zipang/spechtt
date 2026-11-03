@@ -121,6 +121,31 @@ Rules:
   component owns each decision, and the transitions leaving it.** A view is a
   composition, so its doc is the composition, not the styling.
 
+### Every file and every component says where it is used
+
+The codebase grows by screens, components and layers, and the hardest question a
+reader has is no longer "what is this?" but **"who calls this?"**. Answer it in
+the file:
+
+- **Every module header names its callers.** After the one-line purpose, list
+  the screens and components that render, construct or depend on what the module
+  defines — names, not vague prose: *"rendered by `views::recording` and
+  `views::session_end`, wrapped by `layout::SurfaceBox`"*. A module nobody uses
+  is either new or dead, and the header must make that visible.
+- **Every public item states its role in the design.** A component says which
+  band of which screen it fills; a helper says which call site depends on which
+  invariant; a token reader says which `DESIGN.md` role it mirrors.
+- **Every non-obvious decision states its reason.** Why a flag defaults to
+  `true`, why an id must stay stable across frames, why a value is clamped —
+  the reader cannot recover these from the code, and the next change breaks them
+  silently if they are unstated.
+- **Prefer the concrete noun to the abstraction.** "The scroll offset of the
+  caption well" beats "the relevant state"; "the live tail, in brand accent"
+  beats "the text".
+
+A file whose header cannot name its callers, or a public item whose purpose is
+only clear from its body, is a documentation defect and a review finding.
+
 ### Do not write change history into the code
 
 Source docs are not a changelog. The Kanban ticket and the commit message carry

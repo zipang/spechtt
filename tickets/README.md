@@ -112,11 +112,19 @@ Decisions, deviations, verification output.
 
 ### In Progress
 
-_(none)_
+| Ticket | Title | Track |
+|---|---|---|
+| [T0026](in_progress/T0026-live-transcript-scroll-and-stable-buffer.md) | Live transcript: append-only buffer and a scrolling caption well | Rust core + Rust UI + Bun worker |
+| [T0027](in_progress/T0027-selectable-transcript-text.md) | Selectable, copyable transcript text | Rust UI (text + caption well + design) |
 
 ### Review
 
 _(none)_
+
+Both tickets in `in_progress/` are open on a real-machine check:
+`T0026` waits for the duplicated-live-text root cause to be confirmed, and
+`T0027` has its selection half validated but its copy path (shortcut and
+right-click menu) still broken.
 
 ### Planned
 
