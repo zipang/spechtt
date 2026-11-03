@@ -279,6 +279,38 @@ All gates must be green with **zero warnings**. Do not weaken, skip, or
 - Don't silently expand a ticket's scope mid-flight; create a follow-up ticket
   in `tickets/planned/` instead.
 
+### Official documentation sources — the registry
+
+A library's API is learned from one of these URLs and from nowhere else. The CTO
+owns this table: adding a dependency adds its row, and a documentation link that
+moves is corrected in the same change that notices it. A row is written in the
+LLM-friendly form when the project publishes one (`llms.txt`, `llms-full.txt`,
+page-level `.md`), because it is Markdown all the way down and costs a fraction
+of the rendered HTML.
+
+| Library | Official documentation | Use |
+|---|---|---|
+| `gpui-kit` (UI framework) | index <https://gpui-kit.com/llms.txt> · full text <https://gpui-kit.com/llms-full.txt> · one page as Markdown, e.g. <https://gpui-kit.com/base/text-selection.md> | Start at `llms.txt`, then fetch the single page the ticket needs. |
+| `gpui-kit::base`, `::component`, `::assets` (layers of the same framework) | <https://docs.rs/gpui-kit> · <https://docs.rs/gpui-base> · <https://docs.rs/gpui-component> | Exact signatures and types when the guide is prose only. |
+| `ai` (Vercel AI SDK) | <https://ai-sdk.dev/llms.txt> | The whole documentation set as Markdown. |
+| `@ai-sdk/elevenlabs` | <https://ai-sdk.dev/providers/ai-sdk-providers/elevenlabs.md> | Provider page. |
+| `@ai-sdk/mistral` | <https://ai-sdk.dev/providers/ai-sdk-providers/mistral.md> | Provider page. |
+| `@ai-sdk/openai` | <https://ai-sdk.dev/providers/ai-sdk-providers/openai.md> | Provider page. |
+| `@ai-sdk/xai` | <https://ai-sdk.dev/providers/ai-sdk-providers/xai.md> | Provider page. |
+| Bun (runtime, test runner, bundler) | <https://bun.com/docs/llms.txt> | `bun test`, `Bun.*` APIs, tooling. |
+| `cpal`, `enigo`, `global-hotkey`, `arboard`, `rustfft`, `base64`, `async-channel`, `serde`, `serde_json`, `thiserror` | `https://docs.rs/<crate>/latest/<crate>/` | docs.rs is where these crates publish their API. |
+
+Rules that go with the table:
+
+- **Copy the signature, not the impression.** A ticket quotes the documented
+  signature, its argument and return types and the URL it came from, so the
+  implementing agent types what the documentation says instead of inferring it.
+- **A gap is a report, not a workaround.** If the documented surface does not
+  give what we need, say which URL was consulted and which alternatives remain,
+  and let the CEO/PM decide.
+- **A version bump re-reads the documentation.** The row is the contract; the
+  installed source is an implementation detail that changes without notice.
+
 ---
 
 ## 7. Skill Discovery

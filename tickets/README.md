@@ -115,16 +115,22 @@ Decisions, deviations, verification output.
 | Ticket | Title | Track |
 |---|---|---|
 | [T0026](in_progress/T0026-live-transcript-scroll-and-stable-buffer.md) | Live transcript: append-only buffer and a scrolling caption well | Rust core + Rust UI + Bun worker |
-| [T0027](in_progress/T0027-selectable-transcript-text.md) | Selectable, copyable transcript text | Rust UI (text + caption well + design) |
 
 ### Review
 
-_(none)_
+| Ticket | Title | Track |
+|---|---|---|
+| [T0027](review/T0027-selectable-transcript-text.md) | Selectable, copyable transcript text | Rust UI (text + caption well + design) |
 
-Both tickets in `in_progress/` are open on a real-machine check:
-`T0026` waits for the duplicated-live-text root cause to be confirmed, and
-`T0027` has its selection half validated but its copy path (shortcut and
-right-click menu) still broken.
+`T0027` is delivered and every gate is green: the selection, the highlight and
+the copy shortcut are validated on the real machine, and the copied text matches
+what the transcript renders. One manual check remains before it is done — a
+right-click inside the transcript must show a single `Copy` entry with the
+shortcut hint, disabled while nothing is selected.
+
+`T0026` stays in progress on the duplicated-live-text root cause: the transcript
+buffer itself repeats words, which the clipboard now makes plain, since the copy
+is exactly what the well renders.
 
 ### Planned
 

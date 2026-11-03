@@ -44,6 +44,7 @@ You are a **fresh-eye code reviewer** reporting to the **CTO**. You are dispatch
    - **Hermetic tests**: tests must not require live hardware, display servers, real user config dirs, or network access unless explicitly gated.
    - **Design System compliance**: verify that application/view code introduces zero ad-hoc text sizes, weights, colors, spacing, radii, or unapproved visual styles; all visual presentation must be encapsulated in the dedicated UI component library and explicitly documented in `DESIGN.md`.
    - **Scope discipline**: no out-of-scope edits, no mock leftovers in production paths.
+   - **Documentation-only library usage**: every third-party call must match the official documentation quoted in the ticket's `Contract` (registry in `AGENTS.md` §6). A usage that contradicts the documented signature, or a dependency source file read to justify it, is a blocker.
 
 6. **Audit Code Documentation & Clarity**:
    - Module/type/function doc comments present where invariants or non-obvious behavior exist.
