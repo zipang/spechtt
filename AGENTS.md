@@ -227,6 +227,19 @@ All gates must be green with **zero warnings**. Do not weaken, skip, or
 ### Do
 - Follow strict **TDD**: write failing tests first, then implement, then
   refactor. Tests target the `Contract` section of the ticket.
+- **Read the official documentation of a library, never its source.** For any
+  imported crate or package (`gpui-kit`, `gpui`, `gpui-base`, `gpui-component`,
+  `ai`, `@ai-sdk/*`, …), the authority is its published documentation: docs.rs,
+  the crate's own `docs/` tree, the installed project skill for it, or the
+  upstream guide. Reading `~/.cargo/registry/src/**` or `node_modules/**` to
+  work out an API is not a diagnosis — it is guessing at an implementation that
+  may change under us. If the documentation does not answer the question, say
+  so out loud instead of inferring from the code.
+- **Report an API gap to the CEO immediately.** When a documented capability we
+  need is missing (no context-menu hook, no clipboard entry point, no selection
+  accessor, no event), stop and report what is missing, what we tried in the
+  documentation, and which alternatives exist — before spending more time or
+  inventing a workaround around a library boundary.
 - Keep tests **hermetic and deterministic**: inject traits/interfaces/fakes;
   never require a real microphone, audio server, display server, clipboard,
   real user config directory (`$HOME`/`$XDG_CONFIG_HOME`), or live network
@@ -243,6 +256,10 @@ All gates must be green with **zero warnings**. Do not weaken, skip, or
 ### Don't
 - Don't write or edit production feature code directly when a coding sub-agent
   can be dispatched — the CTO architects, specifies, delegates, audits.
+- Don't grep, read or reverse-engineer the source of an imported dependency
+  (`~/.cargo/registry/src/**`, `node_modules/**`) to learn how to use it. That
+  is the one thing the official documentation exists for, and code-derived
+  usage is a guess that the next dependency upgrade invalidates (§6 Do).
 - Don't conduct autonomous visual QA by launching the GUI window on the user's
   display to take screenshots, record video bursts, or tune animations via
   snapshot scripts — verify via headless tests (`cargo test`) and let the user

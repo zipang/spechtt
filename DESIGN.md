@@ -408,9 +408,23 @@ the newest line; a soft fade at the top edge hints at earlier text.
 
 The transcript is the application's one selectable text. A drag across it
 selects the range under the pointer, from a single word to several sentences,
-and the operating system's copy shortcut puts that range on the clipboard:
-`Ctrl-C` on Linux, `Cmd-C` on macOS. Paste happens in whatever application the
-user pastes into — the widget gains no clipboard-reading path of its own.
+and the platform copy shortcut puts that range on the clipboard: `Ctrl-C` on
+Linux, `Cmd-C` on macOS. Paste happens in whatever application the user pastes
+into — the widget gains no clipboard-reading path of its own.
+
+Copying is an application action: the widget window binds the platform copy key
+under its own key context, reads the highlighted range from the window selection
+and writes it to the clipboard. The copied string is exactly the highlighted
+range, and an empty or whitespace-only selection leaves the clipboard untouched.
+
+A right-click inside the transcript opens a menu with a single `Copy` entry,
+disabled while nothing is selected. It carries the same action as the shortcut,
+so the entry shows that shortcut's keybinding and the two routes can never
+diverge. One entry and no more: the widget has no paste path, and the transcript
+is not an editable field, so neither `Paste` nor `Select All` belongs here. The
+menu is the library's own component — it takes its surface, colours, radii,
+spacing and elevation from the theme, and the transcript adds no colour, spacing
+or elevation of its own.
 
 The selected range is washed with `brand.primary` at 30 % opacity, painted
 behind the glyphs. One role with an alpha rather than a new colour: it stays

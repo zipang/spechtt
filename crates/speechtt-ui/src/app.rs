@@ -10,12 +10,22 @@
 //!   └── (file) → Transcription (decoding → Continue) → Session end
 //! ```
 //!
-//! This module owns the window shell, the workflow state and the public
-//! command/query surface. Screen composition lives in [`crate::views`] and
-//! reusable controls in [`crate::components`].
+//! This module owns the window shell, the workflow state, the window-level
+//! text-selection command and the public command/query surface. Screen
+//! composition lives in [`crate::views`] and reusable controls in
+//! [`crate::components`].
+//!
+//! # Who uses this
+//!
+//! `lib.rs::run` opens the widget window with [`SpeechTtApp::new`], the headless
+//! fixtures build the same view through [`SpeechTtApp::with_services`], and
+//! every screen under [`crate::views`] reads it through the query and command
+//! methods below. The transcript's context menu
+//! ([`crate::components::CaptionWell`]) dispatches [`CopySelection`], which this
+//! module binds and handles.
 
 use gpui_kit::assets::IconName;
-use gpui_kit::base::{h_flex, v_flex};
+use gpui_kit::base::{TextSelection, h_flex, v_flex};
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -29,8 +39,9 @@ use std::time::{Duration, Instant};
 
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    AnyElement, AnyWindowHandle, App, Bounds, Context, Entity, PathPromptOptions, Pixels, Point,
-    Size, Subscription, Task, Window, WindowBounds, WindowId, WindowKind, WindowOptions, div, px,
+    AnyElement, AnyWindowHandle, App, Bounds, Context, Entity, FocusHandle, PathPromptOptions,
+    Pixels, Point, Size, Subscription, Task, Window, WindowBounds, WindowId, WindowKind,
+    WindowOptions, actions, div, px,
 };
 use speechtt_core::audio::{AudioError, AudioSource, CpalAudioSource, PcmChunk};
 use speechtt_core::backend::{BackendError, BunSubprocess, SttEventReceiver, SttSessionSink};
@@ -58,6 +69,38 @@ use crate::views::dialogs::{
 /// Application title shown in the header strip.
 pub const APP_TITLE: &str = "SpeechTT";
 
+// Copy the transcript range the pointer has selected.
+//
+// Declared as one action so the keybinding, the transcript's context menu and
+// the handler name the same command. `actions!` generates a unit struct whose
+// documentation rustdoc does not render, so the command is documented on the
+// binding (`lib.rs::run`) and on `SpeechTtApp::on_copy_selection`, the only
+// writer of the range.
+actions!(speechtt, [CopySelection]);
+
+/// Key context of the widget window, declared on the window view's root
+/// element.
+///
+/// A context has to be a named fact on the focused dispatch path for a
+/// contextual binding to match; the copy shortcut is bound under this context
+/// (in `lib.rs::run`) so it outranks the generic binding of the window root by
+/// the documented context-depth precedence.
+pub const SPEECHTT_CONTEXT: &str = "SpeechTT";
+
+/// The part of a window selection that may replace the clipboard.
+///
+/// `None` for an empty selection and for a selection made only of whitespace,
+/// so a copy with nothing selected keeps the clipboard's previous content.
+/// A usable selection is returned exactly as the selection layer reported it —
+/// untrimmed — because the copied text must match the highlighted run.
+fn copyable_selection(selected: &str) -> Option<&str> {
+    if selected.trim().is_empty() {
+        None
+    } else {
+        Some(selected)
+    }
+}
+
 /// Every side effect the widget needs, injected as a single composition root.
 ///
 /// Production is built by [`SpeechTtApp::new`]; headless tests build the same
@@ -80,6 +123,14 @@ type AudioFactory = Box<dyn FnMut() -> Result<Box<dyn AudioSource>, AudioError> 
 
 /// Root view of the widget window.
 pub struct SpeechTtApp {
+    /// The window's keyboard target.
+    ///
+    /// The root tracks this handle, so a pointer press anywhere in the widget —
+    /// including the drag that selects a transcript range — puts the root on the
+    /// focused dispatch path. That is what makes the window's key context match,
+    /// and therefore what makes the copy shortcut reach
+    /// [`SpeechTtApp::on_copy_selection`].
+    focus: FocusHandle,
     controller: SessionController,
     /// Monotonic click counters for round-button ripples, keyed by element id.
     /// `u64` because the view only needs "this changed", not a timestamp.
@@ -223,6 +274,7 @@ impl SpeechTtApp {
         controller.apply_settings(stored_settings.clone());
 
         let mut app = Self {
+            focus: cx.focus_handle(),
             controller,
             ripple: None,
             ripple_seq: 0,
@@ -257,6 +309,9 @@ impl SpeechTtApp {
         app.start_event_loop(services.events, cx);
         app.start_clock_loop(cx);
         app.controller.request_capabilities();
+        // The widget root holds focus until a control inside it takes over, so
+        // the window's key context is on the dispatch path from the first frame.
+        app.focus.focus(window, cx);
         app
     }
 
@@ -723,6 +778,10 @@ impl SpeechTtApp {
     }
 
     /// Copy the finished take through the injected clipboard adapter.
+    ///
+    /// This is the result screen's whole-take Copy action, separate from
+    /// [`Self::on_copy_selection`], which copies only the range the pointer
+    /// selected.
     pub fn copy_transcript(&mut self, cx: &mut Context<Self>) -> bool {
         let copied = self
             .controller
@@ -730,6 +789,32 @@ impl SpeechTtApp {
             .is_ok();
         cx.notify();
         copied
+    }
+
+    /// Put the selected transcript range on the system clipboard.
+    ///
+    /// [`TextSelection::selected_text`] is the only source of the copied string:
+    /// it resolves the highlighted run across the committed and the live part of
+    /// the transcript, so this handler never invents its own notion of "the
+    /// current transcript". An empty or whitespace-only selection is not written
+    /// at all (see [`copyable_selection`]), which is how the clipboard keeps its
+    /// previous content after a stray keystroke.
+    ///
+    /// The action is consumed either way: the window has no other selection for a
+    /// fallback handler to copy, and writing twice would be a second clipboard
+    /// change per keystroke. Nothing is reported to the user and nothing is
+    /// logged, because a copy is silent by convention and transcript text is the
+    /// user's own content.
+    fn on_copy_selection(
+        &mut self,
+        _: &CopySelection,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let selected = TextSelection::selected_text(window, cx);
+        if let Some(text) = copyable_selection(&selected) {
+            cx.write_to_clipboard(text.to_owned().into());
+        }
     }
 
     /// Ask where to write the finished take, with a suggested name: the source
@@ -1255,10 +1340,17 @@ impl gpui_kit::Render for SpeechTtApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl gpui_kit::IntoElement {
+        // The root declares the application's key context and owns the copy
+        // command, so a `secondary-c` keystroke is resolved against the widget
+        // rather than against the window root's generic selection binding. The
+        // tracked handle keeps this element on the focused dispatch path.
         let mut root = v_flex()
             .size_full()
             .bg(cx.theme().background)
-            .text_color(cx.theme().foreground);
+            .text_color(cx.theme().foreground)
+            .track_focus(&self.focus)
+            .key_context(SPEECHTT_CONTEXT)
+            .on_action(cx.listener(Self::on_copy_selection));
 
         root = root.child(
             AppHeader::new(APP_TITLE)
@@ -1459,4 +1551,41 @@ impl ShortcutListener for NoopShortcutListener {
     }
 
     fn unregister_all(&mut self) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::copyable_selection;
+
+    /// A stray shortcut with nothing selected must not empty the clipboard.
+    #[test]
+    fn an_empty_selection_leaves_the_clipboard_alone() {
+        assert_eq!(copyable_selection(""), None);
+    }
+
+    /// Whitespace is a selection the user cannot see, so it never replaces the
+    /// clipboard either.
+    #[test]
+    fn a_blank_selection_leaves_the_clipboard_alone() {
+        assert_eq!(copyable_selection(" "), None);
+        assert_eq!(copyable_selection("\t"), None);
+        assert_eq!(copyable_selection("\n"), None);
+        assert_eq!(copyable_selection(" \t\r\n "), None);
+    }
+
+    /// The copy is the highlight, character for character: the whitespace a
+    /// drag happens to include stays part of the copied text.
+    #[test]
+    fn a_selected_sentence_is_copied_exactly_as_highlighted() {
+        let selection = "  Hello, world — three, two.  ";
+        assert_eq!(copyable_selection(selection), Some(selection));
+    }
+
+    /// Whitespace-only is the line, and punctuation is not whitespace: a single
+    /// dash is a real selection.
+    #[test]
+    fn punctuation_alone_is_a_real_selection() {
+        assert_eq!(copyable_selection("…?!—"), Some("…?!—"));
+        assert_eq!(copyable_selection("."), Some("."));
+    }
 }

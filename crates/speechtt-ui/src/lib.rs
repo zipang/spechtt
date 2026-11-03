@@ -19,7 +19,9 @@ pub mod tokens;
 
 mod views;
 
-use gpui_kit::{AppContext, Bounds, Pixels, Point, Size, WindowBounds, WindowOptions, point, px};
+use gpui_kit::{
+    AppContext, Bounds, KeyBinding, Pixels, Point, Size, WindowBounds, WindowOptions, point, px,
+};
 use speechtt_core::settings::{JsonFileStore, SettingsStore, WindowLayout};
 
 // SpeechTT's own icon set — embedded as borrowed static bytes, nothing more.
@@ -150,6 +152,19 @@ pub fn run() {
         .run(move |cx| {
             // MUST be first: registers component state, icons, theme keys.
             gpui_kit::init(cx);
+
+            // The widget binds the copy shortcut itself. `gpui_kit::base::Root`
+            // advertises selection copying, but the transcript's copy must not
+            // depend on it: the application action reads the window selection and
+            // writes it under [`app::SPEECHTT_CONTEXT`], which outranks the root's
+            // own binding by the documented context-depth precedence.
+            // `secondary-c` is the platform copy key: Command on macOS, Control
+            // on Linux and Windows.
+            cx.bind_keys([KeyBinding::new(
+                "secondary-c",
+                app::CopySelection,
+                Some(app::SPEECHTT_CONTEXT),
+            )]);
 
             // SpeechTT Sensor token mapping, so the first frame is ours.
             theme::apply(cx);

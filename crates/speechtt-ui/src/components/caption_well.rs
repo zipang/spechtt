@@ -2,17 +2,23 @@
 //! brand accent (the `audio capture layer` line in the mockups).
 //!
 //! Both runs are selectable, and they are one document: the pointer drags across
-//! the transcript, the range is highlighted behind the glyphs, and the window
-//! root's copy shortcut (`Ctrl-C`, `Cmd-C`) puts that range on the system
-//! clipboard. Paste happens in whatever application the user pastes into.
+//! the transcript, the range is highlighted behind the glyphs, and the selected
+//! range leaves the widget two ways — the application's copy shortcut
+//! (`Ctrl-C`, `Cmd-C`) and the transcript's context menu, whose `Copy` item
+//! carries the same action. Paste happens in whatever application the user
+//! pastes into.
 //!
 //! # Who renders this
 //!
 //! `views::recording` (the live take) and `views::session_end` (the finished
 //! take), both inside `layout::SurfaceBox`.
 
-use gpui_kit::{App, Hsla, IntoElement, RenderOnce, SharedString, Window};
+use gpui_kit::base::TextSelection;
+use gpui_kit::component::menu::ContextMenuExt as _;
+use gpui_kit::prelude::*;
+use gpui_kit::{App, Hsla, IntoElement, RenderOnce, SharedString, Window, div};
 
+use crate::app::CopySelection;
 use crate::components::Label;
 use crate::layout::SurfaceBox;
 use crate::tokens::color;
@@ -61,6 +67,26 @@ pub fn selection_highlight() -> Hsla {
 /// muted for what is finalized, brand accent for what is still being heard. They
 /// are one selectable document through their document order, so a drag that
 /// crosses from one into the other copies as one string, committed first.
+///
+/// # Copying the selection
+///
+/// The well offers `Copy` twice: the application shortcut handled by the window
+/// view, and a context menu attached to the card with a single item. Both carry
+/// [`CopySelection`], so they cannot drift apart — the menu item shows the
+/// shortcut's keybinding because the menu resolves it from the action, and one
+/// handler writes the clipboard for either path.
+///
+/// The menu exists because a shortcut-only copy is a single point of failure: if
+/// the keystroke is intercepted before the window sees it, the user still has a
+/// pointer route to the clipboard. It holds `Copy` and nothing else — SpeechTT
+/// has no paste path of its own, and the transcript is not an editable field, so
+/// neither `Paste` nor `Select All` belongs here. The item is disabled while
+/// [`TextSelection::has_selection`] is `false`, so the menu never offers a copy
+/// that would leave the clipboard unchanged.
+///
+/// The menu is the library's own component: its colours, radii, spacing and
+/// elevation come from the theme, and this file makes no visual decision about
+/// it.
 #[derive(IntoElement)]
 pub struct CaptionWell {
     committed: SharedString,
@@ -81,25 +107,43 @@ impl RenderOnce for CaptionWell {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
         let highlight = selection_highlight();
 
-        SurfaceBox::new()
+        // The right-click route to the clipboard. The menu is attached to the
+        // card's wrapper rather than to the card itself: a context menu needs a
+        // styled, parent element, which the wrapper is and the themed surface is
+        // not. The enabled state is read when the menu is built, which is the
+        // only moment it is shown.
+        div()
             .flex_1()
-            .clip()
+            .flex()
+            .flex_col()
             .child(
-                Label::new(self.committed)
-                    .mono()
-                    .muted()
-                    .selectable(COMMITTED_RUN_ID)
-                    .selection_order(COMMITTED_ORDER)
-                    .selection_color(highlight),
+                SurfaceBox::new()
+                    .flex_1()
+                    .clip()
+                    .child(
+                        Label::new(self.committed)
+                            .mono()
+                            .muted()
+                            .selectable(COMMITTED_RUN_ID)
+                            .selection_order(COMMITTED_ORDER)
+                            .selection_color(highlight),
+                    )
+                    .child(
+                        Label::new(self.live)
+                            .mono()
+                            .tone(gpui_kit::rgb(color::BRAND_ACCENT).into())
+                            .selectable(LIVE_RUN_ID)
+                            .selection_order(LIVE_ORDER)
+                            .selection_color(highlight),
+                    ),
             )
-            .child(
-                Label::new(self.live)
-                    .mono()
-                    .tone(gpui_kit::rgb(color::BRAND_ACCENT).into())
-                    .selectable(LIVE_RUN_ID)
-                    .selection_order(LIVE_ORDER)
-                    .selection_color(highlight),
-            )
+            .context_menu(|menu, window, cx| {
+                menu.menu_with_disabled(
+                    "Copy",
+                    Box::new(CopySelection),
+                    !TextSelection::has_selection(window, cx),
+                )
+            })
     }
 }
 

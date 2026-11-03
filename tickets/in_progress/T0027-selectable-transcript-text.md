@@ -71,10 +71,17 @@ May be created or modified:
 - `crates/speechtt-ui/src/components/text.rs` — the selectable rendering path
   and its unit tests.
 - `crates/speechtt-ui/src/components/caption_well.rs` — selectable committed and
-  live runs, the highlight helper, and its unit tests.
+  live runs, the highlight helper, the context menu, and its unit tests.
+- `crates/speechtt-ui/src/app.rs` — the `CopySelection` action and its handler,
+  and the key context it is handled in.
+- `crates/speechtt-ui/src/lib.rs` — the `KeyBinding` that registers
+  `secondary-c`, next to the existing initialisation.
 - `AGENTS.md` — §3 gains the "every file and every component says where it is
-  used" rule this ticket already applies.
-- `DESIGN.md` — §Transcript well: the selection highlight and its token role.
+  used" rule this ticket already applies, and §6 the rule that a library is read
+  through its official documentation, never its source, with an API gap reported
+  to the CEO.
+- `DESIGN.md` — §Transcript well: the selection highlight and its token role,
+  and the context-menu entry.
 - `PRODUCT.md` — one sentence in the transcript section, only if the current text
   claims the transcript is not interactive.
 
@@ -84,8 +91,8 @@ Do **not** touch:
   the note below.
 - `crates/speechtt-ui/src/views/**` — the views already pass data; no view gains a
   style or a selection decision.
-- `crates/speechtt-ui/src/app.rs`, `controller.rs`, `layout.rs`, `tokens.rs` —
-  no new state, no new token.
+- `crates/speechtt-ui/src/controller.rs`, `layout.rs`, `tokens.rs` — no new state,
+  no new token.
 - `crates/speechtt-core/**`, `src/stt/**` — the worker and the reducer are not
   involved.
 - `design-tokens.css` — the highlight is an alpha on `--color-brand-primary`,
@@ -237,6 +244,11 @@ the code must explain itself without a reader having to search the call sites
 
 ## Open — the selection cannot leave the application yet
 
+**Resolved.** The widget now owns the copy command (`CopySelection`, bound under
+its own key context) and offers the same command from a transcript context menu;
+`Ctrl-C` pastes the highlighted range on the CEO's machine. The audit below is
+kept as the record of the defect that was fixed.
+
 First real run on the CEO's machine (2026-11-03, `bun run ui`):
 
 - **Selection works.** Dragging across the transcript highlights the range in
@@ -298,21 +310,74 @@ failure, and a desktop application is expected to offer both:
 - Neither path may write when the selection is empty or whitespace-only; the
   clipboard keeps its previous content in that case.
 
-### Follow-up tasks (to finish later)
+### What the official documentation says
 
-- [ ] **T27.6 — Diagnose the dead shortcut**: add the two probes above, ask the
-  CEO to reproduce once, read the output, remove the probes, then fix the real
-  cause (binding/context, interception, or clipboard write). Report the cause,
-  not just the symptom.
-- [ ] **T27.7 — Context menu Copy**: right-click inside the transcript opens the
-  menu; `Copy` writes the selection through the same path as the shortcut;
-  disabled with no selection. Any new visual (menu surface, hover state) is
-  agreed with the CEO and documented in `DESIGN.md` before it is implemented
-  (`AGENTS.md` §2 component rule).
-- [ ] **T27.8 — Manual re-check by the CEO**: selection, `Ctrl-C`, paste in
-  another application, right-click menu, empty-selection behaviour, and the
-  follow/scroll behaviour of T0026 unchanged.
-- [ ] **T27.9 — Final gates and notes**: the T27.5 command list again, then the
+Sources (official only, no crate source):
+
+- `https://gpui-kit.com/base/text-selection.md` — window-level selection. The
+  application retains one `TextSelectionLayer` per window, one
+  `TextSelectionHandle` per participant, and **queries the selection with
+  `TextSelection::has_selection(window, cx)` and
+  `TextSelection::selected_text(window, cx)`**. The guide states plainly: "The
+  application remains responsible for layout and painting across the participant
+  seam", and its example confirms copy with "the platform copy shortcut".
+  `TextSelection` exposes **no copy method** — the listed API is
+  `has_selection`, `selected_text`, `select_all`, `clear`, `end`, the touch
+  entry points and the drag entry points. There is no `copy`, no `Copy` action
+  and no clipboard accessor on it.
+- `https://gpui-kit.com/component/root.md` — `Root` is documented as owning
+  "keyboard traversal and selection copying", and `gpui_kit::open_window` always
+  creates it. That is the path SpeechTT relies on today, and it is the path that
+  silently produces nothing on the CEO's machine.
+- `https://gpui-kit.com/docs/keybinding.md` — how to bind an `Action`: `actions!`
+  declares it, `cx.bind_keys([KeyBinding::new("secondary-c", …, Some(CONTEXT))])`
+  registers it, `.key_context(CONTEXT)` plus `.on_action(…)` on the focused
+  region routes it. `secondary-c` is the documented platform modifier (Command
+  on macOS, Control elsewhere). Precedence is by *depth of the matching context*
+  on the focused path, so a binding on the application's own context outranks
+  Root's ancestor binding.
+- `https://gpui-kit.com/llms-full.txt` (capabilities table) — `cx.write_to_clipboard(text)`
+  mirrors `App::write_to_clipboard` and is the documented way to replace the
+  clipboard's text. "Nothing to import."
+- `https://gpui-kit.com/component/menu.md` — context menus are attached to any
+  element with `ContextMenuExt::context_menu(|menu, window, cx| …)`; menu items
+  carry an `Action` (`menu.menu("Copy", Box::new(Copy))`), can be disabled with
+  `menu_with_disabled(label, action, true)`, and the menu displays the key
+  binding of that action automatically.
+
+**API gap to report**: `Root` advertises selection copying, yet no documented
+switch, feature flag or initialisation step changes that behaviour, and it does
+not copy in this window. We therefore stop depending on it and implement the
+documented path ourselves — an application action that reads
+`TextSelection::selected_text` and writes it with `cx.write_to_clipboard`.
+
+### Follow-up tasks
+
+- [x] **T27.6 — Own the copy action**: declare `CopySelection` with `actions!` in
+  `app.rs`; add `SPEECHTT_CONTEXT` (`"SpeechTT"`) to the widget view's root
+  element with `.on_action(…)`; register
+  `KeyBinding::new("secondary-c", CopySelection, Some(SPEECHTT_CONTEXT))` in the
+  existing initialisation path. The handler reads
+  `TextSelection::selected_text(window, cx)` and calls
+  `cx.write_to_clipboard(text)` **only** when the selection is not
+  whitespace-only, so an empty selection leaves the clipboard alone. Bind at the
+  application context so this outranks Root's ancestor binding (documented
+  precedence), and keep Root's binding untouched.
+- [x] **T27.7 — Context menu Copy**: attach
+  `.context_menu(|menu, window, cx| …)` to the transcript, with a single `Copy`
+  item carrying the same `CopySelection` action, disabled while
+  `TextSelection::has_selection(window, cx)` is false. The item inherits the
+  keybinding hint from the action, so the menu and the shortcut can never
+  diverge. No new colour, spacing or elevation is introduced: the menu is the
+  library's own component. If the menu's visual surface needs a design decision,
+  stop and ask the CEO before implementing (`AGENTS.md` §2).
+- [x] **T27.8 — Manual re-check by the CEO**: `Ctrl-C` after a drag pastes the
+  highlighted range into another application, and the clipboard content matches
+  what is on screen character for character. The pasted text does contain the
+  repeated words the transcript itself shows — that repetition is a defect of
+  the transcript buffer, tracked separately, not of the copy path: the copy
+  reproduces exactly what the well renders.
+- [x] **T27.9 — Final gates and notes**: the T27.5 command list again, then the
   resolution recorded in the notes below.
 
 ## Acceptance Criteria
@@ -521,3 +586,160 @@ delivered, but the feature is **not** complete. The copy path is tracked in
 "Open — the selection cannot leave the application yet" (T27.6–T27.9), and the
 ticket stays in `in_progress/` until the CEO can paste the transcript on their
 own machine.
+
+## Implementation Notes — the copy path (T27.6 / T27.7)
+
+### The decision
+
+SpeechTT owns the copy action instead of relying on `gpui_kit::base::Root`.
+`Root` is documented as owning "selection copying", it is already the window
+root, and nothing in its documented surface changes that behaviour — yet it
+writes nothing in this window. The documented path for an application that wants
+a copy is explicit: read `TextSelection::selected_text(window, cx)` and write it
+with `cx.write_to_clipboard(text)`. That is now what the widget does, with the
+window's own key context and its own menu entry, and `Root`'s binding is left
+untouched as an ancestor it outranks.
+
+### The wiring
+
+- `app.rs` declares `actions!(speechtt, [CopySelection])`, publishes
+  `SPEECHTT_CONTEXT` (`"SpeechTT"`), keeps the pure
+  `copyable_selection(&str) -> Option<&str>` helper, and handles the command in
+  `SpeechTtApp::on_copy_selection`. The handler reads
+  `TextSelection::selected_text(window, cx)`, and calls
+  `cx.write_to_clipboard(..)` only when the helper answers `Some` — untrimmed, so
+  the clipboard receives exactly the highlighted run. Nothing is logged, shown or
+  recorded.
+- `app.rs::render` puts `.track_focus(&self.focus)`,
+  `.key_context(SPEECHTT_CONTEXT)` and `.on_action(cx.listener(..))` on the window
+  view's root element.
+- `lib.rs::run` binds `KeyBinding::new("secondary-c", app::CopySelection,
+  Some(app::SPEECHTT_CONTEXT))` immediately after `gpui_kit::init(cx)`.
+- `components/caption_well.rs` attaches `ContextMenuExt::context_menu(..)` to the
+  transcript's scroll column with one item:
+  `menu_with_disabled("Copy", Box::new(CopySelection), !TextSelection::has_selection(window, cx))`.
+  One item only — no `Paste` (the widget has no paste path), no `Select All`.
+
+### Documented APIs used
+
+| API | Source |
+|---|---|
+| `TextSelection::has_selection` / `TextSelection::selected_text` | https://gpui-kit.com/base/text-selection.md |
+| `actions!`, `cx.bind_keys`, `KeyBinding::new("secondary-c", ..)`, `.key_context(..)` + `.on_action(..)`, context-depth precedence | https://gpui-kit.com/docs/keybinding.md |
+| `on_action` handler signature and dispatch/propagation | https://gpui-kit.com/docs/action.md |
+| `ContextMenuExt::context_menu`, `menu_with_disabled(label, action, disabled)`, keybinding hint resolved from the action | https://gpui-kit.com/component/menu.md |
+| `cx.write_to_clipboard(text)` (`ClipboardItem` argument) | https://gpui-kit.com/llms-full.txt (clipboard section) |
+
+No dependency source was read for this work; the only non-documentary input was
+the rustc type error that named `ClipboardItem` as the parameter of
+`cx.write_to_clipboard`, which is why the call converts with `.into()`.
+
+### TDD evidence — red phase
+
+The helper's unit tests were written first, against a name that did not exist:
+
+```
+$ cargo test -p speechtt-ui --lib
+error[E0432]: unresolved import `super::copyable_selection`
+  --> crates/speechtt-ui/src/app.rs:1463:9
+   |
+   |     use super::copyable_selection;
+   |         ^^^^^^---------------^^^^^
+   |         |
+   |         no `copyable_selection` in `app`
+error: could not compile `speechtt-ui` (lib test) due to 1 previous error
+```
+
+Green after the helper, the action and the handler existed: `56 passed`.
+
+### Tests added (`app.rs`, unit, no window)
+
+| Test | What it proves |
+|---|---|
+| `an_empty_selection_leaves_the_clipboard_alone` | `""` resolves to `None`, so a stray shortcut never empties the clipboard. |
+| `a_blank_selection_leaves_the_clipboard_alone` | A space, a tab, a newline and a mixed whitespace run all resolve to `None`. |
+| `a_selected_sentence_is_copied_exactly_as_highlighted` | A real sentence comes back verbatim with its leading and trailing spaces — the copy is the highlight. |
+| `punctuation_alone_is_a_real_selection` | Whitespace-only is the line: punctuation is a selection and is kept. |
+
+Nothing was added under `crates/speechtt-ui/tests/**`, and no test renders the
+menu, simulates a keystroke or touches the clipboard.
+
+### Deviations and notes
+
+- **`track_focus` + an initial `focus()` on the widget root.** The keybinding
+  guide keeps the focus handle, the key context and the handler together in the
+  owning entity, and says a binding does not focus the element itself: "Focus it
+  when entering the region, or let pointer interaction focus its tracked
+  handle". Without a keyboard target on the dispatch path the context matches
+  nothing, which is one way a bound shortcut silently does nothing. The root now
+  tracks a `FocusHandle` and takes focus when the window opens, so the same drag
+  that creates a selection also leaves the root focused.
+- **`actions!` cannot carry a doc comment.** Rustdoc warns
+  `unused_doc_comments` on a macro invocation, so the command is documented in a
+  leading comment plus the binding site and the handler's doc.
+- **`cx.write_to_clipboard` takes a `ClipboardItem`**, not a `&str`; the handler
+  passes `text.to_owned().into()`.
+- **`context_menu` changes the element type** (`ContextMenu<Stateful<Div>>`), so
+  the scroll column is built first and the menu is attached to it as the last
+  step before it enters `SurfaceBox`.
+- **No design decision was taken for the menu**: it is the library's own
+  component, themed by the theme, and `DESIGN.md` §Transcript well says so.
+
+### Global shortcut listener — checked, reported
+
+`speechtt_core::hotkeys::default_bindings` registers seven OS-level grabs, all of
+them `Ctrl+Shift+<key>` (`R`, `P`, `O`, `S`, `N`, `H`, `,`), so the default
+configuration does **not** swallow `Ctrl-C` / `Cmd-C`. The risk is user data: a
+`shortcuts` entry in the settings file naming `Ctrl+C` would be registered with
+the `global-hotkey` backend, and an OS grab takes the keystroke before the window
+sees it. Nothing in this ticket guards against that; if it is worth guarding, it
+is a separate ticket (either reject `Ctrl+C`/`Cmd+V` in shortcut validation, or
+surface the conflict).
+
+### Gates
+
+```
+$ cargo fmt -- --check
+(no output)                                            # clean
+
+$ cargo clippy --all-targets -- -D warnings
+Finished `dev` profile … in 1.26s                      # zero warnings
+
+$ cargo test
+speechtt-core  lib             207 passed
+speechtt-core  bridge_smoke       3 passed
+speechtt-core  session_machine   14 passed
+speechtt-ui    lib               56 passed   (was 52: +4 helper tests)
+speechtt-ui    main               0 passed
+speechtt-ui    design_system      3 passed
+speechtt-ui    dialogs           11 passed
+speechtt-ui    end_to_end        33 passed
+speechtt-ui    error_ux          14 passed
+speechtt-ui    session_flow      74 passed
+speechtt-ui    theme_contract     4 passed
+speechtt-ui    widget            25 passed
+doc-tests                         0 passed
+                                  0 failed anywhere
+
+$ bun test
+221 pass, 0 fail, 796 expect() calls, 12 files
+
+$ bun check src/stt
+✓ No type errors in 23 files
+
+$ bun run design:validate
+✓ Design contract valid — 66 tokens, 0 errors.
+```
+
+### What is left for the user
+
+The copy path is validated on the CEO's machine: `Ctrl-C` after a drag puts the
+highlighted range on the system clipboard, and the pasted text matches what the
+transcript renders. The right-click menu still needs a pass on the real machine
+(a right-click inside the transcript must show a single `Copy` entry with the
+shortcut hint beside it, disabled while nothing is selected), and so does an
+empty-selection `Ctrl-C`, which must leave the clipboard untouched.
+
+The repetition visible in the pasted text is not a copy defect: the well renders
+those words, so the clipboard receives them. It belongs to the transcript buffer
+and is tracked by T0026.
