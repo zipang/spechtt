@@ -6,3 +6,8 @@ node_modules/
 
 # OS noise
 .DS_Store
+
+# Local environment secrets — never commit an API key
+.env
+.env.*
+!.env.example
