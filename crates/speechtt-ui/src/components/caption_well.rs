@@ -5,8 +5,9 @@
 //! the transcript, the range is highlighted behind the glyphs, and the selected
 //! range leaves the widget two ways — the application's copy shortcut
 //! (`Ctrl-C`, `Cmd-C`) and the transcript's context menu, whose `Copy` item
-//! carries the same action. Paste happens in whatever application the user
-//! pastes into.
+//! carries the same action. The menu dispatches that action to the window's
+//! focused handle, which is the widget root: the same element the shortcut
+//! reaches. Paste happens in whatever application the user pastes into.
 //!
 //! # Who renders this
 //!
@@ -61,6 +62,18 @@ pub fn selection_highlight() -> Hsla {
         .into()
 }
 
+/// Whether the transcript's `Copy` item must be offered as disabled.
+///
+/// Two states make the item unusable, and both hide it behind a disabled entry
+/// rather than an enabled one that does nothing: there is nothing to copy
+/// (`has_selection` is `false`), or the menu has no focus handle to dispatch the
+/// action to (`has_target` is `false`). The second is not a user state — the
+/// right-click that opens the menu focuses the widget root — but the menu is
+/// built from whatever the window reports, so the item follows it.
+fn copy_item_disabled(has_selection: bool, has_target: bool) -> bool {
+    !(has_selection && has_target)
+}
+
 /// Transcript card: committed text, then the live words.
 ///
 /// The two runs stay separate elements because they carry different inks —
@@ -75,6 +88,18 @@ pub fn selection_highlight() -> Hsla {
 /// [`CopySelection`], so they cannot drift apart — the menu item shows the
 /// shortcut's keybinding because the menu resolves it from the action, and one
 /// handler writes the clipboard for either path.
+///
+/// A menu action is not sent to the element that was right-clicked: the menu
+/// returns focus to the handle it was given and dispatches the action there. The
+/// handle passed is the window's focused one, which is the widget root carrying
+/// the `SpeechTT` key context and the copy handler, so the item and the shortcut
+/// resolve to the same element by construction rather than by a second pairing.
+///
+/// The item is disabled when there is no selection — the menu never offers a copy
+/// that would leave the clipboard unchanged — and equally when the window reports
+/// no focused handle, because an action with no dispatch target would close the
+/// menu and write nothing. Neither state is a visible one: the right-click that
+/// opens the menu focuses the root.
 ///
 /// The menu exists because a shortcut-only copy is a single point of failure: if
 /// the keystroke is intercepted before the window sees it, the user still has a
@@ -138,11 +163,15 @@ impl RenderOnce for CaptionWell {
                     ),
             )
             .context_menu(|menu, window, cx| {
-                menu.menu_with_disabled(
-                    "Copy",
-                    Box::new(CopySelection),
-                    !TextSelection::has_selection(window, cx),
-                )
+                let target = window.focused(cx);
+                let disabled =
+                    copy_item_disabled(TextSelection::has_selection(window, cx), target.is_some());
+                let menu = match target {
+                    Some(handle) => menu.action_context(handle),
+                    None => menu,
+                };
+
+                menu.menu_with_disabled("Copy", Box::new(CopySelection), disabled)
             })
     }
 }
@@ -151,7 +180,7 @@ impl RenderOnce for CaptionWell {
 mod tests {
     use super::{
         COMMITTED_ORDER, COMMITTED_RUN_ID, LIVE_ORDER, LIVE_RUN_ID, SELECTION_ALPHA,
-        selection_highlight,
+        copy_item_disabled, selection_highlight,
     };
     use crate::tokens::color;
     use gpui_kit::Hsla;
@@ -192,5 +221,13 @@ mod tests {
     #[test]
     fn the_two_runs_have_their_own_identities() {
         assert_ne!(COMMITTED_RUN_ID, LIVE_RUN_ID);
+    }
+
+    #[test]
+    fn the_copy_item_is_disabled_without_a_selection_or_a_dispatch_target() {
+        assert!(!copy_item_disabled(true, true), "both halves present");
+        assert!(copy_item_disabled(false, true), "nothing selected");
+        assert!(copy_item_disabled(true, false), "nowhere to dispatch");
+        assert!(copy_item_disabled(false, false), "neither half");
     }
 }

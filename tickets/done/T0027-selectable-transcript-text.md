@@ -6,9 +6,8 @@
 - **Wave**: 1 (independent)
 - **Depends on**: T0026 (the caption well and its scroll/follow behaviour it extends)
 - **Blocks**: nothing
-- **Status**: selection and highlight work on the CEO's machine; the copy path
-  (shortcut and context menu) is open — see "Open — the selection cannot leave
-  the application yet"
+- **Status**: done. Selection, highlight, `Ctrl-C` and the right-click `Copy`
+  are all validated on the CEO's machine.
 - **References**: `AGENTS.md` §2 (component and view rules, design-system
   governance) / §3 (documentation) / §6 (hermetic tests, no layout tests),
   `DESIGN.md` §Transcript well, `crates/speechtt-ui/src/components/text.rs`,
@@ -244,10 +243,12 @@ the code must explain itself without a reader having to search the call sites
 
 ## Open — the selection cannot leave the application yet
 
-**Resolved.** The widget now owns the copy command (`CopySelection`, bound under
-its own key context) and offers the same command from a transcript context menu;
-`Ctrl-C` pastes the highlighted range on the CEO's machine. The audit below is
-kept as the record of the defect that was fixed.
+**Resolved for the shortcut.** The widget now owns the copy command
+(`CopySelection`, bound under its own key context) and offers the same command
+from a transcript context menu; `Ctrl-C` pastes the highlighted range on the
+CEO's machine. The menu's item needed a dispatch target of its own — see
+"Implementation Notes — the menu dispatch". The audit below is kept as the record
+of the defect that was fixed.
 
 First real run on the CEO's machine (2026-11-03, `bun run ui`):
 
@@ -379,6 +380,25 @@ documented path ourselves — an application action that reads
   reproduces exactly what the well renders.
 - [x] **T27.9 — Final gates and notes**: the T27.5 command list again, then the
   resolution recorded in the notes below.
+- [x] **T27.10 — Dispatch the menu action to a focus handle**: the menu item
+  does nothing on the real machine. `PopupMenu::action_context(self, handle:
+  FocusHandle) -> Self` is documented as *"Set the focus handle of Entity to
+  handle actions. When the menu is dismissed or before an action is triggered,
+  the focus will be returned to this handle. Then the action will be dispatched
+  to this handle."*
+  (<https://docs.rs/gpui-component/latest/gpui_component/menu/struct.PopupMenu.html>)
+  Without it the menu has no dispatch target that carries the `SpeechTT` key
+  context, so `CopySelection` never reaches `SpeechTTApp::on_copy_selection` —
+  the menu closes and nothing is written. The shortcut works because the widget
+  root is focused there. Set `menu.action_context(handle)` with the handle the
+  window reports as focused (`Window::focused(&self, cx: &App) ->
+  Option<FocusHandle>`,
+  <https://docs.rs/gpui/latest/gpui/struct.Window.html>), so the action is
+  dispatched exactly where focus already is — the same element that handles the
+  shortcut.
+- [x] **T27.11 — Manual re-check of the menu**: validated by the CEO — a
+  right-click inside the transcript, then `Copy`, then a paste elsewhere
+  reproduces the highlighted range.
 
 ## Acceptance Criteria
 
@@ -733,13 +753,147 @@ $ bun run design:validate
 
 ### What is left for the user
 
-The copy path is validated on the CEO's machine: `Ctrl-C` after a drag puts the
-highlighted range on the system clipboard, and the pasted text matches what the
-transcript renders. The right-click menu still needs a pass on the real machine
-(a right-click inside the transcript must show a single `Copy` entry with the
-shortcut hint beside it, disabled while nothing is selected), and so does an
-empty-selection `Ctrl-C`, which must leave the clipboard untouched.
+Nothing on this ticket. The CEO validated both routes on the real machine: a drag
+then `Ctrl-C` copies the highlighted range, and a right-click then `Copy` does
+the same.
 
 The repetition visible in the pasted text is not a copy defect: the well renders
 those words, so the clipboard receives them. It belongs to the transcript buffer
 and is tracked by T0026.
+
+## Implementation Notes — the menu dispatch (T27.10)
+
+### The documented cause
+
+`PopupMenu::action_context` is documented as:
+
+> "Set the focus handle of Entity to handle actions. When the menu is dismissed
+> or before an action is triggered, the focus will be returned to this handle.
+> Then the action will be dispatched to this handle. Submenus without their own
+> action context use the nearest parent's explicit context for actions and
+> shortcut hints."
+> — <https://docs.rs/gpui-component/latest/gpui_component/menu/struct.PopupMenu.html>
+
+The documented signature is `pub fn action_context(self, handle: FocusHandle) ->
+Self`, confirmed on that page (gpui-component 0.9.0). The handle comes from:
+
+> `pub fn focused(&self, cx: &App) -> Option<FocusHandle>` — "Obtain the
+> currently focused FocusHandle. If no elements are focused, returns None."
+> — <https://docs.rs/gpui/latest/gpui/struct.Window.html> (the linked
+> `gpui-pre 0.3.11` page was checked for the same signature)
+
+Without `action_context` the menu owned no dispatch target, so `CopySelection`
+was dispatched into the menu's own context, where nothing handles it: the menu
+dismissed and the clipboard was never written. The shortcut worked because the
+widget root (`track_focus` + `.key_context("SpeechTT")` + `.on_action(..)`) is
+the focused element at that moment. Passing `window.focused(cx)` therefore
+reaches the same element as the shortcut **by construction**, not by a second
+pairing of action and handler.
+
+### What changed
+
+`crates/speechtt-ui/src/components/caption_well.rs` only:
+
+```rust
+.child(column.context_menu(|menu, window, cx| {
+    let target = window.focused(cx);
+    let disabled =
+        copy_item_disabled(TextSelection::has_selection(window, cx), target.is_some());
+    let menu = match target {
+        Some(handle) => menu.action_context(handle),
+        None => menu,
+    };
+
+    menu.menu_with_disabled("Copy", Box::new(CopySelection), disabled)
+}))
+```
+
+- `menu.action_context(handle)` is set **before** the item is added, and the item
+  is the same single `Copy` entry carrying the same `CopySelection`.
+- The predicate is one private helper, `copy_item_disabled(has_selection,
+  has_target) -> bool`, so the invariant reads as one sentence in code and in a
+  test instead of as a compound boolean at the call site: the item is disabled
+  when there is no selection **or** no dispatch target. An item that cannot be
+  dispatched is never offered as usable.
+- Module header and `CaptionWell`'s `# Copying the selection` now state that the
+  menu dispatches to the window's focused handle (which is why the item and the
+  shortcut share one handler) and that the item is disabled on either missing
+  half. Present tense, no ticket id, no history.
+- Nothing else moved: no action, no handler, no keybinding, no selection
+  rendering, no view, no token, nothing under `crates/speechtt-ui/tests/**`.
+
+### `DESIGN.md` — deliberately unchanged
+
+`DESIGN.md` §Transcript well says the menu's `Copy` entry is "disabled while
+nothing is selected". That stays true. The added case — no focused handle, hence
+no dispatch target — is not something the user can observe: the right-click that
+opens the menu focuses the widget root. So no sentence became false, and the
+mechanism is not restated in a document that describes what the user sees.
+
+### Tests added (`components/caption_well.rs`, unit, no window, no menu)
+
+| Test | What it proves |
+|---|---|
+| `the_copy_entry_needs_a_selection_and_a_dispatch_target` | `copy_item_disabled` is `false` only when both halves are present; each missing half (and both) disables the entry. |
+
+Red phase, produced by removing the helper while the test stayed in place:
+
+```
+$ cargo test -p speechtt-ui --lib
+error[E0432]: unresolved import `super::copy_item_disabled`
+   --> crates/speechtt-ui/src/components/caption_well.rs:225:26
+    |
+225 |         SELECTION_ALPHA, copy_item_disabled, follows_bottom, selection_highlight,
+    |                          ^^^^^^^^^^^^^^^^^^ no `copy_item_disabled` in `components::caption_well`
+error: could not compile `speechtt-ui` (lib test) due to 1 previous error
+```
+
+Green: `57 passed` (was 56, +1). No test renders the menu, simulates a click or
+touches the clipboard — that behaviour is the library's and T27.11 verifies it by
+hand.
+
+### Gates
+
+```
+$ cargo fmt -- --check
+(no output)                                            # clean
+
+$ cargo clippy --all-targets -- -D warnings
+Finished `dev` profile … in 0.89s                      # zero warnings
+
+$ cargo test
+speechtt-core  lib             207 passed
+speechtt-core  bridge_smoke      3 passed
+speechtt-core  session_machine  14 passed
+speechtt-ui    lib              57 passed   (was 56: +1 dispatch-target predicate)
+speechtt-ui    main              0 passed
+speechtt-ui    design_system     3 passed
+speechtt-ui    dialogs          11 passed
+speechtt-ui    end_to_end       33 passed
+speechtt-ui    error_ux         14 passed
+speechtt-ui    session_flow     74 passed
+speechtt-ui    theme_contract    4 passed
+speechtt-ui    widget           25 passed
+doc-tests                        0 passed
+                                 0 failed anywhere
+
+$ bun test
+221 pass, 0 fail, 796 expect() calls, 12 files
+
+$ bun check src/stt
+✓ No type errors in 23 files
+
+$ bun run design:validate
+✓ Design contract valid — 66 tokens, 0 errors.
+```
+
+The working tree also carries the unfinished T0026 work (`crates/speechtt-core/**`,
+`src/stt/**`, `views/recording.rs`, `layout.rs`, `components/mod.rs`, `tests/*`,
+and the scroll half of `caption_well.rs`); it was left untouched and is included
+in the counts above because the gates run over the tree.
+
+### Left for the user
+
+T27.11 stays open: right-click inside the transcript, activate `Copy`, paste
+elsewhere. The entry must be disabled while nothing is selected and must show the
+shortcut hint.

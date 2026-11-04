@@ -109,6 +109,7 @@ Decisions, deviations, verification output.
 | [T0023](done/T0023-file-mode-setup-and-segmented-model.md) | File sessions must choose a non-streaming model in the setup form | Rust UI + core + Bun worker |
 | [T0024](done/T0024-media-only-file-picker.md) | Accept only media files for file transcription | Rust core + UI |
 | [T0025](done/T0025-file-transcription-view.md) | Dedicated transcription screen for file takes | Rust UI (controller + views + components + design system) |
+| [T0027](done/T0027-selectable-transcript-text.md) | Selectable, copyable transcript text | Rust UI (text + caption well + design) |
 
 ### In Progress
 
@@ -118,15 +119,7 @@ Decisions, deviations, verification output.
 
 ### Review
 
-| Ticket | Title | Track |
-|---|---|---|
-| [T0027](review/T0027-selectable-transcript-text.md) | Selectable, copyable transcript text | Rust UI (text + caption well + design) |
-
-`T0027` is delivered and every gate is green: the selection, the highlight and
-the copy shortcut are validated on the real machine, and the copied text matches
-what the transcript renders. One manual check remains before it is done — a
-right-click inside the transcript must show a single `Copy` entry with the
-shortcut hint, disabled while nothing is selected.
+_(none)_
 
 `T0026` stays in progress on the duplicated-live-text root cause: the transcript
 buffer itself repeats words, which the clipboard now makes plain, since the copy
