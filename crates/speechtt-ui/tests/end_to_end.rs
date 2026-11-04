@@ -332,10 +332,12 @@ fn finish_with_transcript(controller: &mut SessionController, sink: &RecordingSi
     controller.handle_stt_event(SttEvent::Partial {
         session_id: "take-1".into(),
         text: "audio".into(),
+        segment: None,
     });
     controller.handle_stt_event(SttEvent::Delta {
         session_id: "take-1".into(),
         delta: " capture".into(),
+        segment: None,
     });
     assert!(controller.pause_recording());
     assert!(controller.finish_take());
@@ -373,20 +375,24 @@ fn partial_delta_and_committed_text_survive_finish_and_stopped_refines_it() {
     controller.handle_stt_event(SttEvent::Partial {
         session_id: "take-1".into(),
         text: "audio".into(),
+        segment: None,
     });
     controller.handle_stt_event(SttEvent::Delta {
         session_id: "take-1".into(),
         delta: " capture".into(),
+        segment: None,
     });
     assert_eq!(controller.transcript_live(), "audio capture");
 
     controller.handle_stt_event(SttEvent::Committed {
         session_id: "take-1".into(),
         text: "audio capture layer.".into(),
+        segment: None,
     });
     controller.handle_stt_event(SttEvent::Partial {
         session_id: "take-1".into(),
         text: "next words".into(),
+        segment: None,
     });
     assert!(controller.finish_take());
 
@@ -413,6 +419,7 @@ fn stale_session_events_are_ignored() {
     controller.handle_stt_event(SttEvent::Partial {
         session_id: "take-1".into(),
         text: "first".into(),
+        segment: None,
     });
     assert!(controller.pause_recording());
     assert!(controller.finish_take());
@@ -428,6 +435,7 @@ fn stale_session_events_are_ignored() {
     controller.handle_stt_event(SttEvent::Partial {
         session_id: "take-1".into(),
         text: "stale".into(),
+        segment: None,
     });
     controller.handle_stt_event(SttEvent::Stopped {
         session_id: "take-1".into(),
@@ -580,6 +588,7 @@ fn a_file_take_is_saved_under_its_source_stem() {
     controller.handle_stt_event(SttEvent::Committed {
         session_id: "take-1".into(),
         text: "audio capture".into(),
+        segment: None,
     });
     assert!(controller.finish_take());
 
@@ -1219,12 +1228,14 @@ fn the_app_event_pump_updates_the_caption_and_copy_uses_the_clipboard(
         .send_blocking(Ok(SttEvent::Partial {
             session_id: "take-1".into(),
             text: "hello".into(),
+            segment: None,
         }))
         .expect("event sent");
     events_sender
         .send_blocking(Ok(SttEvent::Delta {
             session_id: "take-1".into(),
             delta: " world".into(),
+            segment: None,
         }))
         .expect("event sent");
 
@@ -1712,6 +1723,7 @@ fn a_finished_file_take_waits_on_the_transcription_screen(cx: &mut gpui_kit::Tes
         .send_blocking(Ok(SttEvent::Committed {
             session_id: "take-1".into(),
             text: "decoded by the worker".into(),
+            segment: None,
         }))
         .expect("send committed");
     sender

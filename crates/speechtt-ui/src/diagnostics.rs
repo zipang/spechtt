@@ -5,6 +5,7 @@
 //! strip is dismissed. Log lines never contain transcript text or secrets.
 
 use crate::controller::{AppError, sanitize_detail};
+use speechtt_core::protocol::SttEvent;
 
 /// Write exactly one redacted diagnostic line for `error`.
 ///
@@ -67,6 +68,82 @@ fn variant_name(error: &AppError) -> &'static str {
     }
 }
 
+/// Environment variable that switches the transcript trace on.
+///
+/// The trace is a diagnosis tool, not part of the running app's output: it is
+/// off unless the variable is exactly `1`, so a normal run writes nothing.
+pub const TRACE_ENV: &str = "SPEECHTT_STT_TRACE";
+
+/// Whether the transcript trace is enabled, i.e. `SPEECHTT_STT_TRACE=1`.
+#[must_use]
+pub fn transcript_trace_enabled() -> bool {
+    std::env::var_os(TRACE_ENV).is_some_and(|value| value == "1")
+}
+
+/// Write one trace line for `event`, when the trace is enabled.
+///
+/// `accepted` says whether the controller took the event or dropped it as a
+/// stale session, which is the half of a missing transcript a user cannot see.
+pub fn log_stt_event(event: &SttEvent, accepted: bool) {
+    if let Some(line) = format_event_line(event, accepted) {
+        eprintln!("{line}");
+    }
+}
+
+/// The trace line for `event`, or `None` for an event that never carries
+/// transcript text.
+///
+/// One physical line: `[speechtt] stt type=<type> session=<id> accepted=<bool>
+/// segment=<identity|-> len=<chars>`. It carries the text's length and the
+/// provider's utterance identity, never the text itself, so a take can be
+/// reconstructed without transcribing anything to a log.
+#[must_use]
+pub fn format_event_line(event: &SttEvent, accepted: bool) -> Option<String> {
+    let (kind, session_id, segment, length) = match event {
+        SttEvent::Partial {
+            session_id,
+            text,
+            segment,
+        } => (
+            "partial",
+            session_id,
+            segment.as_deref(),
+            text.chars().count(),
+        ),
+        SttEvent::Delta {
+            session_id,
+            delta,
+            segment,
+        } => (
+            "delta",
+            session_id,
+            segment.as_deref(),
+            delta.chars().count(),
+        ),
+        SttEvent::Committed {
+            session_id,
+            text,
+            segment,
+        } => (
+            "committed",
+            session_id,
+            segment.as_deref(),
+            text.chars().count(),
+        ),
+        SttEvent::Stopped {
+            session_id,
+            full_text,
+        } => ("stopped", session_id, None, full_text.chars().count()),
+        _ => return None,
+    };
+
+    Some(format!(
+        "[speechtt] stt type={kind} session={} accepted={accepted} segment={} len={length}",
+        sanitize_detail(session_id),
+        segment.map_or_else(|| "-".to_string(), sanitize_detail)
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,5 +179,70 @@ mod tests {
     fn nothing_recorded_produces_no_loggable_line() {
         assert!(loggable_line("controller", &AppError::NothingRecorded).is_none());
         assert!(loggable_line("controller", &AppError::BackendUnavailable).is_some());
+    }
+
+    /// The trace carries the shape of a text event — type, identity, accepted,
+    /// length — so a take can be reconstructed, and never the words.
+    #[test]
+    fn a_text_event_traces_its_shape_without_its_text() {
+        let partial = SttEvent::Partial {
+            session_id: "take-1".into(),
+            text: "private words".into(),
+            segment: Some("take-1:0".into()),
+        };
+        let line = format_event_line(&partial, true).expect("a text event is traced");
+        assert_eq!(
+            line,
+            "[speechtt] stt type=partial session=take-1 accepted=true segment=take-1:0 len=13"
+        );
+        assert!(
+            !line.contains("private"),
+            "no transcript text in a trace line"
+        );
+    }
+
+    #[test]
+    fn a_delta_and_a_final_trace_their_own_type() {
+        let delta = SttEvent::Delta {
+            session_id: "take-1".into(),
+            delta: " more".into(),
+            segment: None,
+        };
+        let committed = SttEvent::Committed {
+            session_id: "take-1".into(),
+            text: "words.".into(),
+            segment: None,
+        };
+        let stopped = SttEvent::Stopped {
+            session_id: "take-1".into(),
+            full_text: "words.".into(),
+        };
+
+        assert_eq!(
+            format_event_line(&delta, true).expect("traced"),
+            "[speechtt] stt type=delta session=take-1 accepted=true segment=- len=5"
+        );
+        assert_eq!(
+            format_event_line(&committed, false).expect("traced"),
+            "[speechtt] stt type=committed session=take-1 accepted=false segment=- len=6"
+        );
+        assert_eq!(
+            format_event_line(&stopped, true).expect("traced"),
+            "[speechtt] stt type=stopped session=take-1 accepted=true segment=- len=6"
+        );
+    }
+
+    #[test]
+    fn a_non_text_event_is_not_traced() {
+        assert!(format_event_line(&SttEvent::Ready, true).is_none());
+        assert!(
+            format_event_line(
+                &SttEvent::Started {
+                    session_id: "take-1".into()
+                },
+                true
+            )
+            .is_none()
+        );
     }
 }

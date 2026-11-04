@@ -70,7 +70,7 @@ pub(crate) fn render(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyEle
         .gap(space::XS)
         .body_gap(space::XS)
         .body(Waveform::new(bars, recording))
-        .body(CaptionWell::new(committed, live));
+        .body(CaptionWell::new(committed, live).follow(app.caption_scroll()));
 
     if active {
         shell = shell.header_trailing(TransportHeader::new(elapsed));

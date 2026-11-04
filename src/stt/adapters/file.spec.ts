@@ -240,6 +240,21 @@ describe("createFileSession", () => {
 		expect(stoppedText(events)).toBe("one two three four five");
 	});
 
+	test("names the finalized segment on its committed event", async () => {
+		const { events, finished } = setup({
+			chunks: chunked(tone(3000)),
+			texts: ["one two three", "four five"],
+			segmentation: { maxSegmentMs: 1000, minSpeechMs: 200 },
+		});
+
+		await finished;
+
+		const segments = events.flatMap((event) =>
+			event.type === "committed" ? [event.segment] : [],
+		);
+		expect(segments).toEqual(["0", "1"]);
+	});
+
 	test("emits monotonic progress with the probed total", async () => {
 		const { events, finished } = setup({
 			chunks: chunked(tone(3000)),

@@ -1420,7 +1420,11 @@ impl SessionController {
     /// Events from a previous take are ignored so a late packet cannot corrupt
     /// the current one. `Ready` and session-less errors are global.
     pub fn handle_stt_event(&mut self, event: SttEvent) {
-        if !self.accepts_session(event.session_id()) {
+        let accepted = self.accepts_session(event.session_id());
+        if crate::diagnostics::transcript_trace_enabled() {
+            crate::diagnostics::log_stt_event(&event, accepted);
+        }
+        if !accepted {
             return;
         }
 

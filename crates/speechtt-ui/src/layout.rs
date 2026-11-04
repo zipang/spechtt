@@ -161,7 +161,6 @@ impl RenderOnce for ScreenShell {
 #[derive(IntoElement)]
 pub struct SurfaceBox {
     flex_grow: bool,
-    clip: bool,
     children: Vec<AnyElement>,
 }
 
@@ -175,7 +174,6 @@ impl SurfaceBox {
     pub fn new() -> Self {
         Self {
             flex_grow: false,
-            clip: false,
             children: Vec::new(),
         }
     }
@@ -183,13 +181,6 @@ impl SurfaceBox {
     /// Grows into the remaining vertical space and may shrink below content.
     pub fn flex_1(mut self) -> Self {
         self.flex_grow = true;
-        self
-    }
-
-    /// Clips overflowing content (transcript text, where the window decides
-    /// how much of the take is visible).
-    pub fn clip(mut self) -> Self {
-        self.clip = true;
         self
     }
 
@@ -211,9 +202,6 @@ impl RenderOnce for SurfaceBox {
             .children(self.children);
         if self.flex_grow {
             surface = surface.flex_1().min_h_0();
-        }
-        if self.clip {
-            surface = surface.overflow_y_hidden();
         }
         surface
     }

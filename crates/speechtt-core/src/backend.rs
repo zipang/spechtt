@@ -388,6 +388,7 @@ mod tests {
             Some(SttEvent::Partial {
                 session_id: "take-1".into(),
                 text: "audio".into(),
+                segment: None,
             })
         );
         assert_eq!(client.read_event().expect("reads"), None);

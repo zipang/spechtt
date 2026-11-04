@@ -112,7 +112,7 @@ describe("VercelAiSdkAdapter", () => {
 		await session.stop();
 	});
 
-	test("maps stream parts to partial, delta and committed events", async () => {
+	test("maps stream parts to partial and delta events and finalizes once", async () => {
 		const streamTranscribe: StreamTranscribeFn = () =>
 			fakeResult({
 				parts: [
@@ -137,15 +137,76 @@ describe("VercelAiSdkAdapter", () => {
 			{ type: "started", sessionId: "session-1" },
 			{ type: "partial", sessionId: "session-1", text: "hel" },
 			{ type: "delta", sessionId: "session-1", delta: "lo" },
-			{ type: "committed", sessionId: "session-1", text: "hello" },
 			{ type: "partial", sessionId: "session-1", text: "wor" },
-			{ type: "committed", sessionId: "session-1", text: "world" },
 			{
 				type: "stopped",
 				sessionId: "session-1",
 				fullText: "hello world",
 			},
 		]);
+	});
+
+	test("forwards the AI SDK part id as the event segment", async () => {
+		const streamTranscribe: StreamTranscribeFn = () =>
+			fakeResult({
+				parts: [
+					{ type: "transcript-partial", id: "session-1:0", text: "hel" },
+					{ type: "transcript-delta", id: "session-1:0", delta: "lo" },
+					{ type: "transcript-final", id: "session-1:0", text: "hello" },
+				],
+			});
+		const { events, emit } = collect();
+		const adapter = new VercelAiSdkAdapter({
+			streamTranscribe,
+			resolveModel: () => "test-model",
+		});
+
+		const session = await adapter.start(config, emit);
+		await session.stop();
+
+		expect(events).toEqual([
+			{ type: "started", sessionId: "session-1" },
+			{
+				type: "partial",
+				sessionId: "session-1",
+				text: "hel",
+				segment: "session-1:0",
+			},
+			{
+				type: "delta",
+				sessionId: "session-1",
+				delta: "lo",
+				segment: "session-1:0",
+			},
+			{ type: "stopped", sessionId: "session-1", fullText: "hello" },
+		]);
+	});
+
+	test("omits the segment key for a part without an id", async () => {
+		const streamTranscribe: StreamTranscribeFn = () =>
+			fakeResult({
+				parts: [
+					{ type: "transcript-partial", text: "hel" },
+					{ type: "transcript-delta", delta: "lo" },
+					{ type: "transcript-final", text: "hello" },
+				],
+			});
+		const { events, emit } = collect();
+		const adapter = new VercelAiSdkAdapter({
+			streamTranscribe,
+			resolveModel: () => "test-model",
+		});
+
+		const session = await adapter.start(config, emit);
+		await session.stop();
+
+		const transcripts = events.filter(
+			(event) => event.type === "partial" || event.type === "delta",
+		);
+		expect(transcripts).toHaveLength(2);
+		for (const event of transcripts) {
+			expect("segment" in event).toBe(false);
+		}
 	});
 
 	test("prefers the final result text over the accumulated segments", async () => {
@@ -361,7 +422,6 @@ describe("VercelAiSdkAdapter", () => {
 			{ type: "started", sessionId: "session-1" },
 			{ type: "partial", sessionId: "session-1", text: "hel" },
 			{ type: "delta", sessionId: "session-1", delta: "lo" },
-			{ type: "committed", sessionId: "session-1", text: "hello" },
 			{ type: "stopped", sessionId: "session-1", fullText: "hello" },
 		]);
 	});

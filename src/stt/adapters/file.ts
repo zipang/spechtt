@@ -251,6 +251,7 @@ class FileSession implements SttSession {
 			type: "committed",
 			sessionId: this.sessionId,
 			text: appended,
+			segment: String(segment.index),
 		});
 	}
 

@@ -258,6 +258,7 @@ fn saving_from_the_stopped_screen_writes_the_chosen_path(cx: &mut TestAppContext
         .send_blocking(Ok(speechtt_core::protocol::SttEvent::Committed {
             session_id: "take-1".into(),
             text: "board decisions".into(),
+            segment: None,
         }))
         .expect("event sent");
     cx.run_until_parked();
@@ -290,8 +291,47 @@ fn saving_from_the_stopped_screen_writes_the_chosen_path(cx: &mut TestAppContext
     let _ = std::fs::remove_dir_all(&directory);
 }
 
-// ----- T13: restored window geometry -----------------------------------
+#[gpui_kit::test]
+fn a_long_live_transcript_keeps_growing_and_renders(cx: &mut TestAppContext) {
+    let (window, view, events) = open_speechtt_window_with_events(cx);
 
+    cx.update_window(window.into(), |_, window, cx| {
+        view.update(cx, |app, cx| {
+            app.choose_mode(SessionMode::Live, cx);
+            app.cycle_provider(cx);
+            app.cycle_model(cx);
+            app.create_session(cx);
+            app.start_recording(cx);
+        });
+        window.render_frame(cx);
+    })
+    .unwrap();
+
+    // Forty finalized sentences overflow the well many times over: every
+    // repaint must lay out the scroll area and paint without panicking.
+    for index in 0..40 {
+        events
+            .send_blocking(Ok(speechtt_core::protocol::SttEvent::Committed {
+                session_id: "take-1".into(),
+                text: format!("sentence {index} of a long dictation."),
+                segment: Some(format!("seg-{index}")),
+            }))
+            .expect("event sent");
+        cx.run_until_parked();
+        cx.update_window(window.into(), |_, window, cx| {
+            window.render_frame(cx);
+        })
+        .unwrap();
+    }
+
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert_eq!(app.view_state(), ViewState::Live);
+        assert_eq!(app.transcript_committed().matches("sentence").count(), 40);
+    });
+}
+
+// ----- T13: restored window geometry -----------------------------------
 use gpui_kit::{Bounds, Point, Size, px};
 use speechtt_core::settings::WindowLayout;
 

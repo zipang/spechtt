@@ -37,6 +37,7 @@ pub use app_footer::AppFooter;
 pub use app_header::AppHeader;
 pub use button_anchors::{Anchor, button_anchor, record_button_anchor};
 pub use caption_well::CaptionWell;
+pub use caption_well::follows_bottom;
 pub use card::Card;
 pub use elapsed_timer::ElapsedTimer;
 pub use icon_action::IconAction;

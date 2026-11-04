@@ -145,7 +145,12 @@ describe("MistralAdapter", () => {
 		);
 		expect(events).toEqual([
 			{ type: "started", sessionId: "session-1" },
-			{ type: "committed", sessionId: "session-1", text: "hello world" },
+			{
+				type: "committed",
+				sessionId: "session-1",
+				text: "hello world",
+				segment: "0",
+			},
 			{ type: "stopped", sessionId: "session-1", fullText: "hello world" },
 		]);
 	});
@@ -172,8 +177,13 @@ describe("MistralAdapter", () => {
 		expect(call).toBe(2);
 		expect(events).toEqual([
 			{ type: "started", sessionId: "session-1" },
-			{ type: "committed", sessionId: "session-1", text: "first" },
-			{ type: "committed", sessionId: "session-1", text: "second" },
+			{ type: "committed", sessionId: "session-1", text: "first", segment: "0" },
+			{
+				type: "committed",
+				sessionId: "session-1",
+				text: "second",
+				segment: "1",
+			},
 			{
 				type: "stopped",
 				sessionId: "session-1",
@@ -303,6 +313,31 @@ describe("MistralAdapter", () => {
 		expect(committedTexts(events).join(" ")).toBe("one two three four");
 	});
 
+	test("names the finalized segment on its committed event", async () => {
+		let call = 0;
+		const transcribe: TranscribeFn = async () => {
+			call += 1;
+			return { text: call === 1 ? "first" : "second" } as never;
+		};
+		const { events, emit } = collect();
+		const adapter = new MistralAdapter({
+			transcribe,
+			resolveModel: () => "test-model",
+		});
+
+		const session = await adapter.start(config, emit);
+		pushPcm(session, tone(900));
+		session.pause();
+		session.resume();
+		pushPcm(session, tone(900));
+		await session.stop();
+
+		const segments = events.flatMap((event) =>
+			event.type === "committed" ? [event.segment] : [],
+		);
+		expect(segments).toEqual(["0", "1"]);
+	});
+
 	test("writes segment diagnostics to stderr without transcript text", async () => {
 		const transcribe: TranscribeFn = async () =>
 			({ text: "private words" }) as never;
@@ -392,6 +427,7 @@ describe("MistralAdapter", () => {
 				type: "committed",
 				sessionId: "session-1",
 				text: "hello via the SDK",
+				segment: "0",
 			},
 			{
 				type: "stopped",

@@ -507,6 +507,7 @@ fn reset_clears_the_take_and_keeps_the_configuration() {
     controller.handle_stt_event(SttEvent::Committed {
         session_id: "take-1".into(),
         text: "a microphone check".into(),
+        segment: None,
     });
     let _ = sink.take();
 
@@ -544,6 +545,7 @@ fn a_reset_take_ignores_late_events_of_the_discarded_session() {
     controller.handle_stt_event(SttEvent::Committed {
         session_id: "take-1".into(),
         text: "text from the discarded take".into(),
+        segment: None,
     });
 
     assert_eq!(
@@ -619,6 +621,7 @@ fn stop_ends_a_running_take_without_pausing_first() {
     controller.handle_stt_event(SttEvent::Committed {
         session_id: "take-1".into(),
         text: "recorded while recording".into(),
+        segment: None,
     });
 
     assert!(controller.finish_take());
@@ -665,6 +668,7 @@ fn a_finished_file_take_is_not_navigated_by_the_app() {
     controller.handle_stt_event(SttEvent::Committed {
         session_id: "take-1".into(),
         text: "transcribed by the worker".into(),
+        segment: None,
     });
     let _ = sink.take();
 
@@ -710,6 +714,7 @@ fn a_late_stopped_event_only_refines_the_finished_take() {
     controller.handle_stt_event(SttEvent::Committed {
         session_id: "take-1".into(),
         text: "words that arrived after the flush".into(),
+        segment: None,
     });
     controller.handle_stt_event(SttEvent::Stopped {
         session_id: "take-1".into(),
@@ -980,6 +985,7 @@ fn back_from_the_stopped_screen_clears_the_finished_take() {
     controller.handle_stt_event(SttEvent::Committed {
         session_id: "take-1".into(),
         text: "a finished line".into(),
+        segment: None,
     });
     assert!(controller.pause_recording());
     assert!(controller.finish_take());
@@ -1134,6 +1140,7 @@ fn streamed_events_update_the_caption_well_in_real_time() {
     controller.handle_stt_event(SttEvent::Partial {
         session_id: "take-1".into(),
         text: "audio".into(),
+        segment: None,
     });
     assert_eq!(controller.transcript_committed(), "");
     assert_eq!(controller.transcript_live(), "audio");
@@ -1141,12 +1148,14 @@ fn streamed_events_update_the_caption_well_in_real_time() {
     controller.handle_stt_event(SttEvent::Delta {
         session_id: "take-1".into(),
         delta: " capture".into(),
+        segment: None,
     });
     assert_eq!(controller.transcript_live(), "audio capture");
 
     controller.handle_stt_event(SttEvent::Committed {
         session_id: "take-1".into(),
         text: "audio capture layer.".into(),
+        segment: None,
     });
     assert_eq!(controller.transcript_committed(), "audio capture layer.");
     assert_eq!(controller.transcript_live(), "");
@@ -1154,10 +1163,12 @@ fn streamed_events_update_the_caption_well_in_real_time() {
     controller.handle_stt_event(SttEvent::Partial {
         session_id: "take-1".into(),
         text: "next words".into(),
+        segment: None,
     });
     controller.handle_stt_event(SttEvent::Delta {
         session_id: "take-1".into(),
         delta: " now".into(),
+        segment: None,
     });
     assert_eq!(controller.transcript_live(), "next words now");
 
@@ -1178,6 +1189,95 @@ fn streamed_events_update_the_caption_well_in_real_time() {
     assert_eq!(
         take.committed().to_string(),
         "audio capture layer. next words now."
+    );
+    assert_eq!(take.live().to_string(), "");
+}
+
+#[test]
+fn a_segmented_live_take_commits_every_word_once_and_never_shrinks() {
+    let (mut controller, _sink) = duplex_controller();
+    assert!(controller.start_recording());
+
+    // Three utterances: each is revised inside its own segment, then finalized.
+    let events = [
+        SttEvent::Partial {
+            session_id: "take-1".into(),
+            text: "one".into(),
+            segment: Some("seg-0".into()),
+        },
+        SttEvent::Delta {
+            session_id: "take-1".into(),
+            delta: " two".into(),
+            segment: Some("seg-0".into()),
+        },
+        SttEvent::Committed {
+            session_id: "take-1".into(),
+            text: "one two.".into(),
+            segment: Some("seg-0".into()),
+        },
+        SttEvent::Partial {
+            session_id: "take-1".into(),
+            text: "three".into(),
+            segment: Some("seg-1".into()),
+        },
+        SttEvent::Committed {
+            session_id: "take-1".into(),
+            text: "three four.".into(),
+            segment: Some("seg-1".into()),
+        },
+        SttEvent::Partial {
+            session_id: "take-1".into(),
+            text: "five".into(),
+            segment: Some("seg-2".into()),
+        },
+        // A final belonging to the *next* utterance settles the unfinished
+        // one first: "five" is never dropped, and never repeated.
+        SttEvent::Committed {
+            session_id: "take-1".into(),
+            text: "six.".into(),
+            segment: Some("seg-3".into()),
+        },
+    ];
+
+    let mut previous = String::new();
+    for event in &events {
+        controller.handle_stt_event(event.clone());
+        let committed = controller.transcript_committed().to_owned();
+        assert!(
+            committed.starts_with(&previous),
+            "committed shrank after {event:?}: {previous:?} -> {committed:?}"
+        );
+        previous = committed;
+    }
+
+    assert_eq!(
+        controller.transcript_committed(),
+        "one two. three four. five six."
+    );
+    assert_eq!(controller.transcript_live(), "");
+    assert_eq!(controller.view_state(), ViewState::Live);
+
+    let words: Vec<String> = controller
+        .transcript_full_text()
+        .split_whitespace()
+        .map(ToOwned::to_owned)
+        .collect();
+    assert_eq!(
+        words,
+        ["one", "two.", "three", "four.", "five", "six."],
+        "every word the backend produced appears exactly once"
+    );
+
+    // The authoritative flush still ends the take with one clean transcript.
+    assert!(controller.finish_take());
+    controller.handle_stt_event(SttEvent::Stopped {
+        session_id: "take-1".into(),
+        full_text: "One two. Three four. Five six.".into(),
+    });
+    let take = controller.finished_take().expect("shows the finished take");
+    assert_eq!(
+        take.committed().to_string(),
+        "One two. Three four. Five six."
     );
     assert_eq!(take.live().to_string(), "");
 }
@@ -1227,6 +1327,7 @@ fn stale_events_from_a_finished_take_are_ignored() {
     controller.handle_stt_event(SttEvent::Partial {
         session_id: "take-1".into(),
         text: "first take".into(),
+        segment: None,
     });
     assert_eq!(controller.transcript_live(), "first take");
     assert!(controller.finish_take());
@@ -1242,6 +1343,7 @@ fn stale_events_from_a_finished_take_are_ignored() {
     controller.handle_stt_event(SttEvent::Partial {
         session_id: "take-1".into(),
         text: "stale words".into(),
+        segment: None,
     });
     controller.handle_stt_event(SttEvent::Stopped {
         session_id: "take-1".into(),
@@ -1253,6 +1355,7 @@ fn stale_events_from_a_finished_take_are_ignored() {
     controller.handle_stt_event(SttEvent::Partial {
         session_id: "take-2".into(),
         text: "fresh words".into(),
+        segment: None,
     });
     assert_eq!(controller.transcript_live(), "fresh words");
 }
@@ -1521,6 +1624,7 @@ fn file_take_stops_early_and_waits_for_continue() {
     controller.handle_stt_event(SttEvent::Committed {
         session_id: "take-1".into(),
         text: "hello file".into(),
+        segment: None,
     });
     sink.take();
 
@@ -1576,6 +1680,7 @@ fn finished_live_with(text: &str) -> SessionController {
     controller.handle_stt_event(SttEvent::Committed {
         session_id: "take-1".into(),
         text: text.into(),
+        segment: None,
     });
     assert!(controller.pause_recording());
     assert!(controller.finish_take());
@@ -1589,6 +1694,7 @@ fn finished_file_with(stem: &str, text: &str) -> (SessionController, TempFile) {
     controller.handle_stt_event(SttEvent::Committed {
         session_id: "take-1".into(),
         text: text.into(),
+        segment: None,
     });
     assert!(controller.finish_take());
     (controller, file)
@@ -1693,6 +1799,7 @@ fn saving_an_empty_transcript_is_informational_and_writes_nothing() {
     controller.handle_stt_event(SttEvent::Committed {
         session_id: "take-1".into(),
         text: "   ".into(),
+        segment: None,
     });
     assert!(controller.pause_recording());
     assert!(controller.finish_take());

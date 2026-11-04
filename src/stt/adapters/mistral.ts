@@ -286,6 +286,7 @@ class MistralSession implements SttSession {
 					type: "committed",
 					sessionId: this.sessionId,
 					text: appended,
+					segment: String(segment.index),
 				});
 			} catch (error) {
 				if (this.aborted) {

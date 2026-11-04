@@ -115,15 +115,16 @@ Decisions, deviations, verification output.
 
 | Ticket | Title | Track |
 |---|---|---|
-| [T0026](in_progress/T0026-live-transcript-scroll-and-stable-buffer.md) | Live transcript: append-only buffer and a scrolling caption well | Rust core + Rust UI + Bun worker |
+| [T0026](done/T0026-live-transcript-scroll-and-stable-buffer.md) | Live transcript: append-only buffer and a scrolling caption well | Rust core + Rust UI + Bun worker |
 
 ### Review
 
 _(none)_
 
-`T0026` stays in progress on the duplicated-live-text root cause: the transcript
-buffer itself repeats words, which the clipboard now makes plain, since the copy
-is exactly what the well renders.
+`T0026` is validated and closed after the user's field validation: the
+duplicated-live-text root cause, the scroll follow and the CTO review findings
+are fixed, and every gate is green (Rust 451 tests, Bun 221, design contract
+valid).
 
 ### Planned
 

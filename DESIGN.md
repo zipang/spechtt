@@ -403,8 +403,16 @@ the panel visibly exhales.
 
 Inset `surface-alt` panel, `rounded-md`, `space-md` padding, `elevation-sm`.
 Body text in `text` at `--font-size-sm`, line-height `regular`. Arriving words
-are briefly `text.accent`, settling to `text` after ~600ms. Auto-scrolls to
-the newest line; a soft fade at the top edge hints at earlier text.
+are briefly `text.accent`, settling to `text` after ~600ms. A soft fade at the
+top edge hints at earlier text.
+
+The transcript scrolls vertically inside the panel, and the panel shows no
+scrollbar: the wheel and the keyboard reach every earlier sentence. The panel
+keeps the height the screen gives it, so a long take is never truncated — the
+full transcript stays in the buffer for copy and save. During a live take the
+well follows the newest line while the reader is at the bottom; scrolling up
+stops the follow, and scrolling back to the bottom resumes it. The result
+screen opens at the start of the transcript and does not follow.
 
 The transcript is the application's one selectable text. A drag across it
 selects the range under the pointer, from a single word to several sentences,

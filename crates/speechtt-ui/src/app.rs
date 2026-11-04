@@ -40,8 +40,8 @@ use std::time::{Duration, Instant};
 use gpui_kit::prelude::*;
 use gpui_kit::{
     AnyElement, AnyWindowHandle, App, Bounds, Context, Entity, FocusHandle, PathPromptOptions,
-    Pixels, Point, Size, Subscription, Task, Window, WindowBounds, WindowId, WindowKind,
-    WindowOptions, actions, div, px,
+    Pixels, Point, ScrollHandle, Size, Subscription, Task, Window, WindowBounds, WindowId,
+    WindowKind, WindowOptions, actions, div, px,
 };
 use speechtt_core::audio::{AudioError, AudioSource, CpalAudioSource, PcmChunk};
 use speechtt_core::backend::{BackendError, BunSubprocess, SttEventReceiver, SttSessionSink};
@@ -167,6 +167,9 @@ pub struct SpeechTtApp {
     stored_settings: Settings,
     /// Geometry seen on screen, waiting for the quiet period before persisting.
     pending_window_layout: Option<(WindowLayout, Instant)>,
+    /// Scroll position of the live caption well. Owned by the view so the
+    /// well's follow rule survives every repaint of the take screen.
+    caption_scroll: ScrollHandle,
 }
 
 impl SpeechTtApp {
@@ -300,6 +303,7 @@ impl SpeechTtApp {
             clock: services.clock,
             stored_settings,
             pending_window_layout: None,
+            caption_scroll: ScrollHandle::new(),
         };
 
         if let Some(error) = settings_error {
@@ -512,6 +516,22 @@ impl SpeechTtApp {
         &self.controller
     }
 
+    /// Scroll position of the live caption well, passed to
+    /// [`crate::components::CaptionWell::follow`] by the take screen.
+    pub(crate) fn caption_scroll(&self) -> &ScrollHandle {
+        &self.caption_scroll
+    }
+
+    /// Puts the live caption well back at the top for a take that is about to
+    /// start.
+    ///
+    /// The handle outlives a take, so an offset the reader scrolled to in the
+    /// previous one would otherwise open the next take already scrolled up,
+    /// with the follow rule inactive until they scroll back to the bottom.
+    fn rewind_caption(&mut self) {
+        self.caption_scroll.set_offset(Point::new(px(0.0), px(0.0)));
+    }
+
     // ----- Commands ----------------------------------------------------
 
     /// Enter the workflow for `mode`, then route: live goes to Ready, file
@@ -601,6 +621,7 @@ impl SpeechTtApp {
 
     pub fn start_recording(&mut self, cx: &mut Context<Self>) {
         if self.controller.start_recording_at(self.clock.now()) {
+            self.rewind_caption();
             self.start_audio_capture(cx);
         }
         cx.notify();
@@ -714,6 +735,7 @@ impl SpeechTtApp {
     pub fn reset_take(&mut self, cx: &mut Context<Self>) -> bool {
         let reset = self.controller.reset_take();
         if reset {
+            self.rewind_caption();
             self.stop_audio_capture();
         }
         cx.notify();
@@ -764,7 +786,10 @@ impl SpeechTtApp {
                 let applied = self.controller.apply_action(action);
                 if applied {
                     match action {
-                        SessionAction::StartRecording => self.start_audio_capture(cx),
+                        SessionAction::StartRecording => {
+                            self.rewind_caption();
+                            self.start_audio_capture(cx);
+                        }
                         SessionAction::StopRecording | SessionAction::NewTake => {
                             self.stop_audio_capture();
                         }

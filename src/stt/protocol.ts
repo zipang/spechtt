@@ -101,18 +101,28 @@ export interface PartialEvent {
 	type: "partial";
 	sessionId: string;
 	text: string;
+	/**
+	 * Identity of the utterance the text belongs to, when the provider
+	 * publishes one. Revisions of one utterance share it; the next utterance
+	 * carries a different one. Absent for a provider without ids.
+	 */
+	segment?: string;
 }
 
 export interface DeltaEvent {
 	type: "delta";
 	sessionId: string;
 	delta: string;
+	/** Identity of the utterance the delta belongs to, when known. */
+	segment?: string;
 }
 
 export interface CommittedEvent {
 	type: "committed";
 	sessionId: string;
 	text: string;
+	/** Identity of the utterance this final settles, when known. */
+	segment?: string;
 }
 
 export interface StoppedEvent {

@@ -452,6 +452,12 @@ Rules:
   - `stderr` is reserved exclusively for diagnostics/logging (API keys are
     never logged). When the Rust process exits or closes `stdin`, Bun sees
     `EOF`, aborts any in-flight stream, and exits automatically.
+  - `partial`, `delta` and `committed` may carry an optional `segment`: an
+    opaque identity for the utterance the text belongs to. Revisions of one
+    utterance share it and the next utterance carries a different one, so a
+    new hypothesis cannot overwrite an unfinished earlier one. A backend that
+    publishes no identity omits the key, and the payload stays byte-identical
+    to the original three events.
 - Local model support (which runtime/engine — e.g. whisper.cpp) is listed as
   a placeholder in the README and not yet specified in detail.
 - Multi-language transcription support not yet scoped.

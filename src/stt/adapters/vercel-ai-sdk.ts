@@ -8,7 +8,12 @@ import {
 	createGateway,
 	experimental_streamTranscribe,
 } from "ai";
-import type { OutboundEvent } from "../protocol";
+import type {
+	CommittedEvent,
+	DeltaEvent,
+	OutboundEvent,
+	PartialEvent,
+} from "../protocol";
 import type { TranscriptionMode } from "../registry";
 import { AudioStreamBridge } from "../stream-controller";
 import type {
@@ -79,6 +84,21 @@ export function appendSegment(accumulated: string, text: string): string {
 		return accumulated;
 	}
 	return accumulated.length === 0 ? trimmed : `${accumulated} ${trimmed}`;
+}
+
+type TranscriptEvent = PartialEvent | DeltaEvent | CommittedEvent;
+
+/**
+ * Attaches the provider's utterance identity to a transcript event.
+ *
+ * The `segment` key is added only when the provider publishes an id: a backend
+ * without them keeps the legacy payload, where the key is absent entirely.
+ */
+function withSegment(
+	event: TranscriptEvent,
+	segment: string | undefined,
+): TranscriptEvent {
+	return segment === undefined ? event : { ...event, segment };
 }
 
 function stripProviderPrefix(provider: string, model: string): string {
@@ -260,20 +280,30 @@ class VercelAiSdkSession implements SttSession {
 				switch (part.type) {
 					case "transcript-partial":
 						this.producedText ||= part.text.trim().length > 0;
-						this.emit({
-							type: "partial",
-							sessionId: this.sessionId,
-							text: part.text,
-						});
+						this.emit(
+							withSegment(
+								{
+									type: "partial",
+									sessionId: this.sessionId,
+									text: part.text,
+								},
+								part.id,
+							),
+						);
 						break;
 
 					case "transcript-delta":
 						this.producedText ||= part.delta.trim().length > 0;
-						this.emit({
-							type: "delta",
-							sessionId: this.sessionId,
-							delta: part.delta,
-						});
+						this.emit(
+							withSegment(
+								{
+									type: "delta",
+									sessionId: this.sessionId,
+									delta: part.delta,
+								},
+								part.id,
+							),
+						);
 						break;
 
 					case "transcript-final":
@@ -282,11 +312,10 @@ class VercelAiSdkSession implements SttSession {
 							this.accumulated,
 							part.text,
 						);
-						this.emit({
-							type: "committed",
-							sessionId: this.sessionId,
-							text: part.text,
-						});
+						// `result.text` is the SDK's complete final transcript and is
+						// emitted below as `stopped`. Keeping this part only in the
+						// accumulator avoids reporting the same words once as a
+						// committed segment and again in the final flush.
 						break;
 
 					case "error":

@@ -189,15 +189,34 @@ pub enum SttEvent {
     Ready,
     #[serde(rename_all = "camelCase")]
     Started { session_id: String },
-    /// Uncommitted live hypothesis (replaces the live tail).
+    /// Uncommitted live hypothesis (replaces the live tail of one utterance).
     #[serde(rename_all = "camelCase")]
-    Partial { session_id: String, text: String },
+    Partial {
+        session_id: String,
+        text: String,
+        /// Identity of the utterance the text belongs to. Absent for a backend
+        /// that publishes none, and absent from the JSON in that case.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        segment: Option<String>,
+    },
     /// Incremental token delta (appends to the live tail).
     #[serde(rename_all = "camelCase")]
-    Delta { session_id: String, delta: String },
+    Delta {
+        session_id: String,
+        delta: String,
+        /// Identity of the utterance the delta belongs to.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        segment: Option<String>,
+    },
     /// A finalized segment, moved from the live tail into the transcript.
     #[serde(rename_all = "camelCase")]
-    Committed { session_id: String, text: String },
+    Committed {
+        session_id: String,
+        text: String,
+        /// Identity of the utterance this final settles.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        segment: Option<String>,
+    },
     /// Final flush emitted after `stop` completes.
     #[serde(rename_all = "camelCase")]
     Stopped {
@@ -378,6 +397,7 @@ mod tests {
                 SttEvent::Partial {
                     session_id: "take-1".into(),
                     text: "audio".into(),
+                    segment: None,
                 },
                 r#"{"type":"partial","sessionId":"take-1","text":"audio"}"#,
             ),
@@ -385,6 +405,7 @@ mod tests {
                 SttEvent::Delta {
                     session_id: "take-1".into(),
                     delta: " capture".into(),
+                    segment: None,
                 },
                 r#"{"type":"delta","sessionId":"take-1","delta":" capture"}"#,
             ),
@@ -392,6 +413,7 @@ mod tests {
                 SttEvent::Committed {
                     session_id: "take-1".into(),
                     text: "audio capture layer.".into(),
+                    segment: None,
                 },
                 r#"{"type":"committed","sessionId":"take-1","text":"audio capture layer."}"#,
             ),
@@ -409,6 +431,86 @@ mod tests {
                     message: "socket closed".into(),
                 },
                 r#"{"type":"error","sessionId":"take-1","code":"stream_failed","message":"socket closed"}"#,
+            ),
+        ];
+
+        for (event, expected) in cases {
+            assert_eq!(serde_json::to_string(&event).expect("serializes"), expected);
+            assert_eq!(
+                serde_json::from_str::<SttEvent>(expected).expect("deserializes"),
+                event
+            );
+        }
+    }
+
+    #[test]
+    fn a_legacy_text_event_parses_without_a_segment_and_stays_unchanged_on_the_wire() {
+        let cases = [
+            (
+                r#"{"type":"partial","sessionId":"take-1","text":"audio"}"#,
+                SttEvent::Partial {
+                    session_id: "take-1".into(),
+                    text: "audio".into(),
+                    segment: None,
+                },
+            ),
+            (
+                r#"{"type":"delta","sessionId":"take-1","delta":" capture"}"#,
+                SttEvent::Delta {
+                    session_id: "take-1".into(),
+                    delta: " capture".into(),
+                    segment: None,
+                },
+            ),
+            (
+                r#"{"type":"committed","sessionId":"take-1","text":"audio capture."}"#,
+                SttEvent::Committed {
+                    session_id: "take-1".into(),
+                    text: "audio capture.".into(),
+                    segment: None,
+                },
+            ),
+        ];
+
+        for (json, event) in cases {
+            assert_eq!(
+                serde_json::from_str::<SttEvent>(json).expect("deserializes an older worker"),
+                event
+            );
+            assert_eq!(
+                serde_json::to_string(&event).expect("serializes"),
+                json,
+                "an absent segment must not reach the wire"
+            );
+        }
+    }
+
+    #[test]
+    fn a_text_event_carrying_a_segment_round_trips() {
+        let cases = [
+            (
+                SttEvent::Partial {
+                    session_id: "take-1".into(),
+                    text: "audio".into(),
+                    segment: Some("take-1:0".into()),
+                },
+                r#"{"type":"partial","sessionId":"take-1","text":"audio","segment":"take-1:0"}"#,
+            ),
+            (
+                SttEvent::Delta {
+                    session_id: "take-1".into(),
+                    delta: " capture".into(),
+                    segment: Some("0".into()),
+                },
+                r#"{"type":"delta","sessionId":"take-1","delta":" capture","segment":"0"}"#,
+            ),
+            (
+                SttEvent::Committed {
+                    session_id: "take-1".into(),
+                    text: "audio capture.".into(),
+                    segment: Some("2".into()),
+                },
+                r#"{"type":"committed","sessionId":"take-1","text":"audio capture.","segment":"2"}"#,
             ),
         ];
 
@@ -444,6 +546,7 @@ mod tests {
             SttEvent::Partial {
                 session_id: "take-2".into(),
                 text: String::new(),
+                segment: None,
             }
             .session_id(),
             Some("take-2")
