@@ -128,5 +128,5 @@ _(none)_
 | Ticket | Title | Track | Depends on |
 |---|---|---|---|
 | [T0016](planned/T0016-dependency-bootstrap-script.md) | Dependency bootstrap for Bun and ffmpeg | Tooling (TypeScript/Bun) | — |
-| [T0031](planned/T0031-live-transcript-window-overlap.md) | Stop the live transcript accumulating duplicated fragments | Rust core (transcript) | — |
+| [T0031](planned/T0031-live-transcript-window-overlap.md) | Measure provider hypotheses, then fix the live transcript | Rust core + Bun worker (diagnosis) | — |
 | [T0032](planned/T0032-language-reach-honesty.md) | Say honestly what the dictation language can reach | Cross-cutting (worker → core → UI) | T0030 |

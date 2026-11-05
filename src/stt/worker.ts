@@ -110,6 +110,11 @@ export function cleanupFailureMessage(
 }
 
 import { sanitizeDiagnostic } from "./diagnostics";
+import {
+	formatSessionHeader,
+	partialsTraceEnabled,
+	tracePartial,
+} from "./trace";
 
 export { sanitizeDiagnostic } from "./diagnostics";
 
@@ -203,7 +208,20 @@ export async function runWorkerLoop(
 	discovery: DiscoverySource = defaultDiscoverySource,
 	files: FileDeps = defaultFileDeps,
 	clean?: CleanDeps,
+	/** Enables the transcript dump; defaults to `SPEECHTT_STT_PARTIALS=1`. */
+	partialsTrace: boolean = partialsTraceEnabled(),
 ): Promise<void> {
+	/** Monotonic counter for the dump, so a log replays in emission order. */
+	let traceSeq = 0;
+	/** Emits one event and, when the dump is on, one line describing it. */
+	const tracedEmit = (event: OutboundEvent): void => {
+		if (partialsTrace) {
+			traceSeq += 1;
+			tracePartial(event, traceSeq);
+		}
+		emit(event);
+	};
+
 	let active: SttSession | undefined;
 	/** A file session never receives live audio, so routing must know the kind. */
 	let activeKind: "live" | "file" | undefined;
@@ -288,9 +306,20 @@ export async function runWorkerLoop(
 		}
 
 		const config = sessionConfigFromStart(command, apiKey);
+		if (partialsTrace) {
+			console.error(
+				formatSessionHeader({
+					kind: "live",
+					provider: config.provider,
+					model: config.model,
+					language: config.language,
+					sampleRate: config.sampleRate,
+				}),
+			);
+		}
 		try {
 			const adapter = await adapterFactory(config);
-			active = await adapter.start(config, emit);
+			active = await adapter.start(config, tracedEmit);
 			activeKind = "live";
 		} catch (error) {
 			active = undefined;
@@ -361,8 +390,19 @@ export async function runWorkerLoop(
 				? {}
 				: { language: command.language }),
 		};
+		if (partialsTrace) {
+			console.error(
+				formatSessionHeader({
+					kind: "file",
+					provider: config.provider,
+					model: config.model,
+					language: config.language,
+					sampleRate: config.sampleRate,
+				}),
+			);
+		}
 		try {
-			active = files.createSession(config, emit);
+			active = files.createSession(config, tracedEmit);
 			activeKind = "file";
 		} catch (error) {
 			active = undefined;

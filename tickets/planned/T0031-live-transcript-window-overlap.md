@@ -61,32 +61,171 @@ Every such event settles the old tail and starts fresh, so `committed`
 accumulates every overlap. The screen shows `committed` followed by `live`,
 which is exactly the smear above.
 
-### Goal
+### Goal, and why the algorithm is not decided yet
 
-Classify a `Partial` against the tail with a whitespace- and case-insensitive
-comparison, and add the third outcome the provider needs: a **window
-continuation**, where the tail is extended with only the non-overlapping
-remainder instead of being settled and repeated.
+Previous attempts at this problem picked a merge rule first and discovered
+afterwards that it did not hold for every provider. That is the mistake this
+ticket refuses to repeat: **the reducer's behaviour has to follow what the
+providers actually emit**, and that has never been measured on more than one
+model.
+
+So this ticket is split in two halves, and only the first is specified in
+detail:
+
+1. **Measure (in scope, detailed below).** `SPEECHTT_STT_PARTIALS=1` dumps every
+   hypothesis a provider produces, and `src/stt/trace-analyze.ts` classifies each
+   consecutive pair as `extend` / `shrink` / `slide` / `identical` / `new`,
+   measuring the seam overlap and the characters a naive accumulator would
+   duplicate. Two takes on two models answer "do all models behave the same?"
+   with numbers instead of impressions.
+2. **Decide (recorded here, implemented after the data).** Two candidate
+   strategies, chosen once the dump exists. No reducer change lands before that
+   choice is written into this ticket.
+
+### The two candidate strategies
+
+**A — Overlap-aware reducer.** Classify each hypothesis against the live tail
+with a whitespace-folded comparison, and extend the tail with only the
+non-overlapping remainder instead of settling the whole previous window.
+Keeps a growing transcript during a long take, but it is the approach that has
+failed before: each provider needs its own threshold, a re-tokenizing provider
+defeats a word-level comparison, and a wrong guess silently drops or duplicates
+words in the middle of the text.
+
+**B — Show the window, trust the final text.** During the take, the live area
+shows only the newest hypothesis, replacing the previous one. Nothing is
+accumulated, so nothing can duplicate. The complete transcript arrives with
+`Stopped` (`fullText`), which the reducer already adopts as authoritative.
+
+B is dramatically simpler and cannot produce the smear, at one real cost: during
+a long take the screen shows only the last window, and the transcript fills in at
+the end rather than growing. It is also exactly what the streaming adapter makes
+available — it emits `transcript-final` into its accumulator without sending a
+`Committed` event, so a live take has **no settled text at all** to build on.
+
+**Decision rule.** If the dump shows every model extending its hypothesis
+cumulatively, A is unnecessary: keep today's reducer. If it shows sliding
+windows on any model the catalogue offers, B is the honest default, because A
+can only ever approximate what the provider is doing. A is justified only if a
+provider commits settled text mid-take (a `Committed` event with no overlap) that
+B would throw away.
+
+### Measured so far (one model, from a real take)
+
+`microsoft/mai-transcribe-2-streaming`, replaying the capture in this ticket:
+11 hypotheses, `identical=1 extend=1 slide=7 new=1`, seam overlap up to 4 words,
+1 pair whose seam only matched after folding whitespace away. That is a sliding
+window, and it is what the reducer's `settle_live()` path turns into the smear.
+Still needed: a second model (`openai/gpt-realtime-whisper` accumulates
+differently) to know whether A and B must coexist.
 
 ## Scope Boundary
 
 Allowed to create or modify:
 
-- `crates/speechtt-core/src/transcript.rs` (reducer + its test module)
+- `src/stt/trace.ts` + `src/stt/trace.spec.ts` (new: the opt-in dump)
+- `src/stt/trace-analyze.ts` + its spec (new: the classifier that reads a dump)
+- `src/stt/worker.ts` (wrap `emit` when the dump is on)
+- `crates/speechtt-core/src/transcript.rs` (reducer + tests, **only after the
+  strategy is chosen** — see the decision rule above)
 - `tickets/README.md` and this ticket
 
 Out of scope — do **not** touch:
 
-- `crates/speechtt-ui/**` (the screen already renders `committed` + `live`; the
-  buffer is the single source of truth for both)
-- `src/stt/**` (the adapter must keep forwarding the provider's events as they
-  are; the reducer owns the policy)
-- `src/stt/transcript-merge.ts` (segmented junction merging is already correct
-  and stays the reference policy, not a dependency)
+- `crates/speechtt-ui/**` (the screen keeps rendering `committed` + `live`; the
+  reducer is the single source of truth for both, and Strategy B changes nothing
+  in the view)
+- `src/stt/adapters/**` (an adapter must keep forwarding the provider's events as
+  they are: the reducer and the analysis own the policy, and hiding events in the
+  adapter is what makes a dump lie)
 - `crates/speechtt-core/src/protocol.rs` (no wire change)
 - `DESIGN.md` (no visual change)
 
-## Contract
+## Contract — the measurement half
+
+### 1. The opt-in dump — `src/stt/trace.ts`
+
+```ts
+/** Environment variable that switches the dump on. */
+export const PARTIALS_ENV = "SPEECHTT_STT_PARTIALS";
+/** Prefix every dump line carries, so a log filters with one grep. */
+export const PARTIALS_TAG = "[stt-partials]";
+
+export function partialsTraceEnabled(env?: Record<string, string | undefined>): boolean;
+/** One-line JSON record for `event`, or `null` for an event with no transcript. */
+export function formatPartialRecord(event: unknown, seq: number): string | null;
+/**
+ * Describes the take the dump belongs to. Two models land in one log, so the
+ * header is what makes the comparison possible.
+ */
+export function formatSessionHeader(details: {
+  provider: string; model: string; language?: string;
+  sampleRate?: number; kind: "live" | "file";
+}): string;
+```
+
+Rules:
+
+- Enabled **only** when `SPEECHTT_STT_PARTIALS` is exactly `1`, and it is a
+  different variable from `SPEECHTT_STT_TRACE`: that one writes lengths, this one
+  writes transcript text, which is the user's own content. Keeping them separate
+  means enabling the harmless trace never starts writing text to a log.
+- One physical line per event, JSON after the tag, so a newline inside a
+  hypothesis cannot split a record. Fields: `seq`, `type`, `sessionId`,
+  `segment`, `requestId` when present, `chars`, `text` (or the event's own text
+  field name: `delta`, `fullText`).
+- `seq` is monotonic per process, so a dump replays in emission order.
+- Only transcript-bearing types are recorded (`started`, `partial`, `delta`,
+  `committed`, `stopped`); `progress`, `capabilities` and `ready` are noise.
+- `worker.ts` wraps its `emit` once, so every adapter and the file session are
+  covered without touching either.
+- `stdout` stays NDJSON-only; the dump goes to `stderr`.
+
+### 2. The classifier — `src/stt/trace-analyze.ts`
+
+```ts
+export type Transition = "identical" | "extend" | "shrink" | "slide" | "new";
+
+export interface PairClassification {
+  readonly kind: Transition;
+  readonly overlapWords: number;
+  /** Characters of `next` the seam already showed, i.e. shown twice. */
+  readonly overlapChars: number;
+  readonly newWords: number;
+  /** `true` when the seam only matched after folding whitespace away. */
+  readonly retokenized: boolean;
+}
+
+export function classifyPair(previous: string, next: string): PairClassification;
+export function parseDumpLine(line: string): TracedEvent | null;
+export function analyzeEvents(events: readonly TracedEvent[]): StreamReport[];
+export function behaviorOf(report: StreamReport): string;
+export function formatReport(reports: readonly StreamReport[]): string;
+```
+
+`classifyPair` tries, in order: an exact repeat; a strict prefix relation in
+either direction (extend / shrink); a word run of **at least two words** shared
+at the seam (`slide`, the same threshold as `src/stt/transcript-merge.ts`); then
+the same test with every whitespace removed, which catches a provider re-spacing
+its own words (`MAI.` against `MA I.`) and sets `retokenized`. A single shared
+word is never an overlap: two sentences genuinely can start with the same word.
+
+`StreamReport` carries the per-stream counts, the `dominant` transition, the
+largest seam overlap, `duplicatedChars` (the characters a naive accumulator would
+show twice) and `retokenizedPairs`.
+
+Run it with Bun:
+
+```sh
+SPEECHTT_STT_PARTIALS=1 cargo run -p speechtt-ui 2> dump.log
+bun src/stt/trace-analyze.ts dump.log
+```
+
+## Contract — Strategy A, kept as a specification if it is chosen
+
+Everything below describes the overlap-aware reducer. It is **not** a commitment:
+it is written out so that choosing A after the measurements costs an
+implementation rather than a design round.
 
 ### 1. Comparison key
 
@@ -197,43 +336,50 @@ the next change to the reducer has to keep this take readable.
 
 ## TDD Tasks
 
-- [ ] **T31.1 — Red: `compact`.** Failing tests: whitespace and case are folded
-  (`d'une` / `d 'une`, `MAI` / `MA I`), accents survive, offsets map every
-  compact index back to a byte offset in the source, an empty string yields an
-  empty key.
-- [ ] **T31.2 — Red: classification.** Failing tests for `classify_partial`:
-  cumulative growth with different spacing → `Revision`; sliding window
-  (`ée avec le modèle MAI.` → `le modèle MAI.`) → `Continuation` with the right
-  `skip_bytes`; a two-word overlap → `Continuation`; a single repeated word →
-  `NewWindow`; an unrelated window → `NewWindow`; an empty tail → `Revision`.
-- [ ] **T31.3 — Red: the regression capture.** Add the replay test from §5 and
-  watch it fail against today's reducer. Keep the failure output as the before
-  picture.
-- [ ] **T31.4 — Green: reducer.** Implement `compact`, `classify_partial` and
-  the `Continuation` branch in `apply` until T31.1–T31.3 pass. Existing tests
-  must all still pass unchanged — in particular
-  `a_short_fragment_matching_the_opening_starts_a_new_window`,
-  `a_shorter_draft_of_the_same_window_replaces_the_tail`,
-  `a_repeated_word_is_not_swallowed_as_a_duplicate` and
-  `committed_never_shrinks_and_keeps_every_word_across_four_segments`.
-- [ ] **T31.5 — Docs.** The module header states the three outcomes and why the
-  comparison is spacing-insensitive (`AGENTS.md` §3: present tense, callers
-  named, no ticket ids, no change history).
-- [ ] **T31.6 — Gates.** `cargo fmt -- --check`,
-  `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
-  `bun check src/stt`, `bun run design:validate`. Record exact counts in
-  `## Implementation Notes`.
+- [ ] **T31.0 — Instrument.** `trace.ts` + spec: off unless the variable is
+  exactly `1`, one line per event, JSON-safe newlines, only transcript-bearing
+  types, header naming provider/model/language. `worker.ts` wraps `emit` once.
+  The dump must not change behaviour when disabled (pinned by a test that runs
+  the loop with the flag off and asserts no extra `stderr`).
+- [ ] **T31.1 — Classify.** `trace-analyze.ts` + spec: `classifyPair` covers
+  extend, shrink, identical, a two-word slide, a re-spaced seam that only the
+  compact comparison sees, and a single shared word that must stay `new`.
+  `analyzeEvents` keeps segments apart, ignores non-hypotheses, and reports
+  `duplicatedChars` from the real overlap rather than from a length delta.
+- [ ] **T31.2 — Collect.** Two real takes, one per model, with the dump on:
+  a windowing model and an accumulating one. Attach both reports to this ticket
+  under `## Measurements`, with the hypothesis counts and the dominant
+  behaviour per stream.
+- [ ] **T31.3 — Decide.** Write the choice (A, B, or "no change") into this
+  ticket with the measurement that justifies it, and only then implement:
+  - **B** — `TranscriptBuffer` gains a window mode: a `Partial` replaces the live
+    tail without settling, `Committed` still commits, and `Stopped` adopts
+    `fullText`. The regression fixture replays the capture and asserts the live
+    text is never a smear (no two-word run repeated back to back) and that the
+    final text is exact.
+  - **A** — the compact-key contract this ticket used to describe, unchanged.
+  - **No change** — close the ticket with the measurement showing every offered
+    model already extends cumulatively.
+- [ ] **T31.4 — Docs and gates.** Module headers per `AGENTS.md` §3, then
+  `cargo fmt -- --check`, `cargo clippy --all-targets -- -D warnings`,
+  `cargo test`, `bun test`, `bun check src/stt`, `bun run design:validate`.
 
 ## Acceptance Criteria
 
-- A live take with a windowing provider no longer shows fragments repeated back
-  to back while dictating; the screen reads as one continuous sentence.
-- The provider's re-tokenization (`d 'une`, `dict ée`, `MA I`, `Trans cribe`) no
-  longer produces duplicates.
-- No word the provider produced is dropped, except a genuine ≥2-word overlap run
-  that the previous hypothesis already ends with.
-- The final `Stopped` text still replaces everything, and the result screen is
-  unchanged.
-- Every pre-existing test in `transcript.rs` passes without modification.
+- `SPEECHTT_STT_PARTIALS=1` writes one JSON line per hypothesis to `stderr`,
+  tagged `[stt-partials]`, with a session header naming provider and model; with
+  the variable unset or not `1`, no line is written and behaviour is unchanged.
+- `bun src/stt/trace-analyze.ts dump.log` prints, per stream, the dominant
+  behaviour, the transition counts, the largest seam overlap and the characters a
+  naive accumulator would duplicate.
+- The classifier marks a re-spaced seam (`MAI.` / `MA I.`) as the same window, so
+  a provider that re-tokenizes is not reported as opening new windows.
+- Two models are measured and the comparison is written into this ticket.
+- The reducer strategy is chosen from that measurement and named in this ticket
+  before any reducer change lands.
+- If Strategy B is chosen: the live area never shows a smeared transcript, the
+  final text equals `Stopped`'s `fullText` exactly, and the whole-take Copy/Save
+  payload is the final text.
+- If Strategy A is chosen: no two-word run is repeated back to back, and every
+  pre-existing `transcript.rs` test still passes unmodified.
 - All six gates are green with zero warnings and no skipped tests.
-- Final visual review of a real dictation is left to the user.
