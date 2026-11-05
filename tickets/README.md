@@ -127,3 +127,4 @@ _(none)_
 |---|---|---|---|
 | [T0016](planned/T0016-dependency-bootstrap-script.md) | Dependency bootstrap for Bun and ffmpeg | Tooling (TypeScript/Bun) | — |
 | [T0030](planned/T0030-clean-transcript-with-language-model.md) | Clean the transcript with a language model | Cross-cutting (core + Bun worker + UI) | — |
+| [T0031](planned/T0031-live-transcript-window-overlap.md) | Stop the live transcript accumulating duplicated fragments | Rust core (transcript) | — |
