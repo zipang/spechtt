@@ -310,17 +310,22 @@ export interface StreamReport {
 	readonly language?: string;
 	readonly sessionId: string;
 	readonly segment: string;
-	/** Number of hypotheses seen, i.e. the pairs plus one. */
+	/**
+	 * Which channel this report describes.
+	 *
+	 * A `partial` is a whole hypothesis and a `delta` is an increment; they mean
+	 * different things, and a provider may use both. Lumping them would classify
+	 * an increment against a hypothesis and call every pair a new window.
+	 */
+	readonly channel: "partial" | "delta";
+	/** Number of events seen on this channel. */
 	readonly hypotheses: number;
 	readonly counts: Readonly<Record<Transition, number>>;
-	/** The single most common transition, which names the provider's behaviour. */
+	/** The single most common transition, which names the channel's behaviour. */
 	readonly dominant: Transition;
 	/** Longest seam overlap seen, in words. */
 	readonly maxOverlapWords: number;
-	/**
-	 * Characters the naive accumulator would add, against the characters of the
-	 * final text: the amount of duplication a live buffer would show.
-	 */
+	/** Characters the seam would show twice. */
 	readonly duplicatedChars: number;
 	/**
 	 * Pairs whose seam only matched after folding whitespace: the provider
@@ -328,37 +333,44 @@ export interface StreamReport {
 	 */
 	readonly retokenizedPairs: number;
 	/**
-	 * Duplication the shipped reducer would produce, as a multiple of the real
-	 * text: `1` is clean, `7.28` means seven times too much. Derived from the
-	 * transitions, because a settle path re-shows the whole previous window.
+	 * Duplication the shipped reducer would produce, as a multiple of the
+	 * provider's authoritative `stopped` text: `1` is clean, `7.28` means seven
+	 * times too much.
 	 */
 	readonly duplicatedFactor: number;
+	/** Characters of the authoritative `stopped` text, `0` when none was seen. */
+	readonly finalChars: number;
 }
 
 /**
- * Builds the per-stream report from parsed dump events.
+ * Builds one report per stream and per channel.
  *
- * Only `partial` and `delta` events are hypotheses; a `committed` or `stopped`
- * event closes the stream and is reported separately by the caller.
+ * Partials and deltas are analysed apart on purpose: a partial is a whole
+ * hypothesis and a delta is an increment, so comparing one against the other
+ * describes nothing. A provider that uses both channels gets two reports, and
+ * the fact that it uses both is itself the finding.
+ *
+ * The duplication factor divides the characters the shipped reducer would show
+ * by the length of the provider's authoritative `stopped` text, which is the
+ * only ground truth in a dump.
  */
 export function analyzeEvents(events: readonly TracedEvent[]): StreamReport[] {
 	const streams = new Map<string, TracedEvent[]>();
+	const finals = new Map<string, number>();
 	for (const event of events) {
+		if (event.type === "stopped") {
+			// A `stopped` carries no segment: the take is the whole session, so
+			// the final is recorded per session and every segment reads it.
+			finals.set(sessionKeyOf(event), event.text?.trim().length ?? 0);
+			continue;
+		}
 		if (event.type !== "partial" && event.type !== "delta") {
 			continue;
 		}
 		if (event.text === undefined) {
 			continue;
 		}
-		// The header is part of the key: two launches both call their session
-		// `take-1`, and comparing models is the whole point of the dump.
-		const key = [
-			event.session?.provider ?? "-",
-			event.session?.model ?? "-",
-			event.session?.language ?? "-",
-			event.sessionId ?? "-",
-			event.segment ?? "-",
-		].join("\u0000");
+		const key = `${keyOf(event)}\u0000${event.type}`;
 		const list = streams.get(key);
 		if (list === undefined) {
 			streams.set(key, [event]);
@@ -369,8 +381,10 @@ export function analyzeEvents(events: readonly TracedEvent[]): StreamReport[] {
 
 	const reports: StreamReport[] = [];
 	for (const [key, list] of streams) {
+		const parts = key.split("\u0000");
+		const channel = parts.pop() === "delta" ? "delta" : "partial";
 		const [provider = "-", model = "-", language = "-", sessionId = "-", segment = "-"] =
-			key.split("\u0000");
+			parts;
 		const counts: Record<Transition, number> = {
 			identical: 0,
 			extend: 0,
@@ -381,7 +395,7 @@ export function analyzeEvents(events: readonly TracedEvent[]): StreamReport[] {
 		let maxOverlapWords = 0;
 		let duplicatedChars = 0;
 		let retokenizedPairs = 0;
-		// Characters the shipped reducer would show, accumulated the way its
+		// What the shipped reducer would display, accumulated the way its
 		// `settle_live()` path does: a pair that is not a revision commits the
 		// whole previous tail and starts the next one.
 		let shownChars = 0;
@@ -399,8 +413,9 @@ export function analyzeEvents(events: readonly TracedEvent[]): StreamReport[] {
 				shownChars += previous.trim().length;
 			}
 		}
-		const last = list[list.length - 1]?.text?.trim().length ?? 0;
-		shownChars += last;
+		shownChars += list[list.length - 1]?.text?.trim().length ?? 0;
+		const finalChars =
+			finals.get([provider, model, language, sessionId].join("\u0000")) ?? 0;
 		const dominant = (Object.entries(counts) as [Transition, number][]).reduce(
 			(best, entry) => (entry[1] > best[1] ? entry : best),
 			["identical", -1] as [Transition, number],
@@ -411,6 +426,7 @@ export function analyzeEvents(events: readonly TracedEvent[]): StreamReport[] {
 			...(language === "-" ? {} : { language }),
 			sessionId,
 			segment,
+			channel,
 			hypotheses: list.length,
 			counts,
 			dominant,
@@ -418,10 +434,32 @@ export function analyzeEvents(events: readonly TracedEvent[]): StreamReport[] {
 			duplicatedChars,
 			retokenizedPairs,
 			duplicatedFactor:
-				last === 0 ? 1 : Math.round((shownChars / last) * 100) / 100,
+				finalChars === 0 ? 1 : Math.round((shownChars / finalChars) * 100) / 100,
+			finalChars,
 		});
 	}
 	return reports;
+}
+
+/** The session identity of an event: provider, model, language and session. */
+function sessionKeyOf(event: TracedEvent): string {
+	return [
+		event.session?.provider ?? "-",
+		event.session?.model ?? "-",
+		event.session?.language ?? "-",
+		event.sessionId ?? "-",
+	].join("\u0000");
+}
+
+/** The stream identity of an event, without the channel. */
+function keyOf(event: TracedEvent): string {
+	return [
+		event.session?.provider ?? "-",
+		event.session?.model ?? "-",
+		event.session?.language ?? "-",
+		event.sessionId ?? "-",
+		event.segment ?? "-",
+	].join("\u0000");
 }
 
 /** The name the observed behaviour earns, from the dominant transition. */
@@ -441,7 +479,7 @@ export function behaviorOf(report: StreamReport): string {
 }
 
 /**
- * A human-readable report, one block per take, then one line per stream.
+ * A human-readable report, one block per model, then one line per channel.
  *
  * Grouped by model because the question the dump answers is "do the models
  * behave the same?", and a reader should not have to correlate segments by hand.
@@ -451,77 +489,88 @@ export function formatReport(reports: readonly StreamReport[]): string {
 		return "no hypotheses found — was SPEECHTT_STT_PARTIALS=1 set?";
 	}
 
-	const takes = new Map<string, StreamReport[]>();
+	const models = new Map<string, StreamReport[]>();
 	for (const report of reports) {
 		const key = `${report.provider}\u0000${report.model}\u0000${report.language ?? "-"}`;
-		const list = takes.get(key);
+		const list = models.get(key);
 		if (list === undefined) {
-			takes.set(key, [report]);
+			models.set(key, [report]);
 		} else {
 			list.push(report);
 		}
 	}
 
 	const blocks: string[] = [];
-	for (const [key, list] of takes) {
+	for (const [key, list] of models) {
 		const [provider = "-", model = "-", language = "-"] = key.split("\u0000");
-		const totals = list.reduce(
-			(sum, report) => {
+		const lines = [`${model}${language === "-" ? "" : ` [${language}]`}`];
+		const finalChars = Math.max(...list.map((report) => report.finalChars));
+		lines.push(`  authoritative stopped text: ${finalChars} chars`);
+
+		for (const channel of ["partial", "delta"] as const) {
+			const channelReports = list.filter((report) => report.channel === channel);
+			if (channelReports.length === 0) {
+				continue;
+			}
+			const totals: Record<Transition, number> = {
+				identical: 0,
+				extend: 0,
+				shrink: 0,
+				slide: 0,
+				new: 0,
+			};
+			let hypotheses = 0;
+			let maxOverlapWords = 0;
+			for (const report of channelReports) {
 				for (const [kind, count] of Object.entries(report.counts)) {
-					sum.counts[kind as Transition] += count;
+					totals[kind as Transition] += count;
 				}
-				sum.hypotheses += report.hypotheses;
-				sum.duplicatedFactor = Math.max(sum.duplicatedFactor, report.duplicatedFactor);
-				sum.retokenizedPairs += report.retokenizedPairs;
-				return sum;
-			},
-			{
-				hypotheses: 0,
-				counts: { identical: 0, extend: 0, shrink: 0, slide: 0, new: 0 } as Record<
-					Transition,
-					number
-				>,
-				duplicatedFactor: 1,
-				retokenizedPairs: 0,
-			},
-		);
-		const merged: StreamReport = {
-			provider,
-			model,
-			...(language === "-" ? {} : { language }),
-			sessionId: "-",
-			segment: "-",
-			hypotheses: totals.hypotheses,
-			counts: totals.counts,
-			dominant: (Object.entries(totals.counts) as [Transition, number][]).reduce(
+				hypotheses += report.hypotheses;
+				maxOverlapWords = Math.max(maxOverlapWords, report.maxOverlapWords);
+			}
+			const dominant = (Object.entries(totals) as [Transition, number][]).reduce(
 				(best, entry) => (entry[1] > best[1] ? entry : best),
 				["identical", -1] as [Transition, number],
-			)[0],
-			maxOverlapWords: list.reduce(
-				(max, report) => Math.max(max, report.maxOverlapWords),
-				0,
-			),
-			duplicatedChars: list.reduce(
-				(sum, report) => sum + report.duplicatedChars,
-				0,
-			),
-			retokenizedPairs: totals.retokenizedPairs,
-			duplicatedFactor: totals.duplicatedFactor,
-		};
+			)[0];
+			const merged: StreamReport = {
+				provider,
+				model,
+				...(language === "-" ? {} : { language }),
+				sessionId: "-",
+				segment: "-",
+				channel,
+				hypotheses,
+				counts: totals,
+				dominant,
+				maxOverlapWords,
+				duplicatedChars: channelReports.reduce(
+					(sum, report) => sum + report.duplicatedChars,
+					0,
+				),
+				retokenizedPairs: channelReports.reduce(
+					(sum, report) => sum + report.retokenizedPairs,
+					0,
+				),
+				duplicatedFactor: Math.max(
+					...channelReports.map((report) => report.duplicatedFactor),
+				),
+				finalChars,
+			};
+			const counts = (Object.entries(totals) as [Transition, number][])
+				.filter(([, count]) => count > 0)
+				.map(([kind, count]) => `${kind}=${count}`)
+				.join(" ");
+			lines.push(
+				`  ${channel}s=${merged.hypotheses} behaviour=${behaviorOf(merged)} (${counts})`,
+			);
+			lines.push(
+				`    maxOverlapWords=${merged.maxOverlapWords} retokenizedPairs=${merged.retokenizedPairs} shipped reducer=${merged.duplicatedFactor}x`,
+			);
+		}
 
-		const counts = (Object.entries(merged.counts) as [Transition, number][])
-			.filter(([, count]) => count > 0)
-			.map(([kind, count]) => `${kind}=${count}`)
-			.join(" ");
-		const lines = [
-			`${model}${language === "-" ? "" : ` [${language}]`}`,
-			`  hypotheses=${merged.hypotheses} behaviour=${behaviorOf(merged)}`,
-			`  ${counts}`,
-			`  maxOverlapWords=${merged.maxOverlapWords} retokenizedPairs=${merged.retokenizedPairs}`,
-			`  shipped reducer would show ${merged.duplicatedFactor}x the real text`,
-		];
 		if (list.length > 1) {
-			lines.push(`  (${list.length} streams: ${list.map((report) => report.segment).join(", ")})`);
+			const segments = [...new Set(list.map((report) => report.segment))];
+			lines.push(`  (${segments.length} segment(s): ${segments.join(", ")})`);
 		}
 		blocks.push(lines.join("\n"));
 	}

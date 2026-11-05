@@ -281,23 +281,26 @@ describe("parseDump", () => {
 			partial(1, "un deux trois"),
 			partial(2, "un deux trois quatre"),
 			partial(3, "un deux trois quatre cinq"),
+			`${PARTIALS_TAG} ${JSON.stringify({ seq: 4, type: "stopped", sessionId: "take-1", text: "un deux trois quatre cinq" })}`,
 		].join("\n");
 
 		const reports = analyzeEvents(parseDump(dump));
 
 		expect(reports[0]?.dominant).toBe("extend");
 		expect(reports[0]?.duplicatedFactor).toBe(1);
-		expect(formatReport(reports)).toContain("1x the real text");
+		expect(reports[0]?.finalChars).toBe("un deux trois quatre cinq".length);
+		expect(formatReport(reports)).toContain("shipped reducer=1x");
 	});
 
 	// Adding a full stop to words already shown is enough to defeat the shipped
 	// `starts_with` test, so even a cumulative provider is not safe from it.
-	test("one retroactive full stop already duplicates the whole window", () => {
+	test("one retroactive full stop already duplicates the window", () => {
 		const dump = [
 			header("model-a"),
 			partial(1, "Et voici"),
 			partial(2, "Et voici le début"),
 			partial(3, "Et voici. Le début"),
+			`${PARTIALS_TAG} ${JSON.stringify({ seq: 4, type: "stopped", sessionId: "take-1", text: "Et voici. Le début" })}`,
 		].join("\n");
 
 		const reports = analyzeEvents(parseDump(dump));
@@ -305,6 +308,31 @@ describe("parseDump", () => {
 
 		expect(reports[0]?.counts.slide + (reports[0]?.counts.new ?? 0)).toBeGreaterThan(0);
 		expect(factor).toBeGreaterThan(1);
+	});
+
+	// A partial is a hypothesis and a delta is an increment: comparing one against
+	// the other describes nothing, so the two channels are reported apart.
+	test("reports partials and deltas on separate channels", () => {
+		const delta = (seq: number, text: string) =>
+			`${PARTIALS_TAG} ${JSON.stringify({ seq, type: "delta", sessionId: "take-1", segment: "seg:0", text })}`;
+		const dump = [
+			header("model-mixed"),
+			partial(1, "Nouveau test"),
+			delta(2, "Nouveau"),
+			partial(3, " cette fois"),
+			delta(4, " test cette"),
+			`${PARTIALS_TAG} ${JSON.stringify({ seq: 5, type: "stopped", sessionId: "take-1", text: "Nouveau test cette fois" })}`,
+		].join("\n");
+
+		const reports = analyzeEvents(parseDump(dump));
+
+		expect(reports.map((report) => report.channel).sort()).toEqual([
+			"delta",
+			"partial",
+		]);
+		const formatted = formatReport(reports);
+		expect(formatted).toContain("partials=2");
+		expect(formatted).toContain("deltas=2");
 	});
 });
 

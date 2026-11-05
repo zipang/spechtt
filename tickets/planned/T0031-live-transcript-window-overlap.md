@@ -61,140 +61,115 @@ Every such event settles the old tail and starts fresh, so `committed`
 accumulates every overlap. The screen shows `committed` followed by `live`,
 which is exactly the smear above.
 
-### Goal, and why the algorithm is not decided yet
+### Goal
 
-Previous attempts at this problem picked a merge rule first and discovered
-afterwards that it did not hold for every provider. That is the mistake this
-ticket refuses to repeat: **the reducer's behaviour has to follow what the
-providers actually emit**, and that has never been measured on more than one
-model.
-
-So this ticket is split in two halves, and only the first is specified in
-detail:
-
-1. **Measure (in scope, detailed below).** `SPEECHTT_STT_PARTIALS=1` dumps every
-   hypothesis a provider produces, and `src/stt/trace-analyze.ts` classifies each
-   consecutive pair as `extend` / `shrink` / `slide` / `identical` / `new`,
-   measuring the seam overlap and the characters a naive accumulator would
-   duplicate. Two takes on two models answer "do all models behave the same?"
-   with numbers instead of impressions.
-2. **Decide (recorded here, implemented after the data).** Two candidate
-   strategies, chosen once the dump exists. No reducer change lands before that
-   choice is written into this ticket.
-
-### The two candidate strategies
-
-**A — Overlap-aware reducer.** Classify each hypothesis against the live tail
-with a whitespace-folded comparison, and extend the tail with only the
-non-overlapping remainder instead of settling the whole previous window.
-Keeps a growing transcript during a long take, but it is the approach that has
-failed before: each provider needs its own threshold, a re-tokenizing provider
-defeats a word-level comparison, and a wrong guess silently drops or duplicates
-words in the middle of the text.
-
-**B — Show the window, trust the final text.** During the take, the live area
-shows only the newest hypothesis, replacing the previous one. Nothing is
-accumulated, so nothing can duplicate. The complete transcript arrives with
-`Stopped` (`fullText`), which the reducer already adopts as authoritative.
-
-B is dramatically simpler and cannot produce the smear, at one real cost: during
-a long take the screen shows only the last window, and the transcript fills in at
-the end rather than growing. It is also exactly what the streaming adapter makes
-available — it emits `transcript-final` into its accumulator without sending a
-`Committed` event, so a live take has **no settled text at all** to build on.
-
-**Decision rule.** If the dump shows every model extending its hypothesis
-cumulatively, A is unnecessary: keep today's reducer. If it shows sliding
-windows on any model the catalogue offers, B is the honest default, because A
-can only ever approximate what the provider is doing. A is justified only if a
-provider commits settled text mid-take (a `Committed` event with no overlap) that
-B would throw away.
+Previous attempts picked a merge rule first and discovered afterwards that it did
+not hold for every provider. This ticket refuses to repeat that: **the reducer's
+behaviour follows what the providers actually emit**, measured rather than
+assumed. Two instruments were built for that, and they are specified in the
+contract below — they stay in the tree as the way to re-answer the question when
+a new model appears.
 
 ### Measurements
 
-`SPEECHTT_STT_PARTIALS=1`, French dictation, one take per model. Appending several
-launches to one file is the intended workflow: the dump header names provider,
-model and language, and the analyzer groups by it, so two takes that both call
-their session `take-1` stay apart.
+`SPEECHTT_STT_PARTIALS=1`, French dictation, one take per model, appended to one
+file. The dump header names provider, model and language and the analyzer groups
+by it, so two takes that both call their session `take-1` stay apart.
 
-**`elevenlabs/scribe-v2-realtime` — measured (24 hypotheses).**
-`identical=1 extend=8 shrink=2 slide=5 new=7`. Behaviour: **cumulative, with
-retroactive rewriting**. Every hypothesis is the whole take so far (9 → 241
-characters), and the first 50–99 % of it is byte-identical to the previous one.
-But the provider periodically **rewrites its own earlier words**: at hypothesis
-19→20 it inserted French guillemets around "streaming" from character 117
-onwards, at 23→24 it removed them again, at 24→25 it put them back. The take then
-died with `Transcription provider stream error`, and `stopped` arrived with an
-**empty** text.
+**`elevenlabs/scribe-v2-realtime` — 24 hypotheses, no `delta` at all.**
+`identical=1 extend=8 shrink=2 slide=5 new=7`. Each hypothesis is the **whole take
+so far** (9 → 241 characters) and the first 50–99 % is byte-identical to the
+previous one. But the provider **rewrites its own earlier words**: at 19→20 it
+inserted French guillemets around "streaming" from character 117 onwards, at
+23→24 it removed them, at 24→25 it put them back. The take then failed with
+`Transcription provider stream error` and `stopped` arrived with an **empty**
+text.
 
-**`microsoft/mai-transcribe-2-streaming` — NOT MEASURED YET.** An earlier draft of
-this section reported `slide=7` for MAI. That was wrong: it came from replaying
-the *rendered live text* of a take pasted into the conversation, not from a dump
-of the provider's hypotheses. Displayed text has already been through the
-reducer, so it cannot describe what the provider emits. The figure is withdrawn
-and the model must be re-taken with `SPEECHTT_STT_PARTIALS=1`.
+**`microsoft/mai-transcribe-2-streaming` — 79 partials and 24 deltas, one segment
+for the whole take.** Two channels, and they mean different things:
 
-**`google/gemini-3.5-transcribe-live` — NOT MEASURED YET.**
+- the **partials** are short sliding fragments — `Nouveau`, `Nouveau test.`, then
+  ` fois-ci avec.`, ` avec le modèle`, ` le modèle M.` … — each one a window of a
+  few words, with 1–3 words of overlap at the seam;
+- the **deltas** are increments: `Nouveau`, ` test cette`, ` fois-ci`, ` avec`,
+  ` le`, ` modèle`, ` MAI`, ` Trans`, `cribe`, ` to`, ` Streaming et`, …
 
-What the measured take already shows is enough to matter:
+**Concatenating the 24 deltas reproduces the `stopped` text exactly** — 185
+characters, identical string. The partials carry no information the deltas do
+not already hold; they are a preview of the window being spoken.
 
-| Model | What one hypothesis is | What mutates |
-|---|---|---|
-| ElevenLabs Scribe v2 Realtime | the whole take so far | words already shown, re-punctuated in place |
+`google/gemini-3.5-transcribe-live` — still unmeasured.
 
-That alone breaks the shipped reducer, and a single model cannot answer whether
-the others differ. The decision below therefore rests on one measurement plus one
-structural fact: **the streaming adapter emits no `Committed` for a live take**,
-so no provider can offer stable mid-take text that a growing buffer could build
-on. Confirming that with MAI and Gemini is the next step, and the plan is written
-so that either outcome is covered — B is correct for a cumulative provider and
-merely conservative for a sliding one.
+### What the shipped reducer does with that data
 
-### What the current reducer does with the measured take
+Simulated faithfully against the shipped `TranscriptBuffer` rules, deltas
+included:
 
-Simulated faithfully against the shipped `TranscriptBuffer` rules:
-
-| Take | Real text | Current reducer shows | Duplication |
+| Take | Authoritative text | Shipped reducer, worst frame | Settles |
 |---|---|---|---|
-| ElevenLabs (24 hypotheses) | 241 chars | ~1 918 chars | **7.96×** |
+| ElevenLabs (24 hypotheses) | 241 chars (no final: provider failed) | 1 755 chars | 12 |
+| MAI (79 partials + 24 deltas) | 185 chars | 1 049 chars mid-take | 32 |
 
-Twelve of the twenty-three transitions trip `settle_live()`: every retroactive
-re-punctuation (`nouvelle-` → `nouvelle dictée`, guillemets on or off) breaks the
-`text.starts_with(tail)` test, so the whole previous hypothesis is pushed into
-`committed` and then re-shown as the live tail.
+Both smear while dictating. MAI happens to end correct because a non-empty
+`stopped` replaces everything — the damage is confined to the live view. The
+ElevenLabs take ends wrong: its `stopped` was empty, so the 1 755-character smear
+is what the user was left with.
 
-Worse, the measured take shows this is not a provider quirk: adding a full stop
-to words already shown is enough. `Et voici` → `Et voici. Le début` settles,
-because the period breaks the prefix test. A cumulative provider that
-re-punctuates is therefore just as unsafe as a sliding one.
+### Root cause, precisely
 
-### Decision — provisional, B
+The reducer treats **every** `Partial` as a possible new window and *settles* the
+previous tail into `committed` when the text is not a prefix of it. Two measured
+behaviours defeat that test:
 
-**Strategy B — show the current hypothesis, adopt the provider's final text.**
+- a **retroactive rewrite** (ElevenLabs adding a full stop or guillemets to words
+  already shown) — the prefix test fails, the whole window is settled, then
+  re-shown as the live tail;
+- a **sliding fragment** (MAI) — the window never was a prefix, so every fragment
+  settles the one before it.
 
-Chosen now because the measured take already proves the shipped reducer is wrong,
-and because B is the only strategy whose correctness does not depend on which
-shape a provider uses:
+The second half of the bug is that the reducer never uses the `delta` channel for
+MAI at all: it appends deltas to the *live tail*, which the next partial then
+replaces. The one channel that reconstructs the take exactly is thrown away.
 
-- For a **cumulative** provider (measured: ElevenLabs) B is *exactly* correct:
-  the hypothesis is the whole take, so replacing the tail shows a clean growing
-  transcript. The measured 7.96× duplication becomes 1×.
-- For a **sliding-window** provider B is *safe*: the screen shows the newest
-  fragment instead of an accumulation. Nothing can duplicate because nothing is
-  accumulated.
-- **A cannot fix the measured case.** A retroactive rewrite of already-displayed
-  words defeats any seam comparison: there is no joint to measure between
-  `modèle streaming` and `modèle « streaming »`, and the divergence point moves
-  each time. A second threshold would only move the failure.
+### Decision — channel split
 
-What MAI and Gemini can still change is the **cost**, not the direction: if both
-turn out to slide, the live area shows only the last fragment and the `Stopped`
-text becomes the whole transcript. That cost is acceptable and already how a take
-ends today.
+**Deltas accumulate; partials preview; the two are joined at a word seam.**
 
-One rule must survive the change: `Stopped` with an empty `full_text` — which is
-what the measured take produced when the provider failed — must keep the last
-hypothesis instead of blanking the take.
+| Event | What it is | What the buffer does |
+|---|---|---|
+| `Delta` | real incremental text | **append to `committed`** |
+| `Partial` | a preview of the current window | **replace `live`** — never settle |
+| `Committed` | the provider closed an utterance | commit it, clear `live` |
+| `Stopped` with text | the authoritative take | replace both |
+| `Stopped` empty | a take that died | fold `live` into `committed` at the seam |
+
+The displayed text is `seam_join(committed, live)`: concatenation with the shared
+word run removed at the joint.
+
+Measured against both captures, at **every** frame, not only at the end:
+
+| Take | Displayed at the worst frame | Real text | Repeated 2-word runs |
+|---|---|---|---|
+| ElevenLabs | 241 chars | 241 | **0** |
+| MAI | 185 chars | 185 | **0** |
+
+This is better than the two strategies this ticket started with, and the
+measurements are why:
+
+- **A (overlap-aware partial reducer)** cannot work: a retroactive rewrite leaves
+  no seam to measure, and MAI's fragments overlap by 1–3 words, below any safe
+  threshold.
+- **B (show only the newest hypothesis)** loses MAI entirely: the screen would
+  show ` session.` at the end of the take.
+- **Channel split** gives MAI a *growing* transcript reconstructed from its deltas
+  — 185 characters exactly — and gives ElevenLabs its clean cumulative preview.
+  Neither provider is special-cased: the split follows what the two SDK channels
+  mean.
+
+The seam dedupe is the only heuristic left, and it is the same rule
+`src/stt/transcript-merge.ts` already applies to segmented junctions: a repeated
+word run of at least two words at the joint is a duplicate, a single repeated
+word is real speech.
 
 ## Scope Boundary
 
@@ -298,66 +273,91 @@ SPEECHTT_STT_PARTIALS=1 cargo run -p speechtt-ui 2> dump.log
 bun src/stt/trace-analyze.ts dump.log
 ```
 
-## Contract — Strategy B (the chosen one)
+## Contract — the channel split (the chosen one)
 
-### 1. One rule for a live hypothesis
+### 1. What each channel means
 
 ```rust
 /// Folds one `Partial` into the buffer.
 ///
-/// A streaming provider sends its whole hypothesis, not a delta: it may grow,
-/// shrink, re-punctuate its own earlier words, or walk a window forward. Every
-/// one of those is the same thing to the reducer — the current best text for
-/// what is being said right now — so the tail is **replaced**, never settled.
+/// A partial is a *preview* of the window being spoken: a provider may grow it,
+/// shrink it, re-punctuate words it already showed, or slide it forward. All of
+/// those are the same thing here — the current best text for right now — so the
+/// preview is **replaced**, never settled into the committed text.
 fn apply_partial(&mut self, text: &str, segment: Option<&str>);
+
+/// Folds one `Delta` into the buffer.
+///
+/// A delta is real incremental text, not a preview: the provider has committed
+/// those words. It is appended to the **committed** text, where a later partial
+/// cannot overwrite it.
+fn apply_delta(&mut self, delta: &str, segment: Option<&str>);
 ```
 
-`apply` keeps its shape for `Delta`, `Committed` and `Stopped`; only the
-`Partial` arm changes:
+`TranscriptBuffer` keeps its two fields and changes what they hold:
 
-- `Partial` → `self.live = text.trim()`, `self.live_segment = segment`. No
-  comparison with the previous tail, no `settle_live()`. An identical re-send is
-  a no-op (the text is already there), which also keeps repaints cheap.
-- `Committed` → unchanged: a final does settle and commit, because a provider
-  that names an utterance has closed it.
-- `Stopped` with non-empty `full_text` → unchanged: it replaces everything.
-- `Stopped` with an **empty** `full_text` → keep the last hypothesis: it becomes
-  the committed text. This is the path a take that ends in a provider error
-  takes, and blanking the take there would throw away the only text there is.
-- `Delta` → unchanged. No live provider in the catalogue emits deltas, and the
-  incremental append is the correct reading of one when it appears.
+- `committed` — text a provider *closed*: every `Delta`, every `Committed`
+  payload, and the `Stopped` text when non-empty.
+- `live` — the current partial preview.
 
-### 2. What the two halves of `TranscriptBuffer` now mean
+`full_text()` becomes a seam join rather than a plain space join:
 
-- `live` is the provider's current hypothesis: the only text that changes while
-  speaking.
-- `committed` is text a provider **explicitly closed** with a `Committed` event,
-  plus the final text. For a live take it stays empty until the last hypothesis
-  is adopted, because the streaming adapter never closes an utterance mid-take.
+```rust
+/// `committed` followed by the preview, with the word run they share removed at
+/// the joint.
+///
+/// Two words repeated at a seam is a duplicate — the measured providers restate
+/// 1–3 words when a window moves — while a single repeated word is real speech
+/// ("très très"), so the run threshold is two, exactly as
+/// `src/stt/transcript-merge.ts` applies it to segmented junctions.
+fn seam_join(committed: &str, live: &str) -> String;
+```
 
-`full_text()` keeps joining them, so Copy, Save and the automatic paste are
-untouched.
+### 2. The four event rules
 
-### 3. Tests
+| Event | Rule |
+|---|---|
+| `Delta` | append to `committed` (the existing incremental/cumulative classification still decides replace-or-append inside the committed text) |
+| `Partial` | `live = text.trim()`; `live_segment = segment`. No settle, no comparison with the previous preview |
+| `Committed` | push its text into `committed`, clear `live` |
+| `Stopped` non-empty | `committed = full_text`, `live` cleared — authoritative |
+| `Stopped` empty | fold `live` into `committed` through `seam_join`, then clear it |
 
-- The ElevenLabs capture replays with **zero duplication**: after every
-  hypothesis the live text equals that hypothesis, and the final text equals the
-  last one.
-- A retroactive rewrite (guillemets inserted at character 117) replaces the tail
-  in place: the text before and after the rewrite differs only where the provider
-  re-punctuated, and nothing is repeated.
-- The MAI capture replays without a smear: the live text is always exactly one
-  window, never a concatenation of windows.
-- `Stopped` with empty text keeps the last hypothesis.
-- `Stopped` with text replaces everything.
-- A `Committed` event still commits and clears the tail, so a provider that does
-  close utterances mid-take is unaffected.
-- Every pre-existing `transcript.rs` test that encodes the old settle behaviour
-  is **rewritten to the new contract**, not deleted: the invariants that still
-  hold (`committed` never shrinks, no word dropped on `Committed`, whitespace
-  never doubles) keep their assertions.
+Nothing else changes: `clear()`, the public accessors and every caller of
+`full_text()` keep their contracts.
 
-## Contract — Strategy A, kept as a specification if it is ever chosen
+### 3. Why not the two strategies this ticket first proposed
+
+- **A — overlap-aware partial reducer.** A retroactive rewrite (ElevenLabs adding
+  a full stop or guillemets to words already displayed) leaves **no seam** to
+  measure, and MAI's fragments overlap by only 1–3 words, below any threshold that
+  would not also swallow real repetition. Measured, not assumed.
+- **B — show only the newest hypothesis.** It discards MAI's delta channel, which
+  reconstructs the take exactly: the screen would end the take showing
+  ` session.` instead of 185 characters of real text.
+
+### 4. Tests
+
+- The **ElevenLabs capture** replays with zero duplication: the displayed text
+  never exceeds 241 characters, no two-word run repeats back to back at any
+  frame, and the final text is the last hypothesis (the take's `stopped` was
+  empty).
+- The **MAI capture** replays into a *growing* transcript: concatenating the
+  deltas reproduces the 185-character `stopped` text exactly, and the display
+  never exceeds it.
+- A retroactive rewrite replaces the preview in place: the text before and after
+  differs only where the provider re-punctuated.
+- `Stopped` with empty text keeps the preview; `Stopped` with text replaces
+  everything.
+- A `Committed` event still commits and clears the preview.
+- A repeated single word survives the seam (`très très`), a repeated two-word run
+  does not.
+- Every pre-existing `transcript.rs` test that encoded the settle behaviour is
+  **rewritten to the new contract**, not deleted: the invariants that still hold
+  (`committed` never shrinks, no word dropped on `Committed`, whitespace never
+  doubles) keep their assertions.
+
+## Appendix — the overlap-aware reducer that was rejected
 
 **Not selected.** Recorded only so the analysis is not repeated from scratch if a
 future provider forces it.
@@ -477,51 +477,51 @@ the next change to the reducer has to keep this take readable.
 
 ## TDD Tasks
 
-- [x] **T31.0 — Instrument.** `trace.ts` + spec: off unless the variable is
-  exactly `1`, one line per event, JSON-safe newlines, only transcript-bearing
-  types, header naming provider/model/language. `worker.ts` wraps `emit` once.
-  The dump must not change behaviour when disabled (pinned by a test that runs
-  the loop with the flag off and asserts no extra `stderr`).
+- [x] **T31.0 — Instrument.** `trace.ts` + spec: off unless
+  `SPEECHTT_STT_PARTIALS` is exactly `1`, one line per event, JSON-safe newlines,
+  only transcript-bearing types, header naming provider/model/language.
+  `worker.ts` wraps `emit` once.
 - [x] **T31.1 — Classify.** `trace-analyze.ts` + spec: `classifyPair` covers
-  extend, shrink, identical, a two-word slide, a re-spaced seam that only the
-  compact comparison sees, and a single shared word that must stay `new`.
-  `analyzeEvents` keeps segments apart, ignores non-hypotheses, and reports
-  `duplicatedChars` from the real overlap rather than from a length delta.
-- [ ] **T31.2 — Collect.** One take per model with the dump on, appended to the
-  same file, one report per model from `bun src/stt/trace-analyze.ts`:
-  - [x] `elevenlabs/scribe-v2-realtime` — cumulative with retroactive rewriting,
-    7.96× duplication under the shipped reducer.
-  - [ ] `microsoft/mai-transcribe-2-streaming` — **not measured**; the earlier
-    figure came from replayed rendered text and was withdrawn.
-  - [ ] `google/gemini-3.5-transcribe-live` — not measured.
-- [x] **T31.3 — Decide.** Strategy **B**, provisionally, from the one measured
-  take: B is exactly correct for a cumulative provider and merely conservative for
-  a sliding one, whereas A cannot repair a retroactive rewrite. The remaining two
-  models can change the cost of B, not its direction.
-- [ ] **T31.4 — Implement B.** Rewrite the `Partial` arm as a tail replacement,
-  keep the empty-`Stopped` rule, and replay both captures as tests (ElevenLabs
-  for retroactive rewriting, MAI for sliding). Update the pre-existing tests that
-  encoded the settle behaviour to the new contract.
-- [ ] **T31.5 — Docs and gates.** Module headers per `AGENTS.md` §3, then
+  extend, shrink, identical, a two-word slide, a re-spaced seam and a single
+  shared word that must stay `new`. **Partials and deltas are analysed on separate
+  channels**, because an increment compared against a hypothesis describes
+  nothing. Reports are grouped by model and the duplication factor is measured
+  against the `stopped` text, the only ground truth in a dump.
+- [x] **T31.2 — Collect.** Three takes attempted: `elevenlabs/scribe-v2-realtime`
+  and `microsoft/mai-transcribe-2-streaming` measured; `google/gemini-3.5-transcribe-live`
+  still to do. Reports in `### Measurements`.
+- [x] **T31.3 — Decide.** **Channel split**, from the measurement that MAI's 24
+  deltas concatenate to its `stopped` text exactly while its 79 partials are
+  previews.
+- [ ] **T31.4 — Implement.** `apply_partial` replaces the preview; `apply_delta`
+  appends to `committed`; `full_text()` becomes `seam_join`. Replay both captures
+  as tests, rewrite the pre-existing settle tests to the new contract.
+- [ ] **T31.5 — Verify against a third model.** Capture
+  `google/gemini-3.5-transcribe-live`, run the analyzer, and append its report.
+  If it uses a third channel shape, extend the contract before closing.
+- [ ] **T31.6 — Docs and gates.** Module headers per `AGENTS.md` §3, then
   `cargo fmt -- --check`, `cargo clippy --all-targets -- -D warnings`,
   `cargo test`, `bun test`, `bun check src/stt`, `bun run design:validate`.
 
 ## Acceptance Criteria
 
 - `SPEECHTT_STT_PARTIALS=1` writes one JSON line per hypothesis to `stderr`,
-  tagged `[stt-partials]`, with a session header naming provider and model; with
-  the variable unset or not `1`, no line is written and behaviour is unchanged.
-- `bun src/stt/trace-analyze.ts dump.log` prints, per stream, the dominant
-  behaviour, the transition counts, the largest seam overlap and the characters a
-  naive accumulator would duplicate.
-- The classifier marks a re-spaced seam (`MAI.` / `MA I.`) as the same window, so
-  a provider that re-tokenizes is not reported as opening new windows.
-- Two models are measured and the comparison is written into this ticket.
-- The reducer strategy is chosen from that measurement and named in this ticket
-  before any reducer change lands.
-- If Strategy B is chosen: the live area never shows a smeared transcript, the
-  final text equals `Stopped`'s `fullText` exactly, and the whole-take Copy/Save
-  payload is the final text.
-- If Strategy A is chosen: no two-word run is repeated back to back, and every
-  pre-existing `transcript.rs` test still passes unmodified.
+  tagged `[stt-partials]`, with a header naming provider and model; with the
+  variable unset or not `1`, nothing is written and behaviour is unchanged.
+- `bun src/stt/trace-analyze.ts dump.log` prints, per model, the authoritative
+  text length, then a line per channel with its transition counts, the largest
+  seam overlap and how much the shipped reducer would duplicate.
+- Partials and deltas are reported separately; a provider that uses both is
+  visible as two lines, not one misleading one.
+- Two takes appended to one file stay apart even though both call their session
+  `take-1`.
+- The live transcript never repeats a two-word run back to back, on either
+  measured model, at any frame of the replay.
+- The displayed text never exceeds the provider's authoritative text.
+- The MAI take shows a **growing** transcript, reconstructed from its deltas, and
+  ends equal to its `stopped` text.
+- The ElevenLabs take shows its cumulative preview and, because its `stopped` was
+  empty, ends with the last hypothesis rather than a blank.
+- A repeated single word survives; a repeated two-word run at a seam does not.
+- `google/gemini-3.5-transcribe-live` is measured before the ticket closes.
 - All six gates are green with zero warnings and no skipped tests.
