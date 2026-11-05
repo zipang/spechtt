@@ -1146,17 +1146,19 @@ fn streamed_events_update_the_caption_well_in_real_time() {
     let (mut controller, _sink) = duplex_controller();
     assert!(controller.start_recording());
 
-    controller.handle_stt_event(SttEvent::Partial {
-        session_id: "take-1".into(),
-        text: "audio".into(),
-        segment: None,
-    });
-    assert_eq!(controller.transcript_committed(), "");
-    assert_eq!(controller.transcript_live(), "audio");
-
+    // Measured channel order: the delta carries committed text, the partial
+    // previews what is being spoken now.
     controller.handle_stt_event(SttEvent::Delta {
         session_id: "take-1".into(),
-        delta: " capture".into(),
+        delta: "audio".into(),
+        segment: None,
+    });
+    assert_eq!(controller.transcript_committed(), "audio");
+    assert_eq!(controller.transcript_live(), "");
+
+    controller.handle_stt_event(SttEvent::Partial {
+        session_id: "take-1".into(),
+        text: "audio capture".into(),
         segment: None,
     });
     assert_eq!(controller.transcript_live(), "audio capture");
@@ -1169,14 +1171,21 @@ fn streamed_events_update_the_caption_well_in_real_time() {
     assert_eq!(controller.transcript_committed(), "audio capture layer.");
     assert_eq!(controller.transcript_live(), "");
 
-    controller.handle_stt_event(SttEvent::Partial {
+    // The next utterance arrives the same way: committed deltas, then a preview
+    // that restates them.
+    controller.handle_stt_event(SttEvent::Delta {
         session_id: "take-1".into(),
-        text: "next words".into(),
+        delta: " next".into(),
         segment: None,
     });
     controller.handle_stt_event(SttEvent::Delta {
         session_id: "take-1".into(),
-        delta: " now".into(),
+        delta: " words".into(),
+        segment: None,
+    });
+    controller.handle_stt_event(SttEvent::Partial {
+        session_id: "take-1".into(),
+        text: "next words now".into(),
         segment: None,
     });
     assert_eq!(controller.transcript_live(), "next words now");
@@ -1185,8 +1194,11 @@ fn streamed_events_update_the_caption_well_in_real_time() {
     assert!(controller.finish_take());
 
     let take = controller.finished_take().expect("shows the finished take");
-    assert_eq!(take.committed().to_string(), "audio capture layer.");
-    assert_eq!(take.live().to_string(), "next words now");
+    assert_eq!(
+        take.committed().to_string(),
+        "audio capture layer. next words now"
+    );
+    assert_eq!(take.live().to_string(), "");
 
     // The final `stopped` flush replaces what the stopped screen showed.
     controller.handle_stt_event(SttEvent::Stopped {
@@ -1207,16 +1219,23 @@ fn a_segmented_live_take_commits_every_word_once_and_never_shrinks() {
     let (mut controller, _sink) = duplex_controller();
     assert!(controller.start_recording());
 
-    // Three utterances: each is revised inside its own segment, then finalized.
+    // Three utterances in the channel order the measured providers produce:
+    // deltas carry committed text, a partial previews the current segment, and a
+    // committed event closes it.
     let events = [
-        SttEvent::Partial {
+        SttEvent::Delta {
             session_id: "take-1".into(),
-            text: "one".into(),
+            delta: "one".into(),
             segment: Some("seg-0".into()),
         },
         SttEvent::Delta {
             session_id: "take-1".into(),
-            delta: " two".into(),
+            delta: " two.".into(),
+            segment: Some("seg-0".into()),
+        },
+        SttEvent::Partial {
+            session_id: "take-1".into(),
+            text: "one two.".into(),
             segment: Some("seg-0".into()),
         },
         SttEvent::Committed {
@@ -1224,9 +1243,19 @@ fn a_segmented_live_take_commits_every_word_once_and_never_shrinks() {
             text: "one two.".into(),
             segment: Some("seg-0".into()),
         },
+        SttEvent::Delta {
+            session_id: "take-1".into(),
+            delta: " three".into(),
+            segment: Some("seg-1".into()),
+        },
+        SttEvent::Delta {
+            session_id: "take-1".into(),
+            delta: " four.".into(),
+            segment: Some("seg-1".into()),
+        },
         SttEvent::Partial {
             session_id: "take-1".into(),
-            text: "three".into(),
+            text: "three four.".into(),
             segment: Some("seg-1".into()),
         },
         SttEvent::Committed {
@@ -1234,16 +1263,21 @@ fn a_segmented_live_take_commits_every_word_once_and_never_shrinks() {
             text: "three four.".into(),
             segment: Some("seg-1".into()),
         },
-        SttEvent::Partial {
+        SttEvent::Delta {
             session_id: "take-1".into(),
-            text: "five".into(),
+            delta: " five".into(),
             segment: Some("seg-2".into()),
         },
-        // A final belonging to the *next* utterance settles the unfinished
-        // one first: "five" is never dropped, and never repeated.
+        SttEvent::Delta {
+            session_id: "take-1".into(),
+            delta: " six.".into(),
+            segment: Some("seg-2".into()),
+        },
+        // A final closing the utterance with the words the deltas already
+        // carried: none is dropped, none is repeated.
         SttEvent::Committed {
             session_id: "take-1".into(),
-            text: "six.".into(),
+            text: "five six.".into(),
             segment: Some("seg-3".into()),
         },
     ];

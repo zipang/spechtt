@@ -2179,8 +2179,11 @@ impl SessionController {
                 return;
             }
             if let Some(result) = &mut self.result {
-                result.committed = self.transcript.committed().into();
-                result.live = self.transcript.live().into();
+                // The authoritative final refines the take in place; the take
+                // is still finished, so nothing stays in the preview half.
+                let text = self.transcript.full_text();
+                result.committed = text.into();
+                result.live = SharedString::default();
             }
         }
     }
@@ -3457,10 +3460,11 @@ impl SessionController {
         if self.sink.is_none() && self.transcript.full_text().is_empty() {
             (MOCK_COMMITTED.to_string(), MOCK_LIVE.to_string())
         } else {
-            (
-                self.transcript.committed().to_string(),
-                self.transcript.live().to_string(),
-            )
+            // A finished take has no preview left: the live tail was the
+            // hypothesis for what was being spoken, and the take is over. The
+            // displayed text is settled into the committed half so Copy, Save
+            // and the automatic paste carry exactly what the screen shows.
+            (self.transcript.full_text(), String::new())
         }
     }
 }

@@ -329,16 +329,24 @@ fn settings_with_auto_paste() -> Settings {
     }
 }
 
+/// Drives one live take to a finished transcript using the channel order the
+/// measured providers produce: committed deltas first, then a preview that
+/// restates what they carry.
 fn finish_with_transcript(controller: &mut SessionController, sink: &RecordingSink) {
     assert!(controller.start_recording());
-    controller.handle_stt_event(SttEvent::Partial {
+    controller.handle_stt_event(SttEvent::Delta {
         session_id: "take-1".into(),
-        text: "audio".into(),
+        delta: "audio".into(),
         segment: None,
     });
     controller.handle_stt_event(SttEvent::Delta {
         session_id: "take-1".into(),
         delta: " capture".into(),
+        segment: None,
+    });
+    controller.handle_stt_event(SttEvent::Partial {
+        session_id: "take-1".into(),
+        text: "audio capture".into(),
         segment: None,
     });
     assert!(controller.pause_recording());
@@ -370,18 +378,24 @@ fn audio_frames_reach_the_backend_only_while_recording() {
 }
 
 #[test]
-fn partial_delta_and_committed_text_survive_finish_and_stopped_refines_it() {
+fn delta_and_partial_text_survive_finish_and_stopped_refines_it() {
     let (mut controller, _sink) = duplex_controller();
     assert!(controller.start_recording());
 
-    controller.handle_stt_event(SttEvent::Partial {
+    // Measured channel order: the deltas carry the text, the partial previews it.
+    controller.handle_stt_event(SttEvent::Delta {
         session_id: "take-1".into(),
-        text: "audio".into(),
+        delta: "audio".into(),
         segment: None,
     });
     controller.handle_stt_event(SttEvent::Delta {
         session_id: "take-1".into(),
         delta: " capture".into(),
+        segment: None,
+    });
+    controller.handle_stt_event(SttEvent::Partial {
+        session_id: "take-1".into(),
+        text: "audio capture".into(),
         segment: None,
     });
     assert_eq!(controller.transcript_live(), "audio capture");
@@ -398,9 +412,14 @@ fn partial_delta_and_committed_text_survive_finish_and_stopped_refines_it() {
     });
     assert!(controller.finish_take());
 
+    // A finished take is settled: what the screen showed is what it carries,
+    // and nothing is left in the preview half for Copy or Save to miss.
     let take = controller.finished_take().expect("finished take");
-    assert_eq!(take.committed().to_string(), "audio capture layer.");
-    assert_eq!(take.live().to_string(), "next words");
+    assert_eq!(
+        take.committed().to_string(),
+        "audio capture layer. next words"
+    );
+    assert_eq!(take.live().to_string(), "");
 
     controller.handle_stt_event(SttEvent::Stopped {
         session_id: "take-1".into(),
@@ -1392,9 +1411,9 @@ fn the_app_event_pump_updates_the_caption_and_copy_uses_the_clipboard(
     view.update(cx, |app, cx| app.start_recording(cx));
 
     events_sender
-        .send_blocking(Ok(SttEvent::Partial {
+        .send_blocking(Ok(SttEvent::Delta {
             session_id: "take-1".into(),
-            text: "hello".into(),
+            delta: "hello".into(),
             segment: None,
         }))
         .expect("event sent");
@@ -1402,6 +1421,13 @@ fn the_app_event_pump_updates_the_caption_and_copy_uses_the_clipboard(
         .send_blocking(Ok(SttEvent::Delta {
             session_id: "take-1".into(),
             delta: " world".into(),
+            segment: None,
+        }))
+        .expect("event sent");
+    events_sender
+        .send_blocking(Ok(SttEvent::Partial {
+            session_id: "take-1".into(),
+            text: "hello world".into(),
             segment: None,
         }))
         .expect("event sent");

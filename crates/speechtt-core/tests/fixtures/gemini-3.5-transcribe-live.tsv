@@ -1,0 +1,26 @@
+# model=google/gemini-3.5-transcribe-live
+# authoritative=Et voici le dernier test de Gemini 3.5. Transcribe live. A-t-il une fenêtre glissante ou pas ? Nous allons le savoir.
+partial	It was
+partial	Et voici le
+partial	Et voici le
+partial	Et voici le dernier
+partial	Et voici le dernier test de
+partial	Et voici le dernier test de
+partial	Et voici le dernier test de Gemini
+partial	Et voici le dernier test de Gemini
+partial	Et voici le dernier test de Gemini 3.5.
+partial	Et voici le dernier test de Gemini 3.5
+partial	Et voici le dernier test de Gemini 3.5 Transcribe
+partial	Et voici le dernier test de Gemini 3.5 Transcribe
+partial	Et voici le dernier test de Gemini 3.5 Transcribe Live.
+partial	Et voici le dernier test de Gemini 3.5 Transcribe Live. A-t-il
+partial	Et voici le dernier test de Gemini 3.5 Transcribe Live. A-t-il une
+partial	Et voici le dernier test de Gemini 3.5 Transcribe Live. A-t-il une fenêtre
+partial	Et voici le dernier test de Gemini 3.5 Transcribe Live. A-t-il une fenêtre
+partial	Et voici le dernier test de Gemini 3.5 Transcribe Live. A-t-il une fenêtre glissante
+partial	Et voici le dernier test de Gemini 3.5 Transcribe Live. A-t-il une fenêtre coulissante ou
+partial	Et voici le dernier test de Gemini 3.5 Transcribe Live. A-t-il une fenêtre glissante ou pas ?
+partial	Et voici le dernier test de Gemini 3.5 Transcribe Live. A-t-il une fenêtre glissante ou pas? Nous allons le
+partial	Et voici le dernier test de Gemini 3.5 Transcribe Live. A-t-il une fenêtre glissante ou pas ? Nous allons le savoir.
+partial	Et voici le dernier test de Gemini 3.5 Transcribe Live. A-t-il une fenêtre glissante ou pas ? Nous allons le savoir.
+delta	Et voici le dernier test de Gemini 3.5. Transcribe live. A-t-il une fenêtre glissante ou pas ? Nous allons le savoir.

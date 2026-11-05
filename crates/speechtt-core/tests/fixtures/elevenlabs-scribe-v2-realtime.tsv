@@ -1,0 +1,27 @@
+# model=elevenlabs/scribe-v2-realtime
+# authoritative=Et voici le début d'une nouvelle dictée. Nous allons essayer d'observer la fenêtre glissante transmise par le modèle « streaming » en mode « streaming ». Et nous allons voir s'il se répète ou si nous avons une accumulation du texte transmis.
+partial	Et voici.
+partial	Et voici le début de
+partial	Et voici le début d'une nouvelle-
+partial	Et voici le début d'une nouvelle dictée au
+partial	Et voici le début d'une nouvelle dictée. Nous allons ess
+partial	Et voici le début d'une nouvelle dictée. Nous allons essayer d'observer-
+partial	Et voici le début d'une nouvelle dictée. Nous allons essayer d'observer
+partial	Et voici le début d'une nouvelle dictée. Nous allons essayer d'observer la fenêtre
+partial	Et voici le début d'une nouvelle dictée. Nous allons essayer d'observer la fenêtre glissante.
+partial	Et voici le début d'une nouvelle dictée. Nous allons essayer d'observer la fenêtre glissante transmise-
+partial	Et voici le début d'une nouvelle dictée. Nous allons essayer d'observer la fenêtre glissante transmise
+partial	Et voici le début d'une nouvelle dictée. Nous allons essayer d'observer la fenêtre glissante transmise par le
+partial	Et voici le début d'une nouvelle dictée. Nous allons essayer d'observer la fenêtre glissante transmise par le modèle.
+partial	Et voici le début d'une nouvelle dictée. Nous allons essayer d'observer la fenêtre glissante transmise par le modèle streaming.
+partial	Et voici le début d'une nouvelle dictée. Nous allons essayer d'observer la fenêtre glissante transmise par le modèle streaming, en mode streaming.
+partial	Et voici le début d'une nouvelle dictée. Nous allons essayer d'observer la fenêtre glissante transmise par le modèle streaming, en mode streaming.
+partial	Et voici le début d'une nouvelle dictée. Nous allons essayer d'observer la fenêtre glissante transmise par le modèle streaming, en mode streaming. Et nous allons voir
+partial	Et voici le début d'une nouvelle dictée. Nous allons essayer d'observer la fenêtre glissante transmise par le modèle streaming, en mode streaming. Et nous allons voir s'il se rép
+partial	Et voici le début d'une nouvelle dictée. Nous allons essayer d'observer la fenêtre glissante transmise par le modèle « streaming », « en mode streaming ». Et nous allons voir s'il se répète ou s'il nous
+partial	Et voici le début d'une nouvelle dictée. Nous allons essayer d'observer la fenêtre glissante transmise par le modèle « streaming », « en mode streaming ». Et nous allons voir s'il se répète ou si nous avons une nat
+partial	Et voici le début d'une nouvelle dictée. Nous allons essayer d'observer la fenêtre glissante transmise par le modèle « streaming », « en mode streaming ». Et nous allons voir s'il se répète ou si nous avons une accumulation du
+partial	Et voici le début d'une nouvelle dictée. Nous allons essayer d'observer la fenêtre glissante transmise par le modèle « streaming », « en mode streaming ». Et nous allons voir s'il se répète ou si nous avons une accumulation du texte.
+partial	Et voici le début d'une nouvelle dictée. Nous allons essayer d'observer la fenêtre glissante transmise par le modèle streaming, en mode streaming. Et nous allons voir s'il se répète ou si nous avons une accumulation du texte transmis.
+partial	Et voici le début d'une nouvelle dictée. Nous allons essayer d'observer la fenêtre glissante transmise par le modèle « streaming » en mode « streaming ». Et nous allons voir s'il se répète ou si nous avons une accumulation du texte transmis.
+stopped	

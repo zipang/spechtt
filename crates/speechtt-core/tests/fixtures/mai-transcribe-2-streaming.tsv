@@ -1,0 +1,106 @@
+# model=microsoft/mai-transcribe-2-streaming
+# authoritative=Nouveau test cette fois-ci avec le modèle MAI Transcribe to Streaming et est-ce qu'il nous envoie tout le texte accumulé ou pas ? Ça, nous allons le découvrir à la fin de cette session.
+partial	
+partial	
+partial	
+partial	
+partial	
+partial	
+partial	
+partial	
+partial	Nouveau
+partial	Nouveau test.
+partial	Nouveau test.
+partial	Nouveau test.
+partial	Nouveau test.
+partial	Nouveau test cette fois.
+partial	Nouveau test cette fois-ci.
+partial	Nouveau test cette fois-ci.
+delta	Nouveau
+partial	 test cette fois-ci.
+delta	 test cette
+partial	 fois-ci avec.
+partial	 fois-ci avec le mode
+partial	 fois-ci avec le modèle
+partial	 fois-ci avec le modèle
+delta	 fois-ci
+partial	 avec le modèle
+delta	 avec
+partial	 le modèle M.
+partial	 le modèle MAI.
+partial	 le modèle MAI.
+delta	 le
+partial	 modèle MAI 3.
+delta	 modèle
+partial	 MAI Trans
+partial	 MAI Transcribe.
+partial	 MAI Transcribe
+partial	 MAI Transcribe
+delta	 MAI
+partial	 Transcribe to
+delta	 Trans
+partial	cribe to Speech.
+partial	cribe to Stream.
+partial	cribe to Streaming.
+partial	cribe to Streaming.
+delta	cribe
+partial	 to Streaming.
+partial	 to Streaming.
+partial	 to Streaming.
+delta	 to
+partial	 Streaming et
+delta	 Streaming et
+partial	
+partial	 est-ce qu'il
+partial	 est-ce qu'il
+partial	 est-ce qu'il nous
+partial	 est-ce qu'il nous envoie
+partial	 est-ce qu'il nous envoie
+partial	 est-ce qu'il nous envoie
+partial	 est-ce qu'il nous envoie tout le
+partial	 est-ce qu'il nous envoie tout le texte
+delta	 est-ce qu'il
+partial	 nous envoie tout le texte
+partial	 nous envoie tout le texte accumulé ?
+delta	 nous
+partial	 envoie tout le texte accumulé ?
+delta	 envoie
+partial	 tout le texte accumulé ?
+partial	 tout le texte accumulé ?
+partial	 tout le texte accumulé ?
+delta	 tout le
+partial	 texte accumulé
+delta	 texte
+partial	 accumulé ou pas ?
+partial	 accumulé ou pas ?
+delta	 accumulé
+partial	 ou pas ?
+partial	 ou pas ?
+partial	 ou pas ? Ça,
+partial	 ou pas ? Ça nous
+partial	 ou pas ? Ça, nous allons le
+partial	 ou pas ? Ça, nous allons le découvrir.
+delta	 ou pas ?
+partial	 Ça, nous allons le découvrir.
+partial	 Ça, nous allons le découvrir
+partial	 Ça, nous allons le découvrir
+partial	 Ça, nous allons le découvrir à la fin.
+delta	 Ça,
+partial	 nous allons le découvrir à la fin de
+partial	 nous allons le découvrir à la fin de cette
+delta	 nous allons le
+partial	 découvrir à la fin de cette vidéo.
+delta	 découvrir
+partial	 à la fin de cette
+partial	 à la fin de cette session.
+partial	 à la fin de cette session.
+partial	 à la fin de cette session.
+delta	 à la fin de
+partial	 cette session.
+partial	 cette session.
+delta	 cette
+partial	 session.
+partial	 session.
+partial	 session.
+delta	 session.
+stopped	Nouveau test cette fois-ci avec le modèle MAI Transcribe to Streaming et est-ce qu'il nous envoie tout le texte accumulé ou pas ? Ça, nous allons le découvrir à la fin de cette session.
