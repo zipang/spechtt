@@ -150,14 +150,55 @@ export async function cleanTranscript(
 `result.text.trim()`; when that is empty it returns `request.text.trim()`
 unchanged, so the UI can never blank a transcript. The prompt is:
 
-- **Instructions** — repair a dictated transcript: fix spelling, accents,
-  punctuation and capitalisation; join fragments that a live transcriber glued
-  mid-sentence; remove word repetitions caused by segment overlap; keep the
-  speaker's words, order and register; never add content, never summarise,
-  never translate; answer with the corrected text only, no preamble, no quotes,
-  no markdown.
+- **Instructions** — repair a dictated transcript.
 - **The transcript** — passed verbatim, delimited by a line that cannot occur in
   dictation, so the model cannot confuse it with the instructions.
+
+The instructions are written as **categories of defect with illustrative
+examples**, never as a closed list: every transcription model produces its own
+artefacts, and an enumeration would be wrong for the next one. The categories:
+
+1. **Transcription artefacts** — words glued together or split apart, stray
+   spaces inside a word or around an apostrophe or hyphen (`d 'une` → `d'une`,
+   `dict ée` → `dictée`), letter sequences that spell a word the speaker clearly
+   said (`Trans cribe to Stream` → `Transcribe to Streaming`), doubled
+   punctuation, and capitalisation at sentence starts. The instruction names the
+   *symptom* a reader would notice rather than the byte pattern that produced it.
+2. **Fragment joins** — a live transcriber commits windows that overlap, so a
+   phrase can appear twice end to end or be cut mid-sentence. The instruction is
+   to produce one continuous, correctly punctuated text.
+3. **Hesitations** — filler and false starts the speaker did not mean to keep:
+   `euh`, `bah`, `ben`, `voilà`, `en fait` when used as padding, a word restarted
+   two or three times, an abandoned sentence fragment. Remove them; do not
+   replace them with other words.
+4. **The speaker's own repetitions** — a word or short phrase repeated because
+   the speaker stumbled (`beaucoup, beaucoup de doublons`). Keep a repetition that
+   carries meaning (emphasis, a genuine list, a quoted repetition) and drop the
+   one that does not.
+
+Fidelity rules, stated explicitly because they bound the four categories:
+
+- Keep the speaker's **words, order and register**. Do not rewrite for style,
+  do not merge or split sentences to improve them, do not harmonise the tone.
+- Correct a sentence's grammar only where it is **broken as transcribed**
+  (mis-glued words, a dropped article caused by a window boundary), not where it
+  is merely informal. Spoken French stays spoken French.
+- **Never add content**: no new facts, no transitions, no connective
+  paragraph-opening, no closing sentence. Never summarise, never expand, never
+  translate.
+- Keep the original language.
+- When a passage is already clean, leave it untouched — a clean transcript must
+  come back identical.
+- Answer with the corrected text only: no preamble, no explanation, no quotes,
+  no markdown, no code fence.
+
+`cleanTranscript` therefore has one more contract clause: **idempotence for
+clean input**. Feeding an already-cleaned text through the pass again returns it
+unchanged (trailing whitespace aside), and that is a pinned test.
+
+`generateText` is called with a low `temperature` (documented parameter,
+<https://ai-sdk.dev/docs/reference/ai-sdk-core/generate-text.md>) so two runs
+over the same transcript stay close: the pass repairs, it does not improvise.
 
 Production deps call the documented AI SDK API — the only authority for it:
 
@@ -354,9 +395,19 @@ existing sync rule applies unchanged.
   empty, JSON round-trip, `Debug` shows it, `validate()` does not require it).
   Then implement.
 - [ ] **T30.3 — Red: worker prompt.** Failing `bun test` cases in `clean.spec.ts`
-  with a stub `generate`: the prompt carries the instructions and the transcript
-  verbatim; the returned text is trimmed; an empty answer returns the input
-  unchanged; the transcript appears exactly once. Then implement `clean.ts`.
+  with a stub `generate`:
+  - the prompt carries the instructions and the transcript verbatim, and the
+    transcript appears exactly once;
+  - the prompt names all four defect categories (artefacts, fragment joins,
+    hesitations, the speaker's own repetitions) and the fidelity rules (no added
+    content, no summary, no style rewrite, keep the language);
+  - the returned text is trimmed;
+  - an empty answer returns the input unchanged;
+  - a clean input comes back unchanged when the stub echoes the transcript
+    (the idempotence clause);
+  - `generate` is called with the documented `temperature` parameter.
+
+  Then implement `clean.ts`.
 - [ ] **T30.4 — Red: worker routing.** Failing `worker.spec.ts` cases: a
   `cleanTranscript` line emits `cleaned` with the same `requestId`; a missing key
   emits `missing_api_key` with that `requestId`; a thrown error emits
@@ -390,6 +441,13 @@ existing sync rule applies unchanged.
   and Save; it is disabled on an empty take and when no cleanup model resolves.
 - Clicking it sends the displayed transcript to the worker, shows a running
   state, then replaces the transcript with the repaired text.
+
+  The repaired text removes transcription artefacts (glued or split words,
+  stray spaces around apostrophes), duplicated fragments at window joins,
+  hesitations and accidental repetitions, while keeping the speaker's words,
+  order and register: no content added, no summary, no stylistic rewrite, and
+  the original language preserved. An already-clean transcript comes back
+  identical.
 - A second action restores the original text exactly, and Copy, Save and the
   automatic paste all use whichever text is on screen.
 - A failed cleanup leaves the original transcript untouched and surfaces a typed
