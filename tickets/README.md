@@ -125,3 +125,4 @@ _(none)_
 | Ticket | Title | Track | Depends on |
 |---|---|---|---|
 | [T0016](planned/T0016-dependency-bootstrap-script.md) | Dependency bootstrap for Bun and ffmpeg | Tooling (TypeScript/Bun) | — |
+| [T0029](planned/T0029-default-model-per-mode.md) | One default model per transcription mode | Rust core + Rust UI | T0028 |
