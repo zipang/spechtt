@@ -2,9 +2,9 @@
 //!
 //! The window holds no product state: it renders the controller-backed dialog
 //! and forwards every intent to [`SpeechTtApp`], then closes itself. Its one
-//! piece of view state is the pair of Settings dropdown states, refreshed from
-//! the app's controller on every frame. It uses the same Header + Body
-//! structure as the widget window.
+//! piece of view state is the Settings dropdown states, refreshed from the
+//! app's controller on every frame. It uses the same Header + Body structure as
+//! the widget window.
 
 use gpui_kit::assets::IconName;
 use gpui_kit::base::v_flex;
@@ -17,7 +17,8 @@ use gpui_kit::{
 
 use crate::app::SpeechTtApp;
 use crate::components::{
-    AppHeader, IconButton, ModelOption, ProviderOption, SettingsSelectFields, SettingsSnapshot,
+    AppHeader, IconButton, LanguageItem, ModelOption, ProviderOption, SettingsSelectFields,
+    SettingsSnapshot,
 };
 use crate::controller::{Dialog, HelpTab};
 use crate::views::dialogs::{help, settings, window_title};
@@ -26,7 +27,8 @@ pub(crate) struct DialogWindow {
     dialog: Dialog,
     app: Entity<SpeechTtApp>,
     focus: FocusHandle,
-    /// The provider, streaming and batch dropdowns of the Settings dialog.
+    /// The provider, take-default, cleanup-model and language dropdowns of the
+    /// Settings dialog.
     selects: SettingsSelectFields,
     /// Keeps the select and app subscriptions alive; dropped with the window.
     _subscriptions: Vec<Subscription>,
@@ -73,6 +75,26 @@ impl DialogWindow {
                 }
             },
         );
+        let cleanup_subscription = cx.subscribe(
+            selects.cleanup(),
+            |this, _, event: &SelectEvent<SearchableVec<ModelOption>>, cx| {
+                if let SelectEvent::Confirm(Some(id)) = event {
+                    let id = id.to_string();
+                    this.app
+                        .update(cx, |app, cx| app.set_settings_cleanup_model(&id, cx));
+                }
+            },
+        );
+        let language_subscription = cx.subscribe(
+            selects.language(),
+            |this, _, event: &SelectEvent<SearchableVec<LanguageItem>>, cx| {
+                if let SelectEvent::Confirm(Some(id)) = event {
+                    let id = id.to_string();
+                    this.app
+                        .update(cx, |app, cx| app.set_settings_language(&id, cx));
+                }
+            },
+        );
         // An arriving catalogue changes the menus, so the open dialog repaints.
         let app_observer = cx.observe(&app, |_, _, cx| cx.notify());
 
@@ -85,6 +107,8 @@ impl DialogWindow {
                 provider_subscription,
                 streaming_subscription,
                 batch_subscription,
+                cleanup_subscription,
+                language_subscription,
                 app_observer,
             ],
         }
@@ -94,7 +118,7 @@ impl DialogWindow {
         &self.app
     }
 
-    /// The Settings provider and default-model dropdown states.
+    /// The Settings dropdown states.
     pub(crate) fn selects(&self) -> &SettingsSelectFields {
         &self.selects
     }
@@ -137,6 +161,11 @@ impl Render for DialogWindow {
                 selected_streaming_model: draft.model_streaming.clone(),
                 batch_models: controller.settings_batch_model_options(),
                 selected_batch_model: draft.model_batch.clone(),
+                cleanup_models: controller.settings_cleanup_model_options(),
+                selected_cleanup_model: draft.language_model.clone(),
+                languages: controller.settings_language_options(),
+                // An unset language is Auto, whose value is the empty string.
+                selected_language: Some(draft.language.clone().unwrap_or_default()),
             }
         };
         self.selects.sync(snapshot, window, cx);

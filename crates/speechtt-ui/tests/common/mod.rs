@@ -93,6 +93,55 @@ impl ClipboardSink for NoopClipboard {
     }
 }
 
+/// A clipboard that keeps every string the app copies.
+///
+/// Handed back by [`open_speechtt_window_with_channels`] so a test can assert
+/// the payload of Copy and of the automatic paste.
+#[derive(Clone, Default)]
+pub struct RecordingClipboard {
+    copies: Arc<Mutex<Vec<String>>>,
+}
+
+impl RecordingClipboard {
+    /// Every string copied so far, in order.
+    pub fn copies(&self) -> Vec<String> {
+        self.copies.lock().expect("clipboard lock").clone()
+    }
+}
+
+impl ClipboardSink for RecordingClipboard {
+    fn copy(&mut self, text: &str) -> Result<(), OutputError> {
+        self.copies
+            .lock()
+            .expect("clipboard lock")
+            .push(text.to_owned());
+        Ok(())
+    }
+}
+
+/// A backend sink that keeps every command the app sends.
+///
+/// Handed back by [`open_speechtt_window_with_channels`], so a window test can
+/// assert what reached the worker without spawning one.
+#[derive(Clone, Default)]
+pub struct RecordingSink {
+    commands: Arc<Mutex<Vec<SttCommand>>>,
+}
+
+impl RecordingSink {
+    /// Every command sent so far, in order.
+    pub fn commands(&self) -> Vec<SttCommand> {
+        self.commands.lock().expect("sink lock").clone()
+    }
+}
+
+impl SttSessionSink for RecordingSink {
+    fn send(&mut self, cmd: SttCommand) -> Result<(), BackendError> {
+        self.commands.lock().expect("sink lock").push(cmd);
+        Ok(())
+    }
+}
+
 struct NoopPaste;
 
 impl PasteSink for NoopPaste {
@@ -271,4 +320,51 @@ pub fn open_speechtt_window_at(
         view.update(cx, |app, cx| app.apply_capabilities(test_catalogue(), cx));
         view
     })
+}
+
+/// The worker side of the event pump: a test feeds events through it.
+pub type EventSender =
+    speechtt_core::async_channel::Sender<Result<speechtt_core::protocol::SttEvent, BackendError>>;
+
+/// Opens the widget window with a backend the test can inspect and drive.
+///
+/// The sink records every command the app sends and the clipboard every string
+/// it copies, so a headless test can assert what reached the worker without
+/// spawning one. `events` is the worker side of the pump: the test feeds
+/// [`speechtt_core::protocol::SttEvent`]s through it.
+pub fn open_speechtt_window_with_channels(
+    cx: &mut TestAppContext,
+) -> (
+    WindowHandle<Root>,
+    Entity<speechtt_ui::app::SpeechTtApp>,
+    RecordingSink,
+    RecordingClipboard,
+    EventSender,
+) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        speechtt_ui::theme::apply(cx);
+    });
+    let (sender, events) = speechtt_core::async_channel::unbounded();
+    let sink = RecordingSink::default();
+    let clipboard = RecordingClipboard::default();
+    let services = AppServices {
+        audio: Box::new(SilentAudio),
+        analyzer: SpectrumAnalyzer::new(SAMPLE_RATE),
+        sink: Box::new(sink.clone()),
+        events,
+        settings: Box::new(TestSettingsStore::new()),
+        clipboard: Box::new(clipboard.clone()),
+        paste: Box::new(NoopPaste),
+        opener: Box::new(NoopOpener),
+        listener: Box::new(NoopListener),
+        clock: Box::new(SystemClock),
+    };
+    let (window, view) = open_window(cx, None, |window, cx| {
+        window.set_window_title(speechtt_ui::app::APP_TITLE);
+        let view = cx.new(|cx| SpeechTtApp::with_services(services, window, cx));
+        view.update(cx, |app, cx| app.apply_capabilities(test_catalogue(), cx));
+        view
+    });
+    (window, view, sink, clipboard, sender)
 }

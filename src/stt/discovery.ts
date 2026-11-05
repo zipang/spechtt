@@ -1,11 +1,15 @@
 /**
- * Dynamic transcription-model discovery through the Vercel AI Gateway.
+ * Dynamic transcription- and language-model discovery through the Vercel AI
+ * Gateway.
  *
  * `GET /v1/models` is anonymous and returns every model with a `type` and
  * `tags`. Streaming transcription models carry `websocket-transcription`; the
  * AI SDK's `getAvailableModels()` exposes `modelType` but no tags, so it cannot
  * distinguish streaming from batch. This module is pure apart from the injected
  * `fetch` and clock, which keeps the tests hermetic.
+ *
+ * Read by `worker.ts`, which answers the capabilities handshake from the cached
+ * catalogue and refreshes it in the background.
  */
 
 import type { TranscriptionMode } from "./registry";
@@ -29,8 +33,18 @@ export interface DiscoveredModel {
 	readonly pricing: Readonly<Record<string, string>>;
 }
 
+/** One text model the gateway offers for the cleanup pass. */
+export interface DiscoveredLanguageModel {
+	/** Gateway-qualified id (`provider/model`), passed through unchanged. */
+	readonly id: string;
+	/** Display name from the endpoint, or the id when the name is empty. */
+	readonly label: string;
+}
+
 export interface DiscoveryResult {
 	readonly models: readonly DiscoveredModel[];
+	/** Text models (`type: "language"`), sorted by label; empty when none. */
+	readonly languageModels: readonly DiscoveredLanguageModel[];
 	/** `now()` of the successful response, used for the TTL cache. */
 	readonly fetchedAt: number;
 }
@@ -61,15 +75,15 @@ function isFresh(result: DiscoveryResult, now: number): boolean {
  * The last successful discovery while it is still fresh, synchronously.
  *
  * The worker uses this to answer the first capabilities event with
- * `source: "discovered"` instead of `"builtin"`.
+ * `source: "discovered"` instead of `"builtin"`, including the language models.
  */
-export function cachedGatewayModels(
+export function cachedGatewayCatalogue(
 	now: () => number = Date.now,
-): readonly DiscoveredModel[] | undefined {
+): DiscoveryResult | undefined {
 	if (cache === undefined || !isFresh(cache, now())) {
 		return undefined;
 	}
-	return cache.models;
+	return cache;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -138,6 +152,38 @@ function parseModels(payload: unknown): readonly DiscoveredModel[] | undefined {
 	return models.sort(compareByLabel);
 }
 
+/**
+ * Collects the gateway's text models (`type: "language"`) from one catalogue
+ * payload, sorted by label and deduplicated by id.
+ *
+ * `requestModels` calls this beside `parseModels`, so the capabilities payload
+ * can offer the cleanup model menu. A malformed payload yields an empty list
+ * rather than an error: the menu then falls back to free text instead of
+ * blocking the handshake.
+ */
+export function parseLanguageModels(
+	payload: unknown,
+): readonly DiscoveredLanguageModel[] {
+	if (!isRecord(payload) || !Array.isArray(payload.data)) {
+		return [];
+	}
+
+	const byId = new Map<string, DiscoveredLanguageModel>();
+	for (const entry of payload.data) {
+		if (!isRecord(entry) || entry.type !== "language") {
+			continue;
+		}
+		const id = entry.id;
+		if (typeof id !== "string" || id.length === 0 || byId.has(id)) {
+			continue;
+		}
+		const name = typeof entry.name === "string" ? entry.name.trim() : "";
+		byId.set(id, { id, label: name.length > 0 ? name : id });
+	}
+
+	return [...byId.values()].sort(compareByLabel);
+}
+
 async function requestModels(
 	fetchImpl: typeof globalThis.fetch,
 	endpoint: string,
@@ -161,7 +207,11 @@ async function requestModels(
 		if (models === undefined) {
 			return undefined;
 		}
-		return { models, fetchedAt: now() };
+		return {
+			models,
+			languageModels: parseLanguageModels(payload),
+			fetchedAt: now(),
+		};
 	} catch {
 		return undefined;
 	} finally {

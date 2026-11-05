@@ -112,6 +112,7 @@ Decisions, deviations, verification output.
 | [T0027](done/T0027-selectable-transcript-text.md) | Selectable, copyable transcript text | Rust UI (text + caption well + design) |
 | [T0028](done/T0028-real-dropdown-transcription-selects.md) | Real dropdown menus for the transcription provider and model | Rust UI (components + views + controller + design) |
 | [T0029](done/T0029-default-model-per-mode.md) | One default model per transcription mode | Rust core + Rust UI + design |
+| [T0030](done/T0030-clean-transcript-with-language-model.md) | Clean the transcript with a language model, in a chosen language | Cross-cutting (core + Bun worker + UI) |
 
 ### In Progress
 
@@ -126,5 +127,5 @@ _(none)_
 | Ticket | Title | Track | Depends on |
 |---|---|---|---|
 | [T0016](planned/T0016-dependency-bootstrap-script.md) | Dependency bootstrap for Bun and ffmpeg | Tooling (TypeScript/Bun) | — |
-| [T0030](planned/T0030-clean-transcript-with-language-model.md) | Clean the transcript with a language model | Cross-cutting (core + Bun worker + UI) | — |
 | [T0031](planned/T0031-live-transcript-window-overlap.md) | Stop the live transcript accumulating duplicated fragments | Rust core (transcript) | — |
+| [T0032](planned/T0032-language-reach-honesty.md) | Say honestly what the dictation language can reach | Cross-cutting (worker → core → UI) | T0030 |

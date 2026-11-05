@@ -590,3 +590,241 @@ describe("progress events", () => {
 		);
 	});
 });
+
+describe("dictation language on transcription commands", () => {
+	test("parses the language on a start command", () => {
+		const result = parseInboundLine(startLine({ language: "fr" }));
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.command).toMatchObject({ type: "start", language: "fr" });
+	});
+
+	test("omits the language key when the start command has none", () => {
+		const result = parseInboundLine(startLine());
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect("language" in result.command).toBe(false);
+	});
+
+	test("parses the language on a transcribeFile command", () => {
+		const result = parseInboundLine(
+			JSON.stringify({
+				type: "transcribeFile",
+				sessionId: "session-1",
+				provider: "vercel-ai-gateway",
+				model: "openai/gpt-4o-transcribe",
+				path: "/tmp/a.wav",
+				language: "fr",
+			}),
+		);
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.command).toMatchObject({ type: "transcribeFile", language: "fr" });
+	});
+
+	test("omits the language key when the file command has none", () => {
+		const result = parseInboundLine(
+			JSON.stringify({
+				type: "transcribeFile",
+				sessionId: "session-1",
+				provider: "vercel-ai-gateway",
+				model: "openai/gpt-4o-transcribe",
+				path: "/tmp/a.wav",
+			}),
+		);
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect("language" in result.command).toBe(false);
+	});
+
+	test("rejects a language that is present but not a non-empty string", () => {
+		for (const type of ["start", "transcribeFile"]) {
+			const base =
+				type === "start"
+					? {
+							sessionId: "session-1",
+							provider: "mistral",
+							model: "voxtral-mini-transcribe-3-0",
+							sampleRate: 16000,
+						}
+					: {
+							sessionId: "session-1",
+							provider: "vercel-ai-gateway",
+							model: "openai/gpt-4o-transcribe",
+							path: "/tmp/a.wav",
+						};
+
+			for (const language of ["", "   ", 42, null, ["fr"]]) {
+				const result = parseInboundLine(
+					JSON.stringify({ type, ...base, language }),
+				);
+
+				expect(result.ok).toBe(false);
+				if (result.ok) return;
+				expect(result.code).toBe("invalid_protocol");
+				expect(result.message).toContain(`${type}.language`);
+			}
+		}
+	});
+});
+
+describe("cleanTranscript", () => {
+	const cleanLine = (overrides: Record<string, unknown> = {}) =>
+		JSON.stringify({
+			type: "cleanTranscript",
+			requestId: "clean-1",
+			provider: "vercel-ai-gateway",
+			model: "openai/gpt-4.1-mini",
+			text: "Bonjour, je d'une idée.",
+			...overrides,
+		});
+
+	test("parses the command with a language and an API key", () => {
+		expect(
+			parseInboundLine(cleanLine({ language: "fr", apiKey: "sk-secret" })),
+		).toEqual({
+			ok: true,
+			command: {
+				type: "cleanTranscript",
+				requestId: "clean-1",
+				provider: "vercel-ai-gateway",
+				model: "openai/gpt-4.1-mini",
+				text: "Bonjour, je d'une idée.",
+				language: "fr",
+				apiKey: "sk-secret",
+			},
+		});
+	});
+
+	test("omits the language and API key keys when absent", () => {
+		const result = parseInboundLine(cleanLine());
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect("language" in result.command).toBe(false);
+		expect("apiKey" in result.command).toBe(false);
+	});
+
+	test("rejects a missing or empty requestId, provider, model or text", () => {
+		for (const field of ["requestId", "provider", "model", "text"]) {
+			for (const value of [undefined, "", 7, null]) {
+				const result = parseInboundLine(cleanLine({ [field]: value }));
+
+				expect(result.ok).toBe(false);
+				if (result.ok) continue;
+				expect(result.code).toBe("invalid_protocol");
+				expect(result.message).toContain(`cleanTranscript.${field}`);
+			}
+		}
+	});
+
+	test("rejects a language that is present but not a non-empty string", () => {
+		for (const language of ["", "   ", 42, null, ["fr"]]) {
+			const result = parseInboundLine(cleanLine({ language }));
+
+			expect(result.ok).toBe(false);
+			if (result.ok) continue;
+			expect(result.code).toBe("invalid_protocol");
+			expect(result.message).toContain("cleanTranscript.language");
+		}
+	});
+
+	test("rejects a non-string API key", () => {
+		const result = parseInboundLine(cleanLine({ apiKey: 42 }));
+
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.message).toContain("cleanTranscript.apiKey");
+	});
+
+	test("never echoes the transcript or the API key in a parse error", () => {
+		const result = parseInboundLine(
+			cleanLine({ requestId: 7, apiKey: "sk-leak", text: "secret transcript" }),
+		);
+
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.message).not.toContain("sk-leak");
+		expect(result.message).not.toContain("secret transcript");
+	});
+
+	test("redacts the cleanup API key without mutating the input", () => {
+		const command: InboundCommand = {
+			type: "cleanTranscript",
+			requestId: "clean-1",
+			provider: "vercel-ai-gateway",
+			model: "openai/gpt-4.1-mini",
+			text: "Bonjour.",
+			apiKey: "sk-clean-secret",
+		};
+
+		const redacted = redactCommand(command);
+
+		expect(redacted).toEqual({ ...command, apiKey: "[REDACTED]" });
+		expect(command.apiKey).toBe("sk-clean-secret");
+		expect(JSON.stringify(redacted)).not.toContain("sk-clean-secret");
+	});
+});
+
+describe("cleaned and correlated error events", () => {
+	test("serializes a cleaned event", () => {
+		const event: OutboundEvent = {
+			type: "cleaned",
+			requestId: "clean-1",
+			text: "Bonjour, j'ai une idée.",
+		};
+
+		expect(serializeOutboundEvent(event)).toBe(
+			'{"type":"cleaned","requestId":"clean-1","text":"Bonjour, j\'ai une idée."}\n',
+		);
+	});
+
+	test("serializes an error correlated by requestId", () => {
+		const event: OutboundEvent = {
+			type: "error",
+			requestId: "clean-1",
+			code: "cleanup_failed",
+			message: "Cleanup failed",
+		};
+
+		expect(JSON.parse(serializeOutboundEvent(event))).toEqual(event);
+	});
+
+	test("omits requestId when the error answers no cleanup", () => {
+		const event: OutboundEvent = {
+			type: "error",
+			sessionId: "session-1",
+			code: "stream_failed",
+			message: "boom",
+		};
+
+		expect(serializeOutboundEvent(event)).toBe(
+			'{"type":"error","sessionId":"session-1","code":"stream_failed","message":"boom"}\n',
+		);
+	});
+});
+
+describe("capabilities with the cleanup and language fields", () => {
+	test("serializes the three optional fields when present", () => {
+		const event: OutboundEvent = {
+			type: "capabilities",
+			source: "builtin",
+			providers: [],
+			languages: [{ code: "fr", label: "French" }],
+			languageModels: [{ id: "openai/gpt-4.1-mini", label: "GPT-4.1 mini" }],
+			defaultLanguageModel: "openai/gpt-4.1-mini",
+		};
+
+		expect(JSON.parse(serializeOutboundEvent(event))).toEqual(event);
+	});
+
+	test("omits all three when the worker does not report them", () => {
+		expect(
+			serializeOutboundEvent({ type: "capabilities", source: "builtin", providers: [] }),
+		).toBe('{"type":"capabilities","source":"builtin","providers":[]}\n');
+	});
+});

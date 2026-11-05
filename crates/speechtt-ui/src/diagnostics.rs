@@ -3,6 +3,10 @@
 //! The status strip only shows a short user-facing sentence; this module
 //! preserves the cause on `stderr` so a failure can be reconstructed after the
 //! strip is dismissed. Log lines never contain transcript text or secrets.
+//!
+//! Read by `controller::SessionController::report_error` and by the event pump
+//! in `controller::SessionController::handle_stt_event`; nothing else writes a
+//! diagnostic line.
 
 use crate::controller::{AppError, sanitize_detail};
 use speechtt_core::protocol::SttEvent;
@@ -58,6 +62,7 @@ fn variant_name(error: &AppError) -> &'static str {
         AppError::PasteFailed => "PasteFailed",
         AppError::ProtocolError(_) => "ProtocolError",
         AppError::BackendFailed { .. } => "BackendFailed",
+        AppError::CleanupFailed => "CleanupFailed",
         AppError::FileModelNotSupported => "FileModelNotSupported",
         AppError::UnsupportedFileType => "UnsupportedFileType",
         AppError::NothingRecorded => "NothingRecorded",
@@ -93,10 +98,16 @@ pub fn log_stt_event(event: &SttEvent, accepted: bool) {
 /// The trace line for `event`, or `None` for an event that never carries
 /// transcript text.
 ///
-/// One physical line: `[speechtt] stt type=<type> session=<id> accepted=<bool>
-/// segment=<identity|-> len=<chars>`. It carries the text's length and the
-/// provider's utterance identity, never the text itself, so a take can be
-/// reconstructed without transcribing anything to a log.
+/// One physical line, in one of two shapes:
+///
+/// - `[speechtt] stt type=<type> session=<id> accepted=<bool> segment=<identity|->
+///   len=<chars>` for the take events;
+/// - `[speechtt] stt type=cleaned session=- accepted=<bool> request=<id> len=<chars>`
+///   for a repaired transcript, which has no session and is correlated by its
+///   cleanup request instead.
+///
+/// Both carry the text's length and an identity, never the text itself, so a
+/// take can be reconstructed without transcribing anything to a log.
 #[must_use]
 pub fn format_event_line(event: &SttEvent, accepted: bool) -> Option<String> {
     let (kind, session_id, segment, length) = match event {
@@ -134,6 +145,13 @@ pub fn format_event_line(event: &SttEvent, accepted: bool) -> Option<String> {
             session_id,
             full_text,
         } => ("stopped", session_id, None, full_text.chars().count()),
+        SttEvent::Cleaned { request_id, text } => {
+            return Some(format!(
+                "[speechtt] stt type=cleaned session=- accepted={accepted} request={} len={}",
+                sanitize_detail(request_id),
+                text.chars().count()
+            ));
+        }
         _ => return None,
     };
 
@@ -230,6 +248,28 @@ mod tests {
             format_event_line(&stopped, true).expect("traced"),
             "[speechtt] stt type=stopped session=take-1 accepted=true segment=- len=6"
         );
+    }
+
+    #[test]
+    fn a_repaired_transcript_traces_its_request_and_length_without_the_words() {
+        let line = format_event_line(
+            &SttEvent::Cleaned {
+                request_id: "clean-1-2".into(),
+                text: "d'une dictée".into(),
+            },
+            true,
+        )
+        .expect("a cleanup answer is traced");
+
+        assert_eq!(
+            line,
+            "[speechtt] stt type=cleaned session=- accepted=true request=clean-1-2 len=12"
+        );
+        assert!(
+            !line.contains("dictée"),
+            "no transcript text in a trace line"
+        );
+        assert_eq!(line.lines().count(), 1);
     }
 
     #[test]

@@ -4,6 +4,7 @@ import type { OutboundEvent } from "../protocol";
 import type { SttSessionConfig } from "./types";
 import {
 	MistralAdapter,
+	type MistralAdapterOptions,
 	type TranscribeFn,
 	createWavHeader,
 	pcm16Base64ToWav,
@@ -455,5 +456,64 @@ describe("MistralAdapter", () => {
 
 		expect(calls).toBe(0);
 		expect(events).toEqual([{ type: "started", sessionId: "session-1" }]);
+	});
+});
+
+describe("MistralAdapter dictation language", () => {
+	let errorSpy: ReturnType<typeof spyOn>;
+
+	beforeEach(() => {
+		errorSpy = spyOn(console, "error").mockImplementation(() => {});
+	});
+
+	afterEach(() => {
+		errorSpy.mockRestore();
+	});
+
+	async function transcribeOnce(
+		options: { language?: string },
+		injected: MistralAdapterOptions = {},
+	): Promise<Parameters<TranscribeFn>[0] | undefined> {
+		const calls: Parameters<TranscribeFn>[0][] = [];
+		const transcribe: TranscribeFn = async (callOptions) => {
+			calls.push(callOptions);
+			return { text: "hello world" } as never;
+		};
+		const { emit } = collect();
+		const adapter = new MistralAdapter({
+			transcribe,
+			resolveModel: () => "test-model",
+			...injected,
+		});
+
+		const session = await adapter.start({ ...config, ...options }, emit);
+		pushPcm(session, tone(1500));
+		await session.stop();
+
+		return calls[0];
+	}
+
+	test("forwards the language as mistral provider options", async () => {
+		const call = await transcribeOnce({ language: "fr" });
+
+		expect(call?.providerOptions).toEqual({ mistral: { language: "fr" } });
+	});
+
+	test("passes no provider options when no language is set", async () => {
+		const call = await transcribeOnce({});
+
+		expect(call !== undefined).toBe(true);
+		expect("providerOptions" in call!).toBe(false);
+	});
+
+	test("merges the language into provider options it already had", async () => {
+		const call = await transcribeOnce(
+			{ language: "fr" },
+			{ providerOptions: { mistral: { timestampGranularities: ["word"] } } },
+		);
+
+		expect(call?.providerOptions).toEqual({
+			mistral: { timestampGranularities: ["word"], language: "fr" },
+		});
 	});
 });

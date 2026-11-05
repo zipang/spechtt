@@ -270,6 +270,108 @@ fn live_worker_answers_a_capabilities_round_trip() {
     );
 }
 
+/// The cleanup pass travels the same bridge as a take. With no key in the
+/// environment the worker refuses before calling a provider, which proves the
+/// whole round trip — command shape, `requestId`, `language`, correlated error
+/// — without any network.
+#[test]
+fn live_worker_correlates_a_cleanup_request() {
+    let _env = ScrubbedEnv::new();
+    let Some(script) = smoke_target() else {
+        return;
+    };
+
+    let mut worker = BunSubprocess::spawn(&script).expect("spawns the Bun worker");
+    let events = worker.events();
+
+    assert_eq!(expect_event(&events), SttEvent::Ready);
+
+    worker
+        .send(&SttCommand::CleanTranscript {
+            request_id: "clean-smoke-1".to_string(),
+            provider: "vercel-ai-gateway".to_string(),
+            model: "openai/gpt-4.1-mini".to_string(),
+            text: "d une dict ée".to_string(),
+            language: Some("fr".to_string()),
+            api_key: None,
+        })
+        .expect("sends a cleanup request");
+
+    let SttEvent::Error {
+        session_id,
+        request_id,
+        code,
+        message,
+    } = expect_event(&events)
+    else {
+        panic!("expected an error event");
+    };
+    assert_eq!(session_id, None, "a cleanup is not bound to a take");
+    assert_eq!(
+        request_id.as_deref(),
+        Some("clean-smoke-1"),
+        "the answer names the request that asked for it"
+    );
+    assert_eq!(code, "missing_api_key", "no key was exported");
+    assert!(
+        !message.contains("dict"),
+        "the transcript must never reach a diagnostic: {message}"
+    );
+
+    worker.send(&SttCommand::Stop).expect("sends stop");
+    drop(worker);
+}
+
+/// A capabilities answer carries the pickers' data: the dictation languages and
+/// the cleanup models, in the shape the Settings dialog consumes.
+#[test]
+fn live_worker_reports_languages_and_cleanup_models() {
+    let _env = ScrubbedEnv::new();
+    let Some(script) = smoke_target() else {
+        return;
+    };
+
+    let mut worker = BunSubprocess::spawn(&script).expect("spawns the Bun worker");
+    let events = worker.events();
+
+    assert_eq!(expect_event(&events), SttEvent::Ready);
+
+    worker
+        .send(&SttCommand::Capabilities {
+            request_id: Some("smoke-2".to_string()),
+            api_key: None,
+        })
+        .expect("sends a capabilities request");
+
+    let SttEvent::Capabilities {
+        languages,
+        default_language_model,
+        ..
+    } = expect_event(&events)
+    else {
+        panic!("expected a capabilities event");
+    };
+
+    let languages = languages.expect("the worker publishes the offered languages");
+    assert!(
+        languages.iter().any(|language| language.code == "fr"),
+        "French is offered"
+    );
+    assert!(
+        languages.iter().all(|language| {
+            language.code.len() == 2 && language.code == language.code.to_lowercase()
+        }),
+        "every code is a lowercase ISO-639-1 code"
+    );
+    assert!(
+        !default_language_model.unwrap_or_default().is_empty(),
+        "a cleanup model is always resolvable"
+    );
+
+    worker.send(&SttCommand::Stop).expect("sends stop");
+    drop(worker);
+}
+
 #[test]
 fn live_worker_recovers_from_a_malformed_line() {
     let _env = ScrubbedEnv::new();
@@ -293,6 +395,7 @@ fn live_worker_recovers_from_a_malformed_line() {
             session_id,
             code,
             message,
+            ..
         } => {
             assert_eq!(session_id, None, "protocol errors are session-agnostic");
             assert_eq!(code, "invalid_protocol");
@@ -388,6 +491,7 @@ fn live_worker_transcribes_a_local_file() {
             provider: "vercel-ai-gateway".to_string(),
             model: "openai/gpt-4o-transcribe".to_string(),
             path: media.to_string_lossy().into_owned(),
+            language: None,
             api_key: Some(SecretString::new(api_key)),
         })
         .expect("sends a file transcription request");

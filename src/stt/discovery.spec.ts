@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
 	DISCOVERY_ENDPOINT,
-	cachedGatewayModels,
+	cachedGatewayCatalogue,
 	discoverGatewayModels,
+	parseLanguageModels,
 	resetDiscoveryCache,
 } from "./discovery";
 
@@ -383,7 +384,7 @@ describe("discoverGatewayModels", () => {
 	});
 });
 
-describe("cachedGatewayModels", () => {
+describe("cachedGatewayCatalogue", () => {
 	beforeEach(() => {
 		resetDiscoveryCache();
 	});
@@ -398,15 +399,117 @@ describe("cachedGatewayModels", () => {
 			jsonResponse({ data: [transcription("acme/stt", "STT")] }),
 		);
 
-		expect(cachedGatewayModels(() => now)).toBeUndefined();
+		expect(cachedGatewayCatalogue(() => now)).toBeUndefined();
 
 		await discoverGatewayModels({ fetch, now: () => now });
 
-		expect(cachedGatewayModels(() => now)?.map((model) => model.id)).toEqual([
-			"acme/stt",
-		]);
+		expect(
+			cachedGatewayCatalogue(() => now)?.models.map((model) => model.id),
+		).toEqual(["acme/stt"]);
 
 		now = 5_000 + 60_000;
-		expect(cachedGatewayModels(() => now)).toBeUndefined();
+		expect(cachedGatewayCatalogue(() => now)).toBeUndefined();
+	});
+});
+
+describe("language model discovery", () => {
+	beforeEach(() => {
+		resetDiscoveryCache();
+	});
+
+	afterEach(() => {
+		resetDiscoveryCache();
+	});
+
+	const language = (id: string, name: string): Record<string, unknown> => ({
+		id,
+		name,
+		type: "language",
+	});
+
+	test("collects language entries while transcription models keep their modes", async () => {
+		const { fetch } = fakeFetch(() =>
+			jsonResponse({
+				data: [
+					language("openai/gpt-4.1-mini", "GPT-4.1 mini"),
+					transcription(
+						"openai/gpt-transcribe",
+						"GPT Transcribe",
+						["websocket-transcription"],
+					),
+					language("anthropic/claude-sonnet-5.5", "Claude Sonnet 5.5"),
+					{ id: "openai/tts-1", name: "TTS 1", type: "speech" },
+				],
+			}),
+		);
+
+		const result = await discoverGatewayModels({ fetch });
+
+		expect(result?.models.map((model) => model.id)).toEqual([
+			"openai/gpt-transcribe",
+		]);
+		expect(result?.models[0]?.mode).toBe("streaming");
+		expect(result?.languageModels).toEqual([
+			{ id: "anthropic/claude-sonnet-5.5", label: "Claude Sonnet 5.5" },
+			{ id: "openai/gpt-4.1-mini", label: "GPT-4.1 mini" },
+		]);
+	});
+
+	test("reports an empty language list when the catalogue has none", async () => {
+		const { fetch } = fakeFetch(() =>
+			jsonResponse({ data: [transcription("acme/stt", "STT")] }),
+		);
+
+		const result = await discoverGatewayModels({ fetch });
+
+		expect(result?.languageModels).toEqual([]);
+	});
+
+	test("parses language entries directly, sorted by label and deduped", () => {
+		const models = parseLanguageModels({
+			data: [
+				language("acme/b", "Same"),
+				language("acme/a", "Same"),
+				language("acme/z", "Alpha"),
+				language("acme/alpha", "Alpha"),
+				language("acme/empty", ""),
+				{ id: "acme/no-name", type: "language" },
+				{ id: "", name: "Empty Id", type: "language" },
+				{ id: 42, name: "Numeric Id", type: "language" },
+				transcription("openai/gpt-transcribe", "GPT Transcribe"),
+			],
+		});
+
+		expect(models).toEqual([
+			{ id: "acme/alpha", label: "Alpha" },
+			{ id: "acme/z", label: "Alpha" },
+			{ id: "acme/a", label: "Same" },
+			{ id: "acme/b", label: "Same" },
+			{ id: "acme/empty", label: "acme/empty" },
+			{ id: "acme/no-name", label: "acme/no-name" },
+		]);
+	});
+
+	test("returns an empty list for a malformed payload", () => {
+		for (const payload of [null, [], {}, { data: null }, { data: "nope" }]) {
+			expect(parseLanguageModels(payload)).toEqual([]);
+		}
+	});
+
+	test("exposes the cached language models with the cached catalogue", async () => {
+		const { fetch } = fakeFetch(() =>
+			jsonResponse({
+				data: [
+					transcription("acme/stt", "STT"),
+					language("openai/gpt-4.1-mini", "GPT-4.1 mini"),
+				],
+			}),
+		);
+
+		await discoverGatewayModels({ fetch, now: () => 1_000 });
+
+		expect(cachedGatewayCatalogue(() => 1_000)?.languageModels).toEqual([
+			{ id: "openai/gpt-4.1-mini", label: "GPT-4.1 mini" },
+		]);
 	});
 });

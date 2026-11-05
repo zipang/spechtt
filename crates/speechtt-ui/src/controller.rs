@@ -28,8 +28,8 @@ use speechtt_core::output::paste::PasteSink;
 use std::collections::BTreeMap;
 
 use speechtt_core::protocol::{
-    CapabilitySource, ModelCapabilityInfo, ProviderCapability, SecretString, SttCommand, SttEvent,
-    TranscriptionMode,
+    CapabilitySource, LanguageModelInfo, LanguageOption, ModelCapabilityInfo, ProviderCapability,
+    SecretString, SttCommand, SttEvent, TranscriptionMode,
 };
 use speechtt_core::session::{FinishedSession, SessionField, SessionMachine, SessionState};
 use speechtt_core::settings::{Settings, SettingsError};
@@ -109,6 +109,8 @@ pub enum AppError {
         code: String,
         detail: String,
     },
+    /// The language-model cleanup pass failed. The transcript is untouched.
+    CleanupFailed,
     /// Copy/save was requested for an empty take; informational, not an error.
     NothingRecorded,
     /// FileModelNotSupported: a streaming-only model was chosen for a file take.
@@ -171,6 +173,9 @@ impl AppError {
             Self::BackendFailed { detail, .. } => {
                 format!("The transcription backend failed: {}.", sentence(detail))
             }
+            Self::CleanupFailed => {
+                "The cleanup pass failed. The transcript is unchanged.".to_owned()
+            }
             Self::NothingRecorded => "Nothing was recorded.".to_owned(),
             Self::FileModelNotSupported => {
                 "File transcription needs a non-streaming model.".to_owned()
@@ -205,6 +210,7 @@ impl AppError {
             | Self::PasteFailed
             | Self::ProtocolError(_)
             | Self::BackendFailed { .. }
+            | Self::CleanupFailed
             | Self::NothingRecorded
             | Self::UnsupportedFileType
             | Self::FileNotFound
@@ -647,6 +653,10 @@ pub struct SettingsDraft {
     pub model_streaming: Option<String>,
     /// Default model for file takes.
     pub model_batch: Option<String>,
+    /// ISO-639-1 code of the dictation language; `None` is Auto.
+    pub language: Option<String>,
+    /// Cleanup model id; `None` means "use the worker's default".
+    pub language_model: Option<String>,
     /// Raw user input. Never printed by `Debug` or written to logs.
     pub api_key: String,
     /// `true` when a key was already stored and the field is untouched.
@@ -660,6 +670,8 @@ impl fmt::Debug for SettingsDraft {
             .field("provider", &self.provider)
             .field("model_streaming", &self.model_streaming)
             .field("model_batch", &self.model_batch)
+            .field("language", &self.language)
+            .field("language_model", &self.language_model)
             .field(
                 "api_key",
                 &if self.api_key.is_empty() {
@@ -680,6 +692,10 @@ pub struct SettingsChange {
     pub provider: String,
     pub model_streaming: String,
     pub model_batch: String,
+    /// ISO-639-1 dictation language; `None` is Auto.
+    pub language: Option<String>,
+    /// Cleanup model id; `None` keeps the worker's default.
+    pub language_model: Option<String>,
     pub api_key: Option<String>,
 }
 
@@ -690,6 +706,8 @@ impl fmt::Debug for SettingsChange {
             .field("provider", &self.provider)
             .field("model_streaming", &self.model_streaming)
             .field("model_batch", &self.model_batch)
+            .field("language", &self.language)
+            .field("language_model", &self.language_model)
             .field("api_key", &self.api_key.as_ref().map(|_| "[REDACTED]"))
             .finish()
     }
@@ -750,6 +768,69 @@ impl FinishedTake {
     }
 }
 
+/// Cleanup state of the finished take.
+///
+/// Read through [`SessionController::clean_state`]. It says whether a repair is
+/// possible and whether the screen already shows one; the wand's own
+/// [`CleanStatus`] adds the in-flight state on top.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CleanState {
+    /// No cleanup model resolves: neither a stored id nor a worker default.
+    Unavailable,
+    /// A repaired transcript is on screen; undo restores the original.
+    Cleaned,
+    /// Idle, with a cleanup model available.
+    Ready,
+}
+
+/// What the cleanup action should do next.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CleanStatus {
+    /// No cleanup model resolves, so there is nothing to call.
+    Unavailable,
+    /// A pass can be started now.
+    Ready,
+    /// A request is outstanding: the action is disabled until it answers.
+    Running,
+    /// A repaired transcript is on screen: the action is disabled and undo is
+    /// offered instead.
+    Cleaned,
+}
+
+/// Label of the "no declared language" entry of the Settings picker.
+///
+/// The entry's value is the empty string, which is what an unset
+/// [`Settings::language`] means.
+pub const AUTO_LANGUAGE_LABEL: &str = "Auto (detect)";
+
+/// Dictation languages offered when the worker reports none.
+///
+/// Pairs of ISO-639-1 code and English label, sorted by label, covering the
+/// languages the supported providers transcribe. The worker's own
+/// `LANGUAGE_OPTIONS` is the authority whenever it arrives; this list keeps an
+/// older worker usable rather than leaving the picker with Auto alone.
+pub const FALLBACK_LANGUAGES: &[(&str, &str)] = &[
+    ("ar", "Arabic"),
+    ("zh", "Chinese"),
+    ("da", "Danish"),
+    ("nl", "Dutch"),
+    ("en", "English"),
+    ("fi", "Finnish"),
+    ("fr", "French"),
+    ("de", "German"),
+    ("hi", "Hindi"),
+    ("it", "Italian"),
+    ("ja", "Japanese"),
+    ("ko", "Korean"),
+    ("no", "Norwegian"),
+    ("pl", "Polish"),
+    ("pt", "Portuguese"),
+    ("ru", "Russian"),
+    ("es", "Spanish"),
+    ("sv", "Swedish"),
+    ("tr", "Turkish"),
+];
+
 /// Owns the session machine, the setup draft, the finished-take result and
 /// the live take telemetry.
 pub struct SessionController {
@@ -765,6 +846,25 @@ pub struct SessionController {
     /// the suggested save name; `None` for a live take.
     finished_file_stem: Option<String>,
     result: Option<FinishedTake>,
+    /// The cleanup request in flight, if any: its id is what a `Cleaned` or a
+    /// correlated `Error` must name to be accepted.
+    clean_pending: Option<String>,
+    /// Monotonic cleanup counter, reset by [`Self::forget_clean`]. The request
+    /// id is `clean-<take>-<n>`, so an id issued for an earlier take can never
+    /// match a later one even though the counter restarts.
+    clean_seq: u64,
+    /// The finished take's committed and live text before the last repair.
+    /// `Some` exactly while the screen shows a repaired transcript, which is
+    /// what both the undo action and [`CleanState::Cleaned`] read.
+    clean_original: Option<(SharedString, SharedString)>,
+    /// Text models the worker offers for the cleanup pass.
+    language_models: Option<Vec<LanguageModelInfo>>,
+    /// The worker's own default cleanup model (`DEFAULT_LANGUAGE_MODEL`, else
+    /// its fallback), used when no id is stored.
+    default_language_model: Option<String>,
+    /// Dictation languages the worker offers. `None` when it reported none,
+    /// in which case [`FALLBACK_LANGUAGES`] is offered.
+    languages: Option<Vec<LanguageOption>>,
     /// Monotonic take counter; the wire id is `take-{session_id}`.
     session_id: u64,
     transcript: TranscriptBuffer,
@@ -831,6 +931,13 @@ impl fmt::Debug for SessionController {
             .field("draft", &self.draft)
             .field("pending_file", &self.pending_file)
             .field("result", &self.result)
+            .field("clean_pending", &self.clean_pending)
+            .field("clean_seq", &self.clean_seq)
+            .field("clean_original", &self.clean_original)
+            .field(
+                "language_model_count",
+                &self.languages.as_ref().map(Vec::len),
+            )
             .field("session_id", &self.session_id)
             .field("transcript", &self.transcript)
             .field("waveform_bars", &self.waveform_bars)
@@ -881,6 +988,12 @@ impl SessionController {
             pending_file: None,
             finished_file_stem: None,
             result: None,
+            clean_pending: None,
+            clean_seq: 0,
+            clean_original: None,
+            language_models: None,
+            default_language_model: None,
+            languages: None,
             session_id: 0,
             transcript: TranscriptBuffer::default(),
             waveform_bars: idle_waveform(),
@@ -1548,6 +1661,326 @@ impl SessionController {
         self.settings.as_ref()
     }
 
+    // ----- Cleanup -----------------------------------------------------
+
+    /// Whether a repair can run at all, and whether one is on screen.
+    ///
+    /// This answers the model question only; whether the take on screen is
+    /// worth repairing is [`Self::can_clean_transcript`]'s question.
+    #[must_use]
+    pub fn clean_state(&self) -> CleanState {
+        if self.clean_original.is_some() {
+            CleanState::Cleaned
+        } else if self.cleanup_model().is_some() {
+            CleanState::Ready
+        } else {
+            CleanState::Unavailable
+        }
+    }
+
+    /// What the cleanup action should do next, including the in-flight state.
+    #[must_use]
+    pub fn clean_status(&self) -> CleanStatus {
+        if self.clean_is_running() {
+            return CleanStatus::Running;
+        }
+        match self.clean_state() {
+            CleanState::Unavailable => CleanStatus::Unavailable,
+            CleanState::Cleaned => CleanStatus::Cleaned,
+            CleanState::Ready => CleanStatus::Ready,
+        }
+    }
+
+    /// The model a repair would call: the stored id, else the worker default.
+    ///
+    /// `None` when neither resolves, which is what disables the cleanup action.
+    #[must_use]
+    pub fn cleanup_model(&self) -> Option<&str> {
+        let stored = self
+            .settings
+            .as_ref()
+            .map(|settings| settings.language_model.trim())
+            .filter(|model| !model.is_empty());
+        stored.or_else(|| self.default_cleanup_model())
+    }
+
+    /// The model the worker would use when no id is stored.
+    ///
+    /// The Settings dialog shows it so the row reads as configured instead of
+    /// blank, even on an install that never chose a model.
+    #[must_use]
+    pub fn default_cleanup_model(&self) -> Option<&str> {
+        self.default_language_model
+            .as_deref()
+            .map(str::trim)
+            .filter(|model| !model.is_empty())
+    }
+
+    /// The text models the worker offers for the cleanup pass.
+    ///
+    /// Empty when the worker reported none (an older worker, or discovery
+    /// that found no language models).
+    #[must_use]
+    pub fn cleanup_models(&self) -> &[LanguageModelInfo] {
+        self.language_models.as_deref().unwrap_or(&[])
+    }
+
+    /// `true` when a repair can be started: a finished non-empty take, a
+    /// resolved model, no request in flight and no repair on screen.
+    #[must_use]
+    pub fn can_clean_transcript(&self) -> bool {
+        self.result.is_some()
+            && !self.finished_take_is_empty()
+            && self.cleanup_model().is_some()
+            && !self.clean_is_running()
+            && self.clean_original.is_none()
+    }
+
+    /// `true` while a repair request is outstanding.
+    #[must_use]
+    pub fn clean_is_running(&self) -> bool {
+        self.clean_pending.is_some()
+    }
+
+    /// The finished take's text exactly as the screen shows it.
+    ///
+    /// The cleanup request is built from this, and Copy, Save and the automatic
+    /// paste read the same pair, so a repaired transcript is what leaves the
+    /// widget.
+    #[must_use]
+    pub fn displayed_transcript(&self) -> String {
+        self.result
+            .as_ref()
+            .map(|result| joined_text(&result.committed, &result.live))
+            .unwrap_or_default()
+    }
+
+    /// The dictation language every new take declares, as an ISO-639-1 code.
+    ///
+    /// `None` for Auto: the command then omits the key and the provider
+    /// detects the language itself.
+    #[must_use]
+    pub fn dictation_language(&self) -> Option<String> {
+        self.settings.as_ref()?.language()
+    }
+
+    /// Records the cleanup catalogue and the offered dictation languages.
+    ///
+    /// A worker that reports no languages leaves [`FALLBACK_LANGUAGES`] in
+    /// place, so the Settings pickers keep working against an older worker; an
+    /// empty list is treated as "reported none" for the same reason.
+    pub fn set_language_catalogue(
+        &mut self,
+        languages: Option<Vec<LanguageOption>>,
+        language_models: Option<Vec<LanguageModelInfo>>,
+        default_language_model: Option<String>,
+    ) {
+        self.languages = languages.filter(|languages| !languages.is_empty());
+        self.language_models = language_models;
+        self.default_language_model = default_language_model;
+    }
+
+    /// The dictation languages the Settings picker offers, Auto first.
+    ///
+    /// Auto is the empty id — what an unset [`Settings::language`] means — and
+    /// the rest come from the worker, or from [`FALLBACK_LANGUAGES`] when it
+    /// reports none.
+    #[must_use]
+    pub fn settings_language_options(&self) -> Vec<SelectOption> {
+        let mut options = vec![SelectOption {
+            id: String::new(),
+            label: AUTO_LANGUAGE_LABEL.to_owned(),
+            mode: None,
+        }];
+        options.extend(
+            self.offered_languages()
+                .into_iter()
+                .map(|language| SelectOption {
+                    id: language.code,
+                    label: language.label,
+                    mode: None,
+                }),
+        );
+        options
+    }
+
+    /// The languages the worker published, else the built-in list.
+    fn offered_languages(&self) -> Vec<LanguageOption> {
+        self.languages.clone().unwrap_or_else(|| {
+            FALLBACK_LANGUAGES
+                .iter()
+                .map(|(code, label)| LanguageOption {
+                    code: (*code).to_owned(),
+                    label: (*label).to_owned(),
+                })
+                .collect()
+        })
+    }
+
+    /// The cleanup-model ids the Settings picker offers, in catalogue order.
+    #[must_use]
+    pub fn settings_cleanup_model_options(&self) -> Vec<SelectOption> {
+        self.cleanup_models()
+            .iter()
+            .map(|model| SelectOption {
+                id: model.id.clone(),
+                label: model.label.clone(),
+                mode: None,
+            })
+            .collect()
+    }
+
+    /// Selects the dictation language in the Settings draft.
+    ///
+    /// The empty code is Auto. Any other code must be one the picker offers, so
+    /// the dialog cannot store a language no provider can be told about.
+    pub fn set_settings_language(&mut self, code: &str) -> bool {
+        let code = code.trim().to_ascii_lowercase();
+        if code.is_empty() {
+            self.settings_draft.language = None;
+            return true;
+        }
+        if !self
+            .offered_languages()
+            .iter()
+            .any(|language| language.code == code)
+        {
+            return false;
+        }
+        self.settings_draft.language = Some(code);
+        true
+    }
+
+    /// Selects the cleanup model in the Settings draft.
+    ///
+    /// The empty id means "use the worker's default". When the catalogue lists
+    /// language models the id must be one of them; a worker that lists none
+    /// accepts any non-empty id, which is what the free-text fallback needs.
+    pub fn set_settings_cleanup_model(&mut self, model: &str) -> bool {
+        let model = model.trim();
+        if model.is_empty() {
+            self.settings_draft.language_model = None;
+            return true;
+        }
+        let offered = self.cleanup_models();
+        if !offered.is_empty() && !offered.iter().any(|option| option.id == model) {
+            return false;
+        }
+        self.settings_draft.language_model = Some(model.to_owned());
+        true
+    }
+
+    /// Starts one repair request and returns the id to send, or `None` when no
+    /// pass can be taken.
+    ///
+    /// The id embeds the take counter, so a late answer issued for a previous
+    /// take can never match [`Self::apply_cleaned`].
+    pub fn begin_clean_transcript(&mut self) -> Option<String> {
+        if !self.can_clean_transcript() {
+            return None;
+        }
+        self.clean_seq += 1;
+        let request_id = format!("clean-{}-{}", self.session_id, self.clean_seq);
+        self.clean_pending = Some(request_id.clone());
+        Some(request_id)
+    }
+
+    /// The `CleanTranscript` command answering `request_id`.
+    ///
+    /// Provider and key are resolved exactly as `Start` resolves them, so the
+    /// repair reaches the provider the take used. `None` — having changed
+    /// nothing — when no model resolves, the displayed text is blank, or the
+    /// provider has no stored key; the caller reports the failure and drops the
+    /// request.
+    #[must_use]
+    pub fn clean_transcript_command(&self, request_id: &str) -> Option<SttCommand> {
+        let provider = self.active_provider();
+        let model = self.cleanup_model()?.to_owned();
+        let text = self.displayed_transcript();
+        if text.trim().is_empty() {
+            return None;
+        }
+        let api_key = self
+            .settings
+            .as_ref()
+            .and_then(|settings| settings.api_key(&provider))
+            .map(SecretString::new);
+        api_key.as_ref()?;
+        Some(SttCommand::CleanTranscript {
+            request_id: request_id.to_owned(),
+            provider,
+            model,
+            text,
+            language: self.dictation_language(),
+            api_key,
+        })
+    }
+
+    /// Folds a successful repair: keeps the original pair for undo and makes
+    /// the repaired text the whole displayed take.
+    ///
+    /// Returns `false` — after settling the request — for an id that is not the
+    /// outstanding one, and for an answer with no usable text: a blank answer
+    /// must never erase the transcript already on screen.
+    pub fn apply_cleaned(&mut self, request_id: &str, text: &str) -> bool {
+        if self.clean_pending.as_deref() != Some(request_id) {
+            return false;
+        }
+        self.clean_pending = None;
+
+        let text = text.trim();
+        if text.is_empty() {
+            return false;
+        }
+        let Some(result) = self.result.as_mut() else {
+            return false;
+        };
+        self.clean_original = Some((result.committed.clone(), result.live.clone()));
+        result.committed = text.into();
+        result.live = SharedString::default();
+        self.output_status = Some("Cleaned".into());
+        true
+    }
+
+    /// Folds a failed repair: drops the outstanding request and reports the
+    /// typed error, leaving the transcript untouched.
+    ///
+    /// Returns `false` — reporting nothing — for an id that is not the
+    /// outstanding one, so a stale failure cannot raise the strip.
+    pub fn fail_clean_transcript(&mut self, request_id: &str, error: AppError) -> bool {
+        if self.clean_pending.as_deref() != Some(request_id) {
+            return false;
+        }
+        self.clean_pending = None;
+        self.report_error(error);
+        true
+    }
+
+    /// Restores the text the take had before the last repair.
+    ///
+    /// Returns `false` when no repaired text is on screen, so the action is
+    /// inert outside [`CleanState::Cleaned`].
+    pub fn undo_clean_transcript(&mut self) -> bool {
+        let Some((committed, live)) = self.clean_original.take() else {
+            return false;
+        };
+        let Some(result) = self.result.as_mut() else {
+            return false;
+        };
+        result.committed = committed;
+        result.live = live;
+        self.output_status = Some("Original restored".into());
+        true
+    }
+
+    /// Drops every trace of the cleanup of a finished take: no request in
+    /// flight, nothing to undo, and a request counter that restarts.
+    fn forget_clean(&mut self) {
+        self.clean_pending = None;
+        self.clean_seq = 0;
+        self.clean_original = None;
+    }
+
     // ----- Backend wiring ----------------------------------------------
 
     /// Attach the duplex backend. Its event stream (if any) is exposed by
@@ -1570,7 +2003,11 @@ impl SessionController {
     /// Fold one inbound backend event into live take state.
     ///
     /// Events from a previous take are ignored so a late packet cannot corrupt
-    /// the current one. `Ready` and session-less errors are global.
+    /// the current one. `Ready` and session-less errors are global. A `Cleaned`
+    /// answer and an error carrying a `request_id` are routed to the cleanup
+    /// state machine instead of the transcript; a cleanup error whose id is not
+    /// outstanding falls through, so an unexpected failure still reaches the
+    /// strip.
     pub fn handle_stt_event(&mut self, event: SttEvent) {
         let accepted = self.accepts_session(event.session_id());
         if crate::diagnostics::transcript_trace_enabled() {
@@ -1578,6 +2015,34 @@ impl SessionController {
         }
         if !accepted {
             return;
+        }
+
+        if let SttEvent::Cleaned { request_id, text } = &event {
+            self.apply_cleaned(request_id, text);
+            return;
+        }
+
+        // A failed repair answers the action that asked for it; an id that is
+        // not outstanding falls through, so an unexpected failure still reaches
+        // the strip.
+        if let SttEvent::Error {
+            request_id: Some(request_id),
+            code,
+            message,
+            ..
+        } = &event
+        {
+            let provider = self.active_provider();
+            // A cleanup names its own failure: the take and its transcript are
+            // intact, so a backend-flavoured message would mislead.
+            let error = if code == "cleanup_failed" {
+                AppError::CleanupFailed
+            } else {
+                AppError::from_stt_error(code, message, &provider)
+            };
+            if self.fail_clean_transcript(request_id, error) {
+                return;
+            }
         }
 
         if let SttEvent::Error { code, message, .. } = &event {
@@ -1597,10 +2062,20 @@ impl SessionController {
         }
 
         if let SttEvent::Capabilities {
-            providers, source, ..
+            providers,
+            source,
+            languages,
+            language_models,
+            default_language_model,
+            ..
         } = &event
         {
             self.apply_capabilities(providers.clone(), *source);
+            self.set_language_catalogue(
+                languages.clone(),
+                language_models.clone(),
+                default_language_model.clone(),
+            );
             return;
         }
 
@@ -1686,10 +2161,30 @@ impl SessionController {
         self.elapsed_seconds = self.elapsed_base.as_secs().min(u64::from(u32::MAX)) as u32;
     }
 
-    /// Provider used for error attribution: the active session wins, then the
-    /// persisted default.
-    fn active_provider(&self) -> String {
-        if let Some(provider) = self.machine.config().provider.clone() {
+    /// Provider the current take runs on: the session's frozen configuration,
+    /// the finished take that is on screen, then the persisted default.
+    ///
+    /// The cleanup request and error attribution both read it, so a repair
+    /// always names the provider its take used — the machine forgets its
+    /// configuration when the take ends, but the finished take keeps the
+    /// provider it ran on.
+    #[must_use]
+    pub fn active_provider(&self) -> String {
+        if let Some(provider) = self
+            .machine
+            .config()
+            .provider
+            .clone()
+            .filter(|provider| !provider.trim().is_empty())
+        {
+            return provider;
+        }
+        if let Some(provider) = self
+            .result
+            .as_ref()
+            .map(|result| result.session().provider.trim().to_owned())
+            .filter(|provider| !provider.is_empty())
+        {
             return provider;
         }
         self.settings
@@ -1773,6 +2268,8 @@ impl SessionController {
             provider: None,
             model_streaming: None,
             model_batch: None,
+            language: None,
+            language_model: None,
             api_key: String::new(),
             api_key_unchanged,
         };
@@ -1786,6 +2283,15 @@ impl SessionController {
                 self.set_settings_batch_model(model);
             }
         }
+        // The dictation language and the cleanup model are settings-level
+        // choices with no per-take counterpart, so the draft starts from what is
+        // stored: Auto and "use the worker default" when nothing is.
+        let stored = self.settings.clone();
+        self.settings_draft.language = stored.as_ref().and_then(Settings::language);
+        self.settings_draft.language_model = stored
+            .as_ref()
+            .map(|settings| settings.language_model.trim().to_owned())
+            .filter(|model| !model.is_empty());
         self.active_dialog = Some(Dialog::Settings);
     }
 
@@ -1883,6 +2389,8 @@ impl SessionController {
             provider: self.settings_draft.provider.clone()?,
             model_streaming: self.settings_draft.model_streaming.clone()?,
             model_batch: self.settings_draft.model_batch.clone()?,
+            language: self.settings_draft.language.clone(),
+            language_model: self.settings_draft.language_model.clone(),
             api_key: if self.settings_draft.api_key_unchanged {
                 None
             } else {
@@ -1914,6 +2422,7 @@ impl SessionController {
         self.draft = SessionDraft::default();
         self.pending_file = None;
         self.finished_file_stem = None;
+        self.forget_clean();
 
         if mode == SessionMode::File {
             // The native picker is open; cancelling it must leave no trace.
@@ -1944,6 +2453,7 @@ impl SessionController {
         self.result = None;
         self.output_status = None;
         self.written_path = None;
+        self.forget_clean();
         self.seed_draft_from_settings();
         Ok(())
     }
@@ -1978,6 +2488,7 @@ impl SessionController {
         self.progress = None;
         self.output_status = None;
         self.written_path = None;
+        self.forget_clean();
         true
     }
 
@@ -2110,6 +2621,7 @@ impl SessionController {
         self.app_error = None;
         self.output_status = None;
         self.written_path = None;
+        self.forget_clean();
     }
 
     /// Selects the draft provider by catalogue id.
@@ -2265,12 +2777,14 @@ impl SessionController {
         self.finished_file_stem = None;
         self.file_display_name = None;
         self.file_take_stopped_early = false;
+        self.forget_clean();
 
         let start = SttCommand::Start {
             session_id: self.session_label(),
             provider,
             model,
             sample_rate: SAMPLE_RATE,
+            language: self.dictation_language(),
             api_key,
         };
         self.last_start = Some(start.clone());
@@ -2345,6 +2859,7 @@ impl SessionController {
         self.finished_file_stem = Some(stem);
         self.file_display_name = Some(file_name);
         self.file_take_stopped_early = false;
+        self.forget_clean();
 
         if self.machine.start().is_err() {
             return Ok(());
@@ -2373,6 +2888,7 @@ impl SessionController {
             provider,
             model,
             path: display,
+            language: self.dictation_language(),
             api_key,
         });
 
@@ -2447,6 +2963,7 @@ impl SessionController {
         self.final_transcript_pending = true;
         self.pending_auto_paste = self.auto_paste_enabled();
 
+        self.forget_clean();
         let (committed, live) = self.finished_transcript();
         self.result = Some(FinishedTake {
             session,
@@ -2480,6 +2997,7 @@ impl SessionController {
         self.accrue_elapsed(Instant::now());
         self.segment_started = None;
         self.file_take = false;
+        self.forget_clean();
         let (committed, live) = self.finished_transcript();
         self.result = Some(FinishedTake {
             session,
@@ -2567,6 +3085,7 @@ impl SessionController {
         self.written_path = None;
         self.pending_auto_paste = false;
         self.final_transcript_pending = false;
+        self.forget_clean();
     }
 
     /// Leave the result screen and start over from the mode chooser.
@@ -2591,6 +3110,7 @@ impl SessionController {
         self.written_path = None;
         self.pending_auto_paste = false;
         self.final_transcript_pending = false;
+        self.forget_clean();
     }
 
     /// Apply a hotkey action through the same guards as its button.
@@ -2843,7 +3363,12 @@ impl SessionController {
         error
     }
 
-    fn send_command(&mut self, command: SttCommand) {
+    /// Sends one command on the attached sink.
+    ///
+    /// A send failure is reported as a typed error and changes nothing else;
+    /// with no sink attached the command is dropped, which is how the headless
+    /// fixtures run without a worker.
+    pub fn send_command(&mut self, command: SttCommand) {
         let Some(sink) = self.sink.as_mut() else {
             return;
         };
@@ -3064,6 +3589,8 @@ mod tests {
                 provider: "vercel-ai-gateway".to_string(),
                 model_streaming: "openai/gpt-realtime-whisper".to_string(),
                 model_batch: "openai/gpt-4o-transcribe".to_string(),
+                language: None,
+                language_model: None,
                 api_key: Some("sk-test-key".to_string()),
             }
         );

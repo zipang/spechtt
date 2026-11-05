@@ -1,5 +1,11 @@
 //! Settings dialog, per `mockups/dialogs/settings.png`.
 //!
+//! Six rows, top to bottom: **Dictation Language** (Auto first — it is what the
+//! transcriber is told, so it leads the model rows), **Transcription Service**,
+//! the two take defaults, **Cleanup Model** and the API key. Each dropdown is a
+//! component owned by `views::dialogs::window`; this file only composes the rows
+//! and passes the current values.
+//!
 //! The dialog edits a draft (see `controller::SettingsDraft`); saving stages a
 //! `SettingsChange` through `SpeechTtApp::apply_settings_change`, which writes
 //! it to the Rust settings store.
@@ -13,8 +19,8 @@ use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, Context, IntoElement};
 
 use crate::components::{
-    ActionButton, AppFooter, Body, InfoNote, Label, ModelSelect, ProviderSelect, SettingRow,
-    StatusBadge, StatusDot, TranscriptionModeBadge,
+    ActionButton, AppFooter, Body, InfoNote, Label, LanguageSelect, ModelSelect, ProviderSelect,
+    SettingRow, StatusBadge, StatusDot, TranscriptionModeBadge,
 };
 use speechtt_core::protocol::TranscriptionMode;
 
@@ -36,6 +42,8 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
         reveal_enabled,
         stored_key_label,
         stored_key_hint,
+        has_cleanup_models,
+        resolved_cleanup_model,
     ) = {
         let app = dialog.app().read(cx);
         let controller = app.controller();
@@ -64,6 +72,10 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
             app.settings_key_reveal_enabled(),
             app.settings_stored_key_label(),
             app.settings_stored_key_hint(),
+            !controller.cleanup_models().is_empty(),
+            controller
+                .default_cleanup_model()
+                .map(std::string::ToString::to_string),
         )
     };
 
@@ -97,6 +109,29 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
     };
     let streaming_control = model_control(streaming_select.into_any_element(), streaming_mode);
     let batch_control = model_control(batch_select.into_any_element(), batch_mode);
+
+    let language_select =
+        LanguageSelect::new("field-settings-language", dialog.selects().language());
+
+    // A worker that discovered no language model leaves the row without a
+    // menu: the resolved default id is shown instead, so the setting still
+    // reads as configured.
+    let cleanup_control = if has_cleanup_models {
+        // The trigger names the model that would actually be used, so the row
+        // reads as configured on an install that never chose one. The stored
+        // value stays empty in that case: the worker keeps owning its default.
+        let placeholder = resolved_cleanup_model.map_or_else(
+            || "Use DEFAULT_LANGUAGE_MODEL".to_owned(),
+            |model| format!("Use {model} (default)"),
+        );
+        ModelSelect::new("field-settings-cleanup", dialog.selects().cleanup())
+            .placeholder(placeholder)
+            .into_any_element()
+    } else {
+        Label::new(resolved_cleanup_model.unwrap_or_else(|| "Not configured".to_owned()))
+            .mono()
+            .into_any_element()
+    };
 
     let badge = if connected {
         h_flex()
@@ -182,6 +217,14 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
 
     DialogShell::new()
         .body(
+            SettingRow::new(
+                "Dictation Language",
+                "The language you speak; improves accuracy",
+            )
+            .prominent()
+            .control(language_select),
+        )
+        .body(
             SettingRow::new("Transcription Service", "The default backend API provider")
                 .prominent()
                 .control(provider_select),
@@ -195,6 +238,14 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
             SettingRow::new("Default Batch Model", "Used for audio and video files")
                 .prominent()
                 .control(batch_control),
+        )
+        .body(
+            SettingRow::new(
+                "Cleanup Model",
+                "Repairs typos and broken sentences after transcription",
+            )
+            .prominent()
+            .control(cleanup_control),
         )
         .body(api_key)
         .body(note)

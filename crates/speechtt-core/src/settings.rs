@@ -110,6 +110,13 @@ pub struct Settings {
     /// keys instead. It is skipped when empty, so a migrated file drops the key.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub model: String,
+    /// Cleanup model id. Empty means "use `DEFAULT_LANGUAGE_MODEL`, else the
+    /// worker's fallback".
+    pub language_model: String,
+    /// ISO-639-1 code of the dictation language, e.g. `fr`. Empty means
+    /// "let the provider detect it". Read through [`Settings::language`], which
+    /// is the only supported way to turn it into a wire value.
+    pub language: String,
     /// Provider id -> API key. Serialized, but never exposed by `Debug`.
     pub api_keys: BTreeMap<String, SecretString>,
     /// Action name -> shortcut string (for example `startRecording` ->
@@ -129,6 +136,8 @@ impl Default for Settings {
             model_streaming: String::new(),
             model_batch: String::new(),
             model: String::new(),
+            language_model: String::new(),
+            language: String::new(),
             api_keys: BTreeMap::new(),
             shortcuts: BTreeMap::new(),
             auto_paste: true,
@@ -145,6 +154,8 @@ impl fmt::Debug for Settings {
             .field("model_streaming", &self.model_streaming)
             .field("model_batch", &self.model_batch)
             .field("legacy_model_present", &!self.model.is_empty())
+            .field("language_model", &self.language_model)
+            .field("language", &self.language)
             .field("api_keys", &"[REDACTED]")
             .field("shortcuts", &self.shortcuts)
             .field("auto_paste", &self.auto_paste)
@@ -231,12 +242,29 @@ impl Settings {
         Some(format!("{first}…{last}"))
     }
 
+    /// The dictation language as a lowercase ISO-639-1 code, e.g. `fr`.
+    ///
+    /// `None` when nothing is stored, or when the stored value is not exactly
+    /// two ASCII letters after trimming — a corrupt or hand-edited file must
+    /// never send an arbitrary string to a provider. This is the only supported
+    /// way to turn the persisted field into a wire value; the raw field keeps
+    /// whatever the user's file holds so a save never rewrites it silently.
+    #[must_use]
+    pub fn language(&self) -> Option<String> {
+        let code = self.language.trim().to_ascii_lowercase();
+        let is_iso_639_1 = code.len() == 2 && code.bytes().all(|byte| byte.is_ascii_alphabetic());
+        is_iso_639_1.then_some(code)
+    }
+
     /// Checks the fields the core layer requires: a non-empty provider and one
     /// default model per take mode. Unknown provider ids are allowed because the
     /// Bun registry, not the core, owns provider discovery.
     ///
     /// Both defaults are required because every take — live or from a file —
     /// must start from a model of the right mode without asking the user again.
+    /// The cleanup model and the dictation language are deliberately not
+    /// required: a take starts without either, the wand stays disabled without a
+    /// cleanup model, and the transcriber keeps detecting the language.
     ///
     /// # Errors
     ///
@@ -507,6 +535,8 @@ mod tests {
             model_streaming: "openai/gpt-realtime-whisper".to_owned(),
             model_batch: "mistral/voxtral-mini-transcribe-3".to_owned(),
             model: String::new(),
+            language_model: String::new(),
+            language: String::new(),
             api_keys: BTreeMap::from([(
                 DEFAULT_PROVIDER.to_owned(),
                 SecretString::new("sk-live-secret-123456"),
@@ -706,6 +736,111 @@ mod tests {
         };
 
         assert!(settings.validate().is_ok());
+    }
+
+    #[test]
+    fn the_cleanup_model_and_dictation_language_default_to_empty() {
+        let settings = Settings::default();
+
+        assert!(settings.language_model.is_empty());
+        assert!(settings.language.is_empty());
+        assert_eq!(settings.language(), None);
+    }
+
+    #[test]
+    fn the_cleanup_model_and_language_round_trip_through_json() {
+        let settings = Settings {
+            language_model: "openai/gpt-4.1-mini".to_owned(),
+            language: "fr".to_owned(),
+            ..sample_settings()
+        };
+
+        let json = serde_json::to_string(&settings).expect("serialize settings");
+        assert!(
+            json.contains(r#""language_model":"openai/gpt-4.1-mini""#),
+            "{json}"
+        );
+        assert!(json.contains(r#""language":"fr""#), "{json}");
+
+        let restored: Settings = serde_json::from_str(&json).expect("deserialize settings");
+        assert_eq!(restored, settings);
+        assert_eq!(restored.language_model, "openai/gpt-4.1-mini");
+        assert_eq!(restored.language, "fr");
+    }
+
+    #[test]
+    fn debug_shows_the_cleanup_model_and_language() {
+        let settings = Settings {
+            language_model: "openai/gpt-4.1-mini".to_owned(),
+            language: "fr".to_owned(),
+            ..sample_settings()
+        };
+
+        let debug = format!("{settings:?}");
+
+        assert!(debug.contains("openai/gpt-4.1-mini"), "{debug}");
+        assert!(debug.contains("\"fr\""), "{debug}");
+        assert!(!debug.contains("sk-live-secret-123456"), "{debug}");
+    }
+
+    #[test]
+    fn a_take_stays_startable_without_a_cleanup_model_or_a_language() {
+        let settings = sample_settings();
+
+        assert!(settings.language_model.is_empty());
+        assert!(settings.language.is_empty());
+        assert!(
+            settings.validate().is_ok(),
+            "neither field is required to start a take"
+        );
+    }
+
+    #[test]
+    fn the_dictation_language_is_normalized_to_a_two_letter_code() {
+        let cases = [
+            ("fr", Some("fr")),
+            ("  FR ", Some("fr")),
+            ("De", Some("de")),
+            ("", None),
+            ("   ", None),
+            ("french", None),
+            ("f", None),
+            ("fra", None),
+            ("fr-FR", None),
+            ("éé", None),
+        ];
+
+        for (stored, expected) in cases {
+            let settings = Settings {
+                language: stored.to_owned(),
+                ..sample_settings()
+            };
+            assert_eq!(
+                settings.language().as_deref(),
+                expected,
+                "stored {stored:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_stored_language_that_is_not_an_iso_code_survives_the_round_trip_but_resolves_to_none() {
+        let dir = TempDir::new("bad-language");
+        let store = JsonFileStore::new(dir.join("settings.json"));
+        let settings = Settings {
+            language: "not-a-language".to_owned(),
+            ..sample_settings()
+        };
+
+        store.save(&settings).expect("save settings");
+        let loaded = store.load().expect("load settings");
+
+        assert_eq!(loaded.language, "not-a-language");
+        assert_eq!(
+            loaded.language(),
+            None,
+            "a corrupt value must never reach a provider"
+        );
     }
 
     // T6.2 — store -------------------------------------------------------

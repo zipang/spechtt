@@ -41,7 +41,8 @@ gpui_kit::assets::icon_assets!(
         FileText,
         FileUp,
         Zap,
-        Scissors
+        Scissors,
+        WandSparkles
     ]
 );
 

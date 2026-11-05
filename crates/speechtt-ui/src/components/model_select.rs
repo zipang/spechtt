@@ -4,9 +4,11 @@
 //! Rendered by `views::session_setup` and `views::dialogs::settings`, which
 //! compose [`ProviderSelect`] and [`ModelSelect`] into their form rows.
 //! `SpeechTtApp` owns one [`SelectFields`] pair for the setup form and refreshes
-//! it from a [`SelectSnapshot`]; `DialogWindow` owns the [`SettingsSelectFields`]
-//! trio and refreshes it from a [`SettingsSnapshot`], so the dialog can offer one
-//! default model per take mode.
+//! it from a [`SelectSnapshot`]; `DialogWindow` owns the
+//! [`SettingsSelectFields`] quartet — provider, the two take defaults, the
+//! cleanup model — plus the dictation-language menu from
+//! [`crate::components::LanguageSelect`], and refreshes them from a
+//! [`SettingsSnapshot`].
 //!
 //! Implements `DESIGN.md` § "Session setup form" and § "Settings panel": the
 //! rows reuse the existing [`TranscriptionModeBadge`] and no new chip, colour
@@ -20,7 +22,8 @@ use gpui_kit::{App, ElementId, Entity, IntoElement, RenderOnce, SharedString, Wi
 
 use speechtt_core::protocol::TranscriptionMode;
 
-use crate::components::{Label, TranscriptionModeBadge};
+use crate::components::language_select::apply_languages;
+use crate::components::{Label, LanguageItem, TranscriptionModeBadge};
 use crate::controller::SelectOption;
 
 /// Case-insensitive substring match over an id or a label.
@@ -320,7 +323,8 @@ impl SelectFields {
 }
 
 /// The choices and selections the Settings dialog should show: every provider,
-/// the streaming default and the batch default.
+/// the streaming default, the batch default, the cleanup model and the dictation
+/// language.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SettingsSnapshot {
     pub providers: Vec<SelectOption>,
@@ -329,6 +333,14 @@ pub struct SettingsSnapshot {
     pub selected_streaming_model: Option<String>,
     pub batch_models: Vec<SelectOption>,
     pub selected_batch_model: Option<String>,
+    /// Text models offered for the cleanup pass; empty when the worker reports
+    /// none, in which case the dialog names the resolved default instead of
+    /// showing a menu.
+    pub cleanup_models: Vec<SelectOption>,
+    pub selected_cleanup_model: Option<String>,
+    /// Offered dictation languages, Auto first.
+    pub languages: Vec<SelectOption>,
+    pub selected_language: Option<String>,
 }
 
 impl SettingsSnapshot {
@@ -339,17 +351,21 @@ impl SettingsSnapshot {
     }
 }
 
-/// The Settings dialog's three select states: provider, streaming default and
-/// batch default, plus the snapshot they were last built from.
+/// The Settings dialog's select states — provider, streaming default, batch
+/// default, cleanup model and dictation language — plus the snapshot they were
+/// last built from.
 pub struct SettingsSelectFields {
     provider: Entity<SelectState<SearchableVec<ProviderOption>>>,
     streaming: Entity<SelectState<SearchableVec<ModelOption>>>,
     batch: Entity<SelectState<SearchableVec<ModelOption>>>,
+    cleanup: Entity<SelectState<SearchableVec<ModelOption>>>,
+    language: Entity<SelectState<SearchableVec<LanguageItem>>>,
     applied: Option<SettingsSnapshot>,
 }
 
 impl SettingsSelectFields {
-    /// Creates the three states empty. Both model menus are searchable.
+    /// Creates every state empty. Both take-default menus and the cleanup menu
+    /// are searchable; the provider and language menus are not.
     pub fn new(window: &mut Window, cx: &mut App) -> Self {
         let provider = cx.new(|cx| {
             SelectState::new(
@@ -361,10 +377,21 @@ impl SettingsSelectFields {
         });
         let streaming = cx.new(|cx| searchable_model_state(window, cx));
         let batch = cx.new(|cx| searchable_model_state(window, cx));
+        let cleanup = cx.new(|cx| searchable_model_state(window, cx));
+        let language = cx.new(|cx| {
+            SelectState::new(
+                SearchableVec::new(Vec::<LanguageItem>::new()),
+                None,
+                window,
+                cx,
+            )
+        });
         Self {
             provider,
             streaming,
             batch,
+            cleanup,
+            language,
             applied: None,
         }
     }
@@ -384,7 +411,19 @@ impl SettingsSelectFields {
         &self.batch
     }
 
-    /// Rebuilds the three menus only when `snapshot` differs from the last one
+    /// The cleanup-model menu.
+    #[must_use]
+    pub fn cleanup(&self) -> &Entity<SelectState<SearchableVec<ModelOption>>> {
+        &self.cleanup
+    }
+
+    /// The dictation-language menu.
+    #[must_use]
+    pub fn language(&self) -> &Entity<SelectState<SearchableVec<LanguageItem>>> {
+        &self.language
+    }
+
+    /// Rebuilds the menus only when `snapshot` differs from the last one
     /// applied, using the same rule as [`SelectFields::sync`].
     pub fn sync(&mut self, snapshot: SettingsSnapshot, window: &mut Window, cx: &mut App) -> bool {
         if !snapshot.differs_from(self.applied.as_ref()) {
@@ -408,6 +447,20 @@ impl SettingsSelectFields {
             &self.batch,
             &snapshot.batch_models,
             &snapshot.selected_batch_model,
+            window,
+            cx,
+        );
+        apply_models(
+            &self.cleanup,
+            &snapshot.cleanup_models,
+            &snapshot.selected_cleanup_model,
+            window,
+            cx,
+        );
+        apply_languages(
+            &self.language,
+            &snapshot.languages,
+            &snapshot.selected_language,
             window,
             cx,
         );
@@ -469,7 +522,13 @@ fn searchable_model_state(
 }
 
 /// The selected id as a `SharedString` when the menu still offers it.
-fn offered_value(selected: &Option<String>, options: &[SelectOption]) -> Option<SharedString> {
+///
+/// Shared by every menu in `components`, so the "clear a dangling selection"
+/// rule is written once.
+pub(crate) fn offered_value(
+    selected: &Option<String>,
+    options: &[SelectOption],
+) -> Option<SharedString> {
     let id = selected.as_deref()?;
     options
         .iter()

@@ -4,6 +4,8 @@
 - **Wave**: 1 (independent)
 - **Depends on**: nothing (uses the T0028 dropdowns and the T0029 settings plumbing)
 - **Blocks**: nothing
+- **Owner**: two coding sub-agents (Bun worker track, Rust track), supervised by CTO
+- **Started**: 2026-11-05
 - **References**:
   - `AGENTS.md` §2 (component/view rules), §5 (gates), §6 (official documentation), §9 (secret safety)
   - `DESIGN.md` § "Action buttons", § "Icon buttons", § "Screen footer", § "Settings panel"
@@ -536,7 +538,10 @@ so a wrong name is a compile error, not a blank icon — if it does not exist, u
 - When the worker reports no language models, the row shows a `Label` with the
   resolved default id instead of a menu, so the setting still reads as
   configured.
-- Placeholder: `"Use DEFAULT_LANGUAGE_MODEL"` while the stored field is empty.
+- Placeholder: `"Use <resolved id> (default)"` while the stored field is empty and
+  the worker reported a default (`"Use DEFAULT_LANGUAGE_MODEL"` when it reported
+  none). The trigger therefore names the model that would actually run, and the
+  stored value stays empty so the worker keeps owning its default.
 
 `components/model_select.rs` adds the third state to `SettingsSelectFields`
 (`cleanup`, one `SearchableVec<ModelOption>` with `mode: None`) and the matching
@@ -567,30 +572,30 @@ choice, not a per-take field.
 
 ## TDD Tasks
 
-- [ ] **T30.1 — Red: protocol.** Failing tests in `protocol.rs` for the
+- [x] **T30.1 — Red: protocol.** Failing tests in `protocol.rs` for the
   `CleanTranscript` round-trip (with and without `language`), the `Cleaned` event
   parse, `Error` with and without `request_id` (absent key stays absent), the
   `language` field on `Start` and `TranscribeFile` (absent key stays absent), and
   a `Capabilities` payload with and without the three new fields (`languages`,
   `language_models`, `default_language_model`). Then implement.
-- [ ] **T30.2 — Red: settings.** Failing tests for `language_model` and
+- [x] **T30.2 — Red: settings.** Failing tests for `language_model` and
   `language` (defaults empty, JSON round-trip, `Debug` shows both,
   `validate()` requires neither, `Settings::language()` lowercases and trims and
   rejects a non-ISO-639-1 value). Then implement.
-- [ ] **T30.2b — Red: languages list.** Failing `languages.spec.ts` cases:
+- [x] **T30.2b — Red: languages list.** Failing `languages.spec.ts` cases:
   `LANGUAGE_OPTIONS` codes are unique, lowercase and two letters; labels are
   non-empty and unique; the required core languages are present; the list is
   sorted by label. Then implement `languages.ts`.
-- [ ] **T30.2c — Red: language forwarding.** Failing adapter specs: a session
+- [x] **T30.2c — Red: language forwarding.** Failing adapter specs: a session
   with a language passes `providerOptions.<provider>.language` to
   `streamTranscribe` (streaming) and to `transcribe` (batch); a session without
   one passes no `providerOptions`; an existing `providerOptions` is merged, not
   replaced; `sessionConfigFromStart` copies the command's language. Then
   implement `languageProviderOptions` and wire both adapters.
-- [ ] **T30.2d — Red: capabilities and start payload.** Failing `registry.spec.ts`
+- [x] **T30.2d — Red: capabilities and start payload.** Failing `registry.spec.ts`
   cases: `listCapabilities` reports `languages`; a `start` built from settings
   with a language carries it, and one without omits the key. Then implement.
-- [ ] **T30.3 — Red: worker prompt.** Failing `bun test` cases in `clean.spec.ts`
+- [x] **T30.3 — Red: worker prompt.** Failing `bun test` cases in `clean.spec.ts`
   with a stub `generate`:
   - the prompt carries the instructions and the transcript verbatim, and the
     transcript appears exactly once;
@@ -606,21 +611,21 @@ choice, not a per-take field.
   - `generate` is called with the documented `temperature` parameter.
 
   Then implement `clean.ts`.
-- [ ] **T30.4 — Red: worker routing.** Failing `worker.spec.ts` cases: a
+- [x] **T30.4 — Red: worker routing.** Failing `worker.spec.ts` cases: a
   `cleanTranscript` line emits `cleaned` with the same `requestId`; a missing key
   emits `missing_api_key` with that `requestId`; a thrown error emits
   `cleanup_failed` and never leaks the transcript in `message`; cleanup does not
   disturb an active session. Then route it in `worker.ts`.
-- [ ] **T30.5 — Red: discovery and defaults.** Failing cases: `parseModels`
+- [x] **T30.5 — Red: discovery and defaults.** Failing cases: `parseModels`
   yields language models from `type: "language"` entries while transcription
   models keep their modes; `defaultLanguageModel` prefers
   `DEFAULT_LANGUAGE_MODEL` then the fallback; `listCapabilities` reports both new
   fields. Then implement.
-- [ ] **T30.6 — Red: controller.** Failing unit tests for `clean_status`
+- [x] **T30.6 — Red: controller.** Failing unit tests for `clean_status`
   transitions (unavailable → ready → running → cleaned → ready after undo), the
   stale-request rule, `undo` restoring the original pair, `new_take` clearing the
   state, and Copy/Save/auto-paste following the cleaned text. Then implement.
-- [ ] **T30.7 — Green: app wiring and UI.** Add `clean_transcript`, route
+- [x] **T30.7 — Green: app wiring and UI.** Add `clean_transcript`, route
   `Cleaned`/`Error` in the pump, render the wand + undo in `session_end.rs`, add
   the two Settings rows (Cleanup Model, Dictation Language), the third and fourth
   select states, `components/language_select.rs`, the icon, and the language
@@ -630,11 +635,11 @@ choice, not a per-take field.
     Copy payload and the undo behaviour;
   - choose a language in Settings, save, start a take, assert the sent `Start`
     carries `language: Some("fr")`, and that Auto sends `None`.
-- [ ] **T30.8 — Docs and design.** `DESIGN.md`: the footer action order, the
+- [x] **T30.8 — Docs and design.** `DESIGN.md`: the footer action order, the
   `Dictation Language` row (Auto first) and the `Cleanup Model` row; module
   headers and item docs per `AGENTS.md` §3 (callers named, present tense, no
   ticket ids).
-- [ ] **T30.9 — Gates.** `cargo fmt -- --check`,
+- [x] **T30.9 — Gates.** `cargo fmt -- --check`,
   `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
   `bun check src/stt`, `bun run design:validate`. Record exact counts in
   `## Implementation Notes`.
@@ -672,3 +677,127 @@ choice, not a per-take field.
   component with an existing icon size.
 - All six gates are green with zero warnings and no skipped tests.
 - Final visual review is left to the user.
+
+## Implementation Notes
+
+Delivered by two coding sub-agents in parallel with disjoint scopes (one
+`src/stt/**`, one `crates/**` + `DESIGN.md`), then audited, completed and
+verified by the CTO.
+
+### What each half produced
+
+- **Bun worker** (`T30.1` TS mirror, `T30.2b`–`T30.2d`, `T30.3`–`T30.5`):
+  `languages.ts` (offered list + `languageProviderOptions` + `languageName`),
+  `clean.ts` (prompt, temperature, empty-answer fallback), the protocol mirror,
+  `registry`/`discovery` payloads, `worker` routing, and language forwarding in
+  the streaming and segmented adapters.
+- **Rust** (`T30.1`, `T30.2`, `T30.6`–`T30.8`): protocol shapes, both settings
+  fields with `Settings::language()` normalisation, the cleanup state machine,
+  app wiring, the wand/undo footer actions, the two Settings rows,
+  `components/language_select.rs`, `WandSparkles`, and the language forwarded
+  onto `Start`/`TranscribeFile` and onto `CleanTranscript`.
+
+### Gaps the CTO closed
+
+1. **`adapters/file.ts` did not forward the language.** A file take carried it
+   in its config but never reached `transcribe`, so half the acceptance
+   criterion was unmet. Added per-segment forwarding with `providerOptions` on
+   `FileSessionDeps`, plus three tests (language present, absent → no
+   `providerOptions` key emitted, merged with the caller's options).
+2. **A cleanup failure was reported as a backend failure.** `cleanup_failed`
+   mapped to `AppError::BackendFailed`, whose message blames the transcription
+   backend for a repair that failed. Added `AppError::CleanupFailed`
+   ("The cleanup pass failed. The transcript is unchanged."), mapped it in the
+   event pump and in `diagnostics::variant_name`, and pinned it with a widget
+   test and a controller test.
+3. **The Cleanup Model trigger showed a placeholder, not a model.** The contract
+   asks for an actual id. The placeholder now reads
+   `Use <resolved id> (default)`, so the row names the model that would run; the
+   stored value stays empty so the worker keeps owning its default.
+4. **The Settings dialog was too short for six rows** (the cleanup control
+   started below the fold). `SETTINGS_DIALOG_HEIGHT` 520 → 640.
+5. **No cross-language proof** of the new command/event pair. Added two
+   `bridge_smoke` tests that spawn the real Bun worker with a scrubbed
+   environment: a cleanup answers `Error { request_id, code: "missing_api_key" }`
+   (proving command shape, `requestId` echo and `language` parsing without any
+   network), and a capabilities answer carries `languages` plus a
+   `default_language_model`.
+
+### Accepted deviations from the sub-agents
+
+- `FALLBACK_LANGUAGE_MODEL` / `LANGUAGE_MODEL_ENV` live in `registry.ts` and are
+  re-exported by `clean.ts`: one definition, both documented import paths.
+- `defaultCleanDeps(apiKey)` builds the model with `createGateway({ apiKey })`
+  instead of a bare id string, because a string id resolves through the *global*
+  gateway, which only reads `AI_GATEWAY_API_KEY` — the key coming from the Rust
+  settings would be ignored.
+- `cachedGatewayModels()` became `cachedGatewayCatalogue()` so the synchronous
+  capabilities answer can carry discovered language models too.
+- `SttEvent::Error.session_id` now skips when absent (it emitted
+  `"sessionId": null`), so absent stays absent on the wire.
+- `components/icon_action.rs` gained a `debug_selector`, mirroring `Card`, so a
+  headless test can press footer actions by id.
+- Two mechanical compile fixes outside the enumerated scope:
+  `transcript.rs` (new `SttEvent::Cleaned` arm in the no-op match) and
+  `bridge_smoke.rs` (field additions). No behaviour change, no assertion
+  weakened.
+
+### Field failure found and fixed during validation
+
+The first real take after this ticket failed with
+`kind=BackendFailed code=stream_failed detail="Transcription stream failed"`
+right after switching to `google/gemini-3.5-transcribe-live`. Two defects:
+
+1. **The language was sent to the gateway under `gateway.language`.** The AI
+   Gateway's documented `GatewayProviderOptions` cover routing and accounting
+   only (`order`, `only`, `sort`, `models`, `user`, `tags`, `byok`,
+   `serviceTier`, ZDR/training flags, timeouts) and have **no `language`**. A
+   gateway-routed model therefore received an option its package does not
+   accept, and the take died at stream start. `languageProviderOptions` now
+   returns `undefined` for the gateway and its aliases, and only produces the
+   option for packages that document it (`openai`, `mistral`, `xai`,
+   `elevenlabs`). A new `languageIsForwarded(provider)` states the rule.
+2. **The failure carried no usable cause.** `errorMessage` read only
+   `error.message`, so a rejection that is not an `Error` — a plain record, a
+   wrapper, a string — collapsed to a fixed sentence. `src/stt/diagnostics.ts`
+   now owns `describeError` (Error message, string, nested
+   `message`/`error`/`cause`/`detail`/`reason`, bounded JSON) and `logFailure`,
+   which writes one redacted `stderr` line naming the context, the provider, the
+   model and the language. All three adapters and the worker use them, so the
+   next provider failure is diagnosable from the log alone.
+
+Consequence to keep in mind: with a gateway-only catalogue, the dictation
+language does **not** reach the transcription model today. The setting still
+feeds the cleanup prompt, which uses it genuinely. Making the Settings row state
+that honestly needs a `languageIsForwarded` capability field and a UI hint, which
+is `T0032` in `tickets/planned/`; `languageIsForwarded` already exists in
+`src/stt/languages.ts` for it.
+
+### Known limitations
+
+- Language forwarding is **best effort**, as the SDK documents it: the AI SDK has
+  no top-level `language` on `transcribe`/`experimental_streamTranscribe`, so it
+  travels in `providerOptions[<package>].language`. A provider that does not
+  implement it still transcribes and reports the rejection through `warnings`.
+- The cleanup model list depends on discovery returning `type: "language"`
+  entries; when it returns none, the Settings row shows the resolved default id
+  as a mono label instead of a menu (per the contract).
+
+### Gates (repository root, zero warnings, no skipped tests)
+
+| Command | Result |
+|---|---|
+| `cargo fmt -- --check` | clean |
+| `cargo clippy --all-targets -- -D warnings` | clean |
+| `cargo test` | **546 passed, 0 failed** (core 233 + 3 + 14 + bridge_smoke 5, ui 99 + 3 + 12 + 37 + 14 + 93 + 4 + 33) |
+| `bun test` | **300 passed, 0 failed** |
+| `bun check src/stt` | no type errors in 27 files |
+| `bun run design:validate` | 66 tokens, 0 errors |
+
+### Left for the user
+
+Visual review: the wand and its undo in the finished-take footer, the two new
+Settings rows (Dictation Language with Auto first, Cleanup Model with the
+resolved id), and the taller dialog. No GUI run or screenshot was taken
+autonomously, and no cleanup has been called against a real provider (that needs
+an API key and is the point of the manual pass).

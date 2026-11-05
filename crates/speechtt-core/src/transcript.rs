@@ -101,6 +101,7 @@ impl TranscriptBuffer {
             | SttEvent::Started { .. }
             | SttEvent::Progress { .. }
             | SttEvent::Error { .. }
+            | SttEvent::Cleaned { .. }
             | SttEvent::Capabilities { .. } => {}
         }
     }
@@ -428,6 +429,7 @@ mod tests {
         });
         buffer.apply(&SttEvent::Error {
             session_id: Some("take-1".into()),
+            request_id: None,
             code: "stream_failed".into(),
             message: "boom".into(),
         });

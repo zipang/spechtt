@@ -62,8 +62,8 @@ use crate::components::{
     SelectSnapshot,
 };
 use crate::controller::{
-    AppError, Clock, Dialog, ErrorAction, FinishedTake, HelpTab, SAMPLE_RATE, SessionController,
-    SessionMode, SettingsChange, SettingsDraft, SystemClock, ViewState,
+    AppError, CleanStatus, Clock, Dialog, ErrorAction, FinishedTake, HelpTab, SAMPLE_RATE,
+    SessionController, SessionMode, SettingsChange, SettingsDraft, SystemClock, ViewState,
 };
 use crate::tokens::color;
 use crate::views;
@@ -445,6 +445,26 @@ impl SpeechTtApp {
 
     pub fn transcript_full_text(&self) -> String {
         self.controller.transcript_full_text()
+    }
+
+    /// The finished take's text exactly as the screen shows it.
+    pub fn displayed_transcript(&self) -> String {
+        self.controller.displayed_transcript()
+    }
+
+    /// What the cleanup action should do next (Ready, Running, Cleaned, …).
+    pub fn clean_status(&self) -> CleanStatus {
+        self.controller.clean_status()
+    }
+
+    /// Whether a repair pass can be started right now.
+    pub fn can_clean_transcript(&self) -> bool {
+        self.controller.can_clean_transcript()
+    }
+
+    /// The cleanup model the next pass would call.
+    pub fn cleanup_model(&self) -> Option<&str> {
+        self.controller.cleanup_model()
     }
 
     pub fn elapsed_seconds(&self) -> u32 {
@@ -888,6 +908,38 @@ impl SpeechTtApp {
         copied
     }
 
+    /// Repair the finished take through the worker's cleanup pass.
+    ///
+    /// Asks the controller for a request id, then sends the command with the
+    /// same provider and key resolution `Start` used. Returns `false` — having
+    /// recorded the reason — when no pass can be taken: no model, an empty
+    /// take, a pass already running, or a provider without a key.
+    pub fn clean_transcript(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(request_id) = self.controller.begin_clean_transcript() else {
+            cx.notify();
+            return false;
+        };
+        let Some(command) = self.controller.clean_transcript_command(&request_id) else {
+            // The provider has no key: say so and re-arm the action rather
+            // than leaving a request nothing will ever answer.
+            let provider = self.controller.active_provider();
+            self.controller
+                .fail_clean_transcript(&request_id, AppError::MissingApiKey { provider });
+            cx.notify();
+            return false;
+        };
+        self.controller.send_command(command);
+        cx.notify();
+        true
+    }
+
+    /// Restore the transcript the take had before the last repair.
+    pub fn undo_clean_transcript(&mut self, cx: &mut Context<Self>) -> bool {
+        let undone = self.controller.undo_clean_transcript();
+        cx.notify();
+        undone
+    }
+
     /// Put the selected transcript range on the system clipboard.
     ///
     /// [`TextSelection::selected_text`] is the only source of the copied string:
@@ -1165,6 +1217,26 @@ impl SpeechTtApp {
         true
     }
 
+    /// Commits the Settings dialog's dictation language into the draft.
+    ///
+    /// The empty code selects Auto, which stores no language at all.
+    pub fn set_settings_language(&mut self, code: &str, cx: &mut Context<Self>) -> bool {
+        if !self.controller.set_settings_language(code) {
+            return false;
+        }
+        cx.notify();
+        true
+    }
+
+    /// Commits the Settings dialog's cleanup model into the draft.
+    pub fn set_settings_cleanup_model(&mut self, model: &str, cx: &mut Context<Self>) -> bool {
+        if !self.controller.set_settings_cleanup_model(model) {
+            return false;
+        }
+        cx.notify();
+        true
+    }
+
     /// Mirrors a typed key into both the controller and the masked input.
     pub fn set_settings_api_key_value(
         &mut self,
@@ -1213,6 +1285,8 @@ impl SpeechTtApp {
             model_streaming: change.model_streaming.clone(),
             model_batch: change.model_batch.clone(),
             model: String::new(),
+            language_model: change.language_model.clone().unwrap_or_default(),
+            language: change.language.clone().unwrap_or_default(),
             api_keys: self.stored_settings.api_keys.clone(),
             shortcuts: self.stored_settings.shortcuts.clone(),
             auto_paste: self.stored_settings.auto_paste,

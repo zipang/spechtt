@@ -1,4 +1,7 @@
-//! Small square icon actions (Stop, Copy, Save, Open file).
+//! Small square icon actions (Clean up, Copy, Save, Open file).
+//!
+//! Rendered by `views::session_end` and every screen footer's leading and
+//! trailing zones (`components::ScreenFooter`).
 
 use gpui_kit::assets::IconName;
 use gpui_kit::base::h_flex;
@@ -8,7 +11,7 @@ use gpui_kit::{App, ClickEvent, ElementId, IntoElement, RenderOnce, SharedString
 
 type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
-/// Small square icon action (Stop, Copy, Save, Open file).
+/// Small square icon action (Clean up, Copy, Save, Open file).
 #[derive(IntoElement)]
 pub struct IconAction {
     id: ElementId,
@@ -53,10 +56,24 @@ impl IconAction {
     }
 }
 
+/// Stable string form of an element id, for the debug selector.
+fn element_key(id: &ElementId) -> String {
+    match id {
+        ElementId::Name(name) => format!("{name}"),
+        ElementId::Integer(value) => format!("#{value}"),
+        ElementId::Uuid(uuid) => format!("{uuid}"),
+        other => format!("{other:?}"),
+    }
+}
+
 impl RenderOnce for IconAction {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        // Recorded only in test builds; lets a headless test press the action.
+        let debug_key = element_key(&self.id);
+
         let mut action = h_flex()
             .id(self.id)
+            .debug_selector(move || debug_key)
             .size(px(34.))
             .rounded(px(10.))
             .justify_center()

@@ -23,7 +23,7 @@ use speechtt_ui::components::{
     RoundTone, ScreenFooter, TOGGLE_PULSE_AMPLITUDE, TOGGLE_PULSE_PERIOD, TOGGLE_WAVE_MAX_SIZE,
     ToggleRoundButton, ToggleState, pulse_scale, ripple_frame, toggle_wave_frame,
 };
-use speechtt_ui::controller::{SessionMode, ViewState};
+use speechtt_ui::controller::{AppError, CleanStatus, SessionMode, ViewState};
 
 mod common;
 
@@ -892,4 +892,400 @@ async fn the_settings_menus_commit_the_settings_draft(cx: &mut TestAppContext) {
             && draft.model_batch.as_deref() == Some("openai/gpt-4o-transcribe")
     })
     .await;
+}
+
+// ----- T30.7: cleaning a finished take, and the dictation language -----
+
+use common::open_speechtt_window_with_channels;
+use speechtt_core::protocol::{CapabilitySource, LanguageModelInfo, LanguageOption, SttCommand};
+
+/// The capability handshake a worker sends: one cleanup model, two languages.
+fn language_capabilities() -> speechtt_core::protocol::SttEvent {
+    speechtt_core::protocol::SttEvent::Capabilities {
+        request_id: None,
+        source: CapabilitySource::Builtin,
+        providers: common::test_catalogue(),
+        languages: Some(vec![
+            LanguageOption {
+                code: "fr".to_owned(),
+                label: "French".to_owned(),
+            },
+            LanguageOption {
+                code: "en".to_owned(),
+                label: "English".to_owned(),
+            },
+        ]),
+        language_models: Some(vec![LanguageModelInfo {
+            id: "openai/gpt-4.1-mini".to_owned(),
+            label: "GPT-4.1 mini".to_owned(),
+        }]),
+        default_language_model: Some("openai/gpt-4.1-mini".to_owned()),
+    }
+}
+
+/// Drives a live take to its result screen with `text` committed.
+fn finish_a_live_take(
+    window: gpui_kit::WindowHandle<gpui_kit::base::Root>,
+    view: &Entity<SpeechTtApp>,
+    events: &speechtt_core::async_channel::Sender<
+        Result<speechtt_core::protocol::SttEvent, speechtt_core::backend::BackendError>,
+    >,
+    cx: &mut TestAppContext,
+    text: &str,
+) {
+    cx.update_window(window.into(), |_, window, cx| {
+        view.update(cx, |app, cx| {
+            app.choose_mode(SessionMode::Live, cx);
+            app.set_draft_provider("vercel-ai-gateway", cx);
+            app.set_draft_model("openai/gpt-4o-transcribe", cx);
+            app.create_session(cx);
+            app.start_recording(cx);
+        });
+        window.render_frame(cx);
+    })
+    .unwrap();
+
+    events
+        .send_blocking(Ok(speechtt_core::protocol::SttEvent::Committed {
+            session_id: "take-1".into(),
+            text: text.into(),
+            segment: None,
+        }))
+        .expect("event sent");
+    cx.run_until_parked();
+
+    cx.update_window(window.into(), |_, window, cx| {
+        view.update(cx, |app, cx| {
+            app.pause_recording(cx);
+            app.finish_take(cx);
+        });
+        window.render_frame(cx);
+    })
+    .unwrap();
+}
+
+/// Drives a live take to its result screen through a visual context, so the
+/// screen's actions can be pressed with real pointer events.
+fn finish_a_live_take_in(
+    visual: &mut VisualTestContext,
+    view: &Entity<SpeechTtApp>,
+    events: &speechtt_core::async_channel::Sender<
+        Result<speechtt_core::protocol::SttEvent, speechtt_core::backend::BackendError>,
+    >,
+    text: &str,
+) {
+    visual.update(|window, cx| {
+        view.update(cx, |app, cx| {
+            app.choose_mode(SessionMode::Live, cx);
+            app.set_draft_provider("vercel-ai-gateway", cx);
+            app.set_draft_model("openai/gpt-4o-transcribe", cx);
+            app.create_session(cx);
+            app.start_recording(cx);
+        });
+        window.render_frame(cx);
+    });
+    visual.run_until_parked();
+
+    events
+        .send_blocking(Ok(speechtt_core::protocol::SttEvent::Committed {
+            session_id: "take-1".into(),
+            text: text.into(),
+            segment: None,
+        }))
+        .expect("event sent");
+    visual.run_until_parked();
+
+    visual.update(|window, cx| {
+        view.update(cx, |app, cx| {
+            app.pause_recording(cx);
+            app.finish_take(cx);
+        });
+        window.render_frame(cx);
+    });
+    visual.run_until_parked();
+}
+
+/// Presses the action with id `id` with real pointer events.
+fn press(visual: &mut VisualTestContext, id: &'static str) {
+    let bounds = visual
+        .debug_bounds(id)
+        .unwrap_or_else(|| panic!("{id} is laid out on this screen"));
+    visual.simulate_mouse_down(bounds.center(), MouseButton::Left, Modifiers::none());
+    visual.simulate_mouse_up(bounds.center(), MouseButton::Left, Modifiers::none());
+    visual.run_until_parked();
+}
+
+#[gpui_kit::test]
+fn the_wand_cleans_the_finished_take_and_undo_restores_it(cx: &mut TestAppContext) {
+    let (window, view, sink, clipboard, events) = open_speechtt_window_with_channels(cx);
+    let mut visual = VisualTestContext::from_window(window.into(), cx);
+    visual.run_until_parked();
+
+    events
+        .send_blocking(Ok(language_capabilities()))
+        .expect("event sent");
+    visual.run_until_parked();
+
+    finish_a_live_take_in(&mut visual, &view, &events, "d une dict ée");
+
+    visual.cx.update(|cx| {
+        let app = view.read(cx);
+        assert_eq!(
+            app.clean_status(),
+            CleanStatus::Ready,
+            "the worker's default model enables the action"
+        );
+        assert!(app.can_clean_transcript());
+        assert_eq!(app.cleanup_model(), Some("openai/gpt-4.1-mini"));
+        assert_eq!(app.displayed_transcript(), "d une dict ée");
+    });
+
+    // The wand sends one request naming the text on screen.
+    press(&mut visual, "btn-clean-transcript");
+
+    let commands = sink.commands();
+    let request_id = match commands.last() {
+        Some(SttCommand::CleanTranscript {
+            request_id,
+            provider,
+            model,
+            text,
+            language,
+            ..
+        }) => {
+            assert_eq!(provider, "vercel-ai-gateway");
+            assert_eq!(model, "openai/gpt-4.1-mini");
+            assert_eq!(text, "d une dict ée");
+            assert_eq!(*language, None, "Auto sends no language");
+            request_id.clone()
+        }
+        other => panic!("expected a cleanTranscript command, got {other:?}"),
+    };
+    visual.cx.update(|cx| {
+        assert_eq!(view.read(cx).clean_status(), CleanStatus::Running);
+        assert!(
+            !view.read(cx).can_clean_transcript(),
+            "the wand is disabled while a pass is running"
+        );
+    });
+
+    // The answer replaces the transcript with the repaired text.
+    events
+        .send_blocking(Ok(speechtt_core::protocol::SttEvent::Cleaned {
+            request_id,
+            text: "d'une dictée".into(),
+        }))
+        .expect("event sent");
+    visual.run_until_parked();
+
+    visual.cx.update(|cx| {
+        let app = view.read(cx);
+        assert_eq!(app.clean_status(), CleanStatus::Cleaned);
+        assert_eq!(app.displayed_transcript(), "d'une dictée");
+        let take = app.finished_take().expect("a finished take");
+        assert_eq!(take.committed().to_string(), "d'une dictée");
+        assert_eq!(take.live().to_string(), "");
+    });
+
+    // Copy leaves with the text that is on screen.
+    visual.update(|window, cx| {
+        assert!(view.update(cx, |app, cx| app.copy_transcript(cx)));
+        window.render_frame(cx);
+    });
+    assert_eq!(clipboard.copies(), vec!["d'une dictée".to_owned()]);
+
+    // The undo action restores the original, and Copy follows it.
+    press(&mut visual, "btn-undo-clean");
+
+    visual.update(|window, cx| {
+        let app = view.read(cx);
+        assert_eq!(app.displayed_transcript(), "d une dict ée");
+        assert_eq!(app.clean_status(), CleanStatus::Ready);
+        assert!(view.update(cx, |app, cx| app.copy_transcript(cx)));
+        window.render_frame(cx);
+    });
+    assert_eq!(
+        clipboard.copies(),
+        vec!["d'une dictée".to_owned(), "d une dict ée".to_owned()]
+    );
+    assert!(
+        visual.debug_bounds("btn-undo-clean").is_none(),
+        "undo is gone once the original is back"
+    );
+}
+
+#[gpui_kit::test]
+fn a_failed_cleanup_keeps_the_transcript_and_shows_the_error(cx: &mut TestAppContext) {
+    let (window, view, sink, _clipboard, events) = open_speechtt_window_with_channels(cx);
+
+    events
+        .send_blocking(Ok(language_capabilities()))
+        .expect("event sent");
+    cx.run_until_parked();
+    finish_a_live_take(window, &view, &events, cx, "d une dict ée");
+
+    cx.update_window(window.into(), |_, _window, cx| {
+        view.update(cx, |app, cx| assert!(app.clean_transcript(cx)));
+    })
+    .unwrap();
+
+    let request_id = match sink.commands().last() {
+        Some(SttCommand::CleanTranscript { request_id, .. }) => request_id.clone(),
+        other => panic!("expected a cleanTranscript command, got {other:?}"),
+    };
+
+    events
+        .send_blocking(Ok(speechtt_core::protocol::SttEvent::Error {
+            session_id: None,
+            request_id: Some(request_id),
+            code: "cleanup_failed".into(),
+            message: "provider rejected the request".into(),
+        }))
+        .expect("event sent");
+    cx.run_until_parked();
+
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert_eq!(app.displayed_transcript(), "d une dict ée");
+        assert_eq!(app.clean_status(), CleanStatus::Ready, "the wand re-arms");
+        assert_eq!(
+            app.app_error().cloned(),
+            Some(AppError::CleanupFailed),
+            "a cleanup failure names itself, not the backend"
+        );
+        let message = app.app_error().map(|error| error.to_string());
+        assert!(message.is_some_and(|message| !message.contains("dict ée")));
+    });
+}
+
+#[gpui_kit::test]
+fn choosing_french_forwards_the_language_and_auto_sends_none(cx: &mut TestAppContext) {
+    let (window, view, sink, _clipboard, _events) = open_speechtt_window_with_channels(cx);
+
+    // Settings: French, then save.
+    cx.update_window(window.into(), |_, window, cx| {
+        view.update(cx, |app, cx| {
+            app.open_settings(window, cx);
+            app.set_settings_provider("vercel-ai-gateway", cx);
+            app.set_settings_streaming_model("openai/gpt-realtime-whisper", cx);
+            app.set_settings_batch_model("openai/gpt-4o-transcribe", cx);
+            app.set_settings_api_key_value("sk-headless", window, cx);
+            assert!(app.set_settings_language("fr", cx));
+            assert!(app.save_settings(cx));
+        });
+    })
+    .unwrap();
+
+    cx.update_window(window.into(), |_, _window, cx| {
+        view.update(cx, |app, cx| {
+            app.choose_mode(SessionMode::Live, cx);
+            app.start_recording(cx);
+        });
+    })
+    .unwrap();
+
+    match sink.commands().last() {
+        Some(SttCommand::Start { language, .. }) => {
+            assert_eq!(
+                language.as_deref(),
+                Some("fr"),
+                "the saved language reaches the worker"
+            );
+        }
+        other => panic!("expected a start command, got {other:?}"),
+    }
+
+    // Back to Auto: the next take carries no language at all.
+    cx.update_window(window.into(), |_, window, cx| {
+        view.update(cx, |app, cx| {
+            app.finish_take(cx);
+            app.new_take(cx);
+            app.open_settings(window, cx);
+            app.set_settings_provider("vercel-ai-gateway", cx);
+            app.set_settings_streaming_model("openai/gpt-realtime-whisper", cx);
+            app.set_settings_batch_model("openai/gpt-4o-transcribe", cx);
+            assert!(app.set_settings_language("", cx));
+            assert!(app.save_settings(cx));
+            app.choose_mode(SessionMode::Live, cx);
+            app.start_recording(cx);
+        });
+    })
+    .unwrap();
+
+    match sink.commands().last() {
+        Some(SttCommand::Start { language, .. }) => {
+            assert_eq!(*language, None, "Auto keeps the key off the wire");
+        }
+        other => panic!("expected a start command, got {other:?}"),
+    }
+}
+
+#[gpui_kit::test]
+fn the_wand_is_inert_on_a_take_that_recorded_nothing(cx: &mut TestAppContext) {
+    let (window, view, sink, _clipboard, events) = open_speechtt_window_with_channels(cx);
+    let mut visual = VisualTestContext::from_window(window.into(), cx);
+
+    events
+        .send_blocking(Ok(language_capabilities()))
+        .expect("event sent");
+    visual.run_until_parked();
+
+    visual.update(|window, cx| {
+        view.update(cx, |app, cx| {
+            app.choose_mode(SessionMode::Live, cx);
+            app.set_draft_provider("vercel-ai-gateway", cx);
+            app.set_draft_model("openai/gpt-4o-transcribe", cx);
+            app.create_session(cx);
+            app.start_recording(cx);
+            app.pause_recording(cx);
+            app.finish_take(cx);
+        });
+        window.render_frame(cx);
+    });
+    visual.run_until_parked();
+
+    visual.cx.update(|cx| {
+        let app = view.read(cx);
+        let take = app.finished_take().expect("a finished take");
+        assert!(take.committed().is_empty() && take.live().is_empty());
+        assert!(!app.can_clean_transcript(), "nothing to repair");
+    });
+
+    press(&mut visual, "btn-clean-transcript");
+
+    assert!(
+        !sink
+            .commands()
+            .iter()
+            .any(|command| matches!(command, SttCommand::CleanTranscript { .. })),
+        "a disabled wand sends nothing"
+    );
+    visual.cx.update(|cx| {
+        assert_eq!(view.read(cx).clean_status(), CleanStatus::Ready);
+    });
+}
+
+#[gpui_kit::test]
+fn the_wand_is_inert_when_no_cleanup_model_resolves(cx: &mut TestAppContext) {
+    // No capability handshake: the worker never named a cleanup model.
+    let (window, view, sink, _clipboard, events) = open_speechtt_window_with_channels(cx);
+    let mut visual = VisualTestContext::from_window(window.into(), cx);
+
+    finish_a_live_take_in(&mut visual, &view, &events, "d une dict ée");
+
+    visual.cx.update(|cx| {
+        let app = view.read(cx);
+        assert_eq!(app.clean_status(), CleanStatus::Unavailable);
+        assert_eq!(app.cleanup_model(), None);
+    });
+
+    press(&mut visual, "btn-clean-transcript");
+
+    assert!(
+        !sink
+            .commands()
+            .iter()
+            .any(|command| matches!(command, SttCommand::CleanTranscript { .. })),
+        "no model means no request"
+    );
 }

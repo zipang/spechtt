@@ -6,8 +6,13 @@
  * need a WAV-framed buffer per request.
  *
  * The curated catalogue below is the offline fallback: the worker prefers the
- * live gateway catalogue discovered at runtime (see `discovery.ts`).
+ * live gateway catalogue discovered at runtime (see `discovery.ts`). Both
+ * `worker.ts` (the capabilities handshake) and `worker.spec.ts` read it through
+ * [`listCapabilities`].
  */
+
+import type { LanguageOption } from "./languages";
+import { LANGUAGE_OPTIONS } from "./languages";
 
 export type TranscriptionMode = "streaming" | "segmented";
 
@@ -68,7 +73,35 @@ export interface ListCapabilitiesOptions {
 	 * curated gateway models; direct providers keep their curated catalogues.
 	 */
 	readonly gatewayModels?: readonly ModelDefinition[];
+	/**
+	 * Language models discovered for the cleanup pass. Empty or absent means
+	 * discovery found none, and the payload reports `null`.
+	 */
+	readonly languageModels?: readonly LanguageModelCapability[];
 }
+
+/** One text model offered for the cleanup pass. */
+export interface LanguageModelCapability {
+	readonly id: string;
+	readonly label: string;
+}
+
+/** Everything the capabilities handshake reports to the UI. */
+export interface CapabilitiesPayload {
+	readonly providers: readonly ProviderCapabilityInfo[];
+	/** Offered dictation languages, in menu order. */
+	readonly languages: readonly LanguageOption[];
+	/** `null` when discovery returned none: the UI then offers free text. */
+	readonly languageModels: readonly LanguageModelCapability[] | null;
+	/** Cleanup model used when no stored setting overrides it. */
+	readonly defaultLanguageModel: string;
+}
+
+/** Default cleanup model when neither settings nor the environment names one. */
+export const FALLBACK_LANGUAGE_MODEL = "openai/gpt-4.1-mini";
+
+/** Environment variable naming the default cleanup model. */
+export const LANGUAGE_MODEL_ENV = "DEFAULT_LANGUAGE_MODEL";
 
 /** Canonical id of the Vercel AI Gateway provider. */
 export const GATEWAY_PROVIDER_ID = "vercel-ai-gateway";
@@ -275,6 +308,18 @@ function compareByLabel(
 }
 
 /**
+ * Default cleanup model: the environment wins, then the fallback.
+ *
+ * The stored setting takes precedence over both and is resolved by the caller.
+ * A blank override counts as unset so an exported empty variable cannot blank
+ * the cleanup row.
+ */
+export function defaultLanguageModel(env: Env = currentEnv()): string {
+	const override = firstConfigured([env[LANGUAGE_MODEL_ENV]]);
+	return override?.trim() ?? FALLBACK_LANGUAGE_MODEL;
+}
+
+/**
  * Read-only provider/model catalogue for the Settings dialog.
  *
  * Availability is computed per provider from an explicit key (when supplied)
@@ -284,13 +329,13 @@ function compareByLabel(
  */
 export function listCapabilities(
 	options: ListCapabilitiesOptions = {},
-): readonly ProviderCapabilityInfo[] {
+): CapabilitiesPayload {
 	const discovered =
 		options.gatewayModels !== undefined && options.gatewayModels.length > 0
 			? options.gatewayModels
 			: undefined;
 
-	return Object.values(PROVIDERS)
+	const providers = Object.values(PROVIDERS)
 		.map((provider): ProviderCapabilityInfo => {
 			const explicitKey = options.apiKeyFor?.(provider.id);
 			const usingDiscovered =
@@ -322,4 +367,15 @@ export function listCapabilities(
 			};
 		})
 		.sort(compareByLabel);
+
+	const discoveredLanguages = options.languageModels;
+	return {
+		providers,
+		languages: LANGUAGE_OPTIONS,
+		languageModels:
+			discoveredLanguages === undefined || discoveredLanguages.length === 0
+				? null
+				: discoveredLanguages,
+		defaultLanguageModel: defaultLanguageModel(options.env),
+	};
 }

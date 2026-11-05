@@ -95,6 +95,34 @@ pub struct ModelCapabilityInfo {
     pub pricing: std::collections::BTreeMap<String, String>,
 }
 
+/// One text model offered for the cleanup pass that repairs a transcript.
+///
+/// Cleanup models are not transcription models: they consume text, so they
+/// carry no [`TranscriptionMode`] and are listed beside the provider catalogue
+/// rather than inside it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LanguageModelInfo {
+    /// Gateway model id, e.g. `openai/gpt-4.1-mini`.
+    pub id: String,
+    /// Short name the menus show.
+    pub label: String,
+}
+
+/// One selectable dictation language, as the worker publishes it.
+///
+/// The worker owns the list; the UI only renders it. An empty `code` is never
+/// in this list: "Auto" is a UI entry the settings store represents as an
+/// empty language.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LanguageOption {
+    /// ISO-639-1 code, e.g. `fr`.
+    pub code: String,
+    /// English name shown in the menu, e.g. `French`.
+    pub label: String,
+}
+
 /// Provider-level capability, including whether its key is configured.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -121,6 +149,10 @@ pub enum SttCommand {
         provider: String,
         model: String,
         sample_rate: u32,
+        /// ISO-639-1 language of the dictation, e.g. `fr`. `None` leaves
+        /// detection to the provider, and the key then stays off the wire.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         api_key: Option<SecretString>,
     },
@@ -140,12 +172,40 @@ pub enum SttCommand {
         model: String,
         /// Absolute path to an audio or video file on the worker's host.
         path: String,
+        /// ISO-639-1 language of the dictation; absent when the provider
+        /// should detect it, so an unset language produces today's payload.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         api_key: Option<SecretString>,
     },
     Pause,
     Resume,
     Stop,
+    /// Repair a finished transcript with a language model.
+    ///
+    /// Session-agnostic: the worker neither reads nor disturbs an open take, so
+    /// the answer is correlated by `request_id` alone. The text is the
+    /// transcript exactly as displayed, and it never travels back in an error.
+    #[serde(rename_all = "camelCase")]
+    CleanTranscript {
+        /// Client-chosen id echoed by [`SttEvent::Cleaned`] and by any
+        /// [`SttEvent::Error`].
+        request_id: String,
+        /// Gateway provider id, the same one the transcription used.
+        provider: String,
+        /// Language model id, e.g. `openai/gpt-4.1-mini`.
+        model: String,
+        /// The transcript to repair, exactly as displayed.
+        text: String,
+        /// ISO-639-1 language of the transcript. `None` means "detect it
+        /// yourself": the prompt then omits the language clause instead of
+        /// guessing.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        api_key: Option<SecretString>,
+    },
     /// Read-only capability handshake. The optional key lets the UI test a
     /// key that is typed but not exported yet; it is never echoed back.
     #[serde(rename_all = "camelCase")]
@@ -234,10 +294,26 @@ pub enum SttEvent {
     },
     #[serde(rename_all = "camelCase")]
     Error {
-        #[serde(default)]
+        /// Absent — and therefore off the wire — for an error reported before
+        /// any session exists.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         session_id: Option<String>,
+        /// Set when the error answers a [`SttCommand::CleanTranscript`], so a
+        /// failed cleanup reaches the action that asked for it. Absent — and
+        /// therefore off the wire — for a session-level failure.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        request_id: Option<String>,
         code: String,
         message: String,
+    },
+    /// The repaired transcript answering one [`SttCommand::CleanTranscript`].
+    ///
+    /// Session-agnostic: it carries the request id it answers, no session id.
+    #[serde(rename_all = "camelCase")]
+    Cleaned {
+        request_id: String,
+        /// The repaired transcript, plain text.
+        text: String,
     },
     /// Read-only provider/model catalogue. Session-agnostic.
     #[serde(rename_all = "camelCase")]
@@ -248,18 +324,32 @@ pub enum SttEvent {
         #[serde(default)]
         source: CapabilitySource,
         providers: Vec<ProviderCapability>,
+        /// Offered dictation languages. `None` when an older worker does not
+        /// report them, in which case the UI offers its built-in list.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        languages: Option<Vec<LanguageOption>>,
+        /// Text models the cleanup pass may call. `None` when discovery found
+        /// none, in which case the UI offers free text.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        language_models: Option<Vec<LanguageModelInfo>>,
+        /// The worker's default cleanup model (`DEFAULT_LANGUAGE_MODEL`, else
+        /// its fallback), so the UI can show a real id before one is stored.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        default_language_model: Option<String>,
     },
 }
 
 impl SttEvent {
     /// The session this event belongs to, when it carries one.
     ///
-    /// [`SttEvent::Ready`] and [`SttEvent::Capabilities`] are session-agnostic;
-    /// an [`SttEvent::Error`] may be reported before a session exists.
+    /// [`SttEvent::Ready`], [`SttEvent::Capabilities`] and
+    /// [`SttEvent::Cleaned`] are session-agnostic; an [`SttEvent::Error`] may be
+    /// reported before a session exists, and a cleanup failure is correlated by
+    /// its request id instead.
     #[must_use]
     pub fn session_id(&self) -> Option<&str> {
         match self {
-            SttEvent::Ready | SttEvent::Capabilities { .. } => None,
+            SttEvent::Ready | SttEvent::Capabilities { .. } | SttEvent::Cleaned { .. } => None,
             SttEvent::Started { session_id }
             | SttEvent::Partial { session_id, .. }
             | SttEvent::Delta { session_id, .. }
@@ -288,6 +378,7 @@ mod tests {
             provider: "vercel".to_string(),
             model: "whisper-large-v3".to_string(),
             sample_rate: 16_000,
+            language: None,
             api_key,
         }
     }
@@ -427,6 +518,7 @@ mod tests {
             (
                 SttEvent::Error {
                     session_id: Some("take-1".into()),
+                    request_id: None,
                     code: "stream_failed".into(),
                     message: "socket closed".into(),
                 },
@@ -533,6 +625,7 @@ mod tests {
             event,
             SttEvent::Error {
                 session_id: None,
+                request_id: None,
                 code: "missing_api_key".into(),
                 message: "no key".into(),
             }
@@ -554,6 +647,7 @@ mod tests {
         assert_eq!(
             SttEvent::Error {
                 session_id: None,
+                request_id: None,
                 code: "aborted".into(),
                 message: String::new(),
             }
@@ -579,6 +673,9 @@ mod tests {
         SttEvent::Capabilities {
             request_id,
             source: CapabilitySource::Builtin,
+            languages: None,
+            language_models: None,
+            default_language_model: None,
             providers: vec![ProviderCapability {
                 id: "vercel-ai-gateway".to_string(),
                 label: "Vercel AI Gateway".to_string(),
@@ -652,6 +749,7 @@ mod tests {
             provider: "vercel-ai-gateway".to_string(),
             model: "openai/gpt-4o-transcribe".to_string(),
             path: "/home/user/clips/interview.mp4".to_string(),
+            language: None,
             api_key: None,
         };
 
@@ -673,6 +771,7 @@ mod tests {
             provider: "vercel-ai-gateway".to_string(),
             model: "openai/gpt-4o-transcribe".to_string(),
             path: "/tmp/a.wav".to_string(),
+            language: None,
             api_key: Some(SecretString::new("sk-file-secret")),
         };
 
@@ -748,6 +847,9 @@ mod tests {
             request_id: None,
             source: CapabilitySource::Builtin,
             providers: Vec::new(),
+            languages: None,
+            language_models: None,
+            default_language_model: None,
         };
 
         assert_eq!(
@@ -857,6 +959,9 @@ mod tests {
             SttEvent::Capabilities {
                 request_id: Some("cap-1".to_string()),
                 source: CapabilitySource::Discovered,
+                languages: None,
+                language_models: None,
+                default_language_model: None,
                 providers: vec![ProviderCapability {
                     id: "x".to_string(),
                     label: "X".to_string(),
@@ -870,6 +975,224 @@ mod tests {
                         pricing: std::collections::BTreeMap::new(),
                     }],
                 }],
+            }
+        );
+    }
+
+    fn clean_transcript(language: Option<&str>, api_key: Option<SecretString>) -> SttCommand {
+        SttCommand::CleanTranscript {
+            request_id: "clean-1-1".to_string(),
+            provider: "vercel-ai-gateway".to_string(),
+            model: "openai/gpt-4.1-mini".to_string(),
+            text: "d une dict ée".to_string(),
+            language: language.map(str::to_string),
+            api_key,
+        }
+    }
+
+    #[test]
+    fn clean_transcript_round_trips_with_and_without_a_language() {
+        let without = clean_transcript(None, None);
+        let json = serde_json::to_string(&without).expect("serializes");
+        assert_eq!(
+            json,
+            r#"{"type":"cleanTranscript","requestId":"clean-1-1","provider":"vercel-ai-gateway","model":"openai/gpt-4.1-mini","text":"d une dict ée"}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<SttCommand>(&json).expect("deserializes"),
+            without
+        );
+
+        let with_language = clean_transcript(Some("fr"), None);
+        let json = serde_json::to_string(&with_language).expect("serializes");
+        assert_eq!(
+            json,
+            r#"{"type":"cleanTranscript","requestId":"clean-1-1","provider":"vercel-ai-gateway","model":"openai/gpt-4.1-mini","text":"d une dict ée","language":"fr"}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<SttCommand>(&json).expect("deserializes"),
+            with_language
+        );
+    }
+
+    #[test]
+    fn clean_transcript_serializes_its_key_but_redacts_debug() {
+        let command = clean_transcript(Some("fr"), Some(SecretString::new("sk-clean-secret")));
+
+        let json = serde_json::to_string(&command).expect("serializes");
+        assert!(json.contains(r#""apiKey":"sk-clean-secret""#), "{json}");
+        assert!(json.contains(r#""language":"fr""#), "{json}");
+        assert_eq!(
+            serde_json::from_str::<SttCommand>(&json).expect("round-trips"),
+            command
+        );
+
+        let debug = format!("{command:?}");
+        assert!(debug.contains("[REDACTED]"), "{debug}");
+        assert!(!debug.contains("sk-clean-secret"), "{debug}");
+    }
+
+    #[test]
+    fn a_cleaned_event_parses_and_is_session_agnostic() {
+        let event = SttEvent::Cleaned {
+            request_id: "clean-1-1".to_string(),
+            text: "d'une dictée".to_string(),
+        };
+
+        assert_eq!(
+            serde_json::to_string(&event).expect("serializes"),
+            r#"{"type":"cleaned","requestId":"clean-1-1","text":"d'une dictée"}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<SttEvent>(
+                r#"{"type":"cleaned","requestId":"clean-1-1","text":"d'une dictée"}"#
+            )
+            .expect("deserializes"),
+            event
+        );
+        assert_eq!(event.session_id(), None);
+    }
+
+    #[test]
+    fn an_error_correlates_a_cleanup_by_request_id_and_omits_it_when_absent() {
+        let correlated = SttEvent::Error {
+            session_id: None,
+            request_id: Some("clean-1-1".to_string()),
+            code: "cleanup_failed".to_string(),
+            message: "provider rejected the request".to_string(),
+        };
+        let json = serde_json::to_string(&correlated).expect("serializes");
+        assert_eq!(
+            json,
+            r#"{"type":"error","requestId":"clean-1-1","code":"cleanup_failed","message":"provider rejected the request"}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<SttEvent>(&json).expect("deserializes"),
+            correlated
+        );
+
+        // A take failure carries no request id, and the key stays off the wire.
+        let uncorrelated = SttEvent::Error {
+            session_id: Some("take-1".to_string()),
+            request_id: None,
+            code: "stream_failed".to_string(),
+            message: "socket closed".to_string(),
+        };
+        assert_eq!(
+            serde_json::to_string(&uncorrelated).expect("serializes"),
+            r#"{"type":"error","sessionId":"take-1","code":"stream_failed","message":"socket closed"}"#
+        );
+        let parsed: SttEvent =
+            serde_json::from_str(r#"{"type":"error","code":"aborted","message":"gone"}"#)
+                .expect("deserializes an older worker");
+        assert_eq!(
+            parsed,
+            SttEvent::Error {
+                session_id: None,
+                request_id: None,
+                code: "aborted".to_string(),
+                message: "gone".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn transcription_commands_carry_an_optional_dictation_language() {
+        let start = SttCommand::Start {
+            session_id: "take-1".to_string(),
+            provider: "vercel-ai-gateway".to_string(),
+            model: "openai/gpt-realtime-whisper".to_string(),
+            sample_rate: 16_000,
+            language: None,
+            api_key: None,
+        };
+        let json = serde_json::to_string(&start).expect("serializes");
+        assert_eq!(
+            json,
+            r#"{"type":"start","sessionId":"take-1","provider":"vercel-ai-gateway","model":"openai/gpt-realtime-whisper","sampleRate":16000}"#
+        );
+
+        let with_language = SttCommand::TranscribeFile {
+            session_id: "take-2".to_string(),
+            provider: "vercel-ai-gateway".to_string(),
+            model: "openai/gpt-4o-transcribe".to_string(),
+            path: "/tmp/a.wav".to_string(),
+            language: Some("fr".to_string()),
+            api_key: None,
+        };
+        let json = serde_json::to_string(&with_language).expect("serializes");
+        assert_eq!(
+            json,
+            r#"{"type":"transcribeFile","sessionId":"take-2","provider":"vercel-ai-gateway","model":"openai/gpt-4o-transcribe","path":"/tmp/a.wav","language":"fr"}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<SttCommand>(&json).expect("round-trips"),
+            with_language
+        );
+
+        // An older worker omits the key: the command still parses.
+        let parsed: SttCommand = serde_json::from_str(
+            r#"{"type":"start","sessionId":"take-1","provider":"p","model":"m","sampleRate":16000}"#,
+        )
+        .expect("deserializes an older worker");
+        let SttCommand::Start { language, .. } = parsed else {
+            panic!("expected a start command");
+        };
+        assert_eq!(language, None);
+    }
+
+    #[test]
+    fn capabilities_event_reports_languages_and_the_cleanup_catalogue() {
+        let event = SttEvent::Capabilities {
+            request_id: Some("cap-2".to_string()),
+            source: CapabilitySource::Discovered,
+            providers: Vec::new(),
+            languages: Some(vec![
+                LanguageOption {
+                    code: "fr".to_string(),
+                    label: "French".to_string(),
+                },
+                LanguageOption {
+                    code: "en".to_string(),
+                    label: "English".to_string(),
+                },
+            ]),
+            language_models: Some(vec![LanguageModelInfo {
+                id: "openai/gpt-4.1-mini".to_string(),
+                label: "GPT-4.1 mini".to_string(),
+            }]),
+            default_language_model: Some("openai/gpt-4.1-mini".to_string()),
+        };
+
+        let expected = concat!(
+            r#"{"type":"capabilities","requestId":"cap-2","source":"discovered","providers":[],"#,
+            r#""languages":[{"code":"fr","label":"French"},{"code":"en","label":"English"}],"#,
+            r#""languageModels":[{"id":"openai/gpt-4.1-mini","label":"GPT-4.1 mini"}],"#,
+            r#""defaultLanguageModel":"openai/gpt-4.1-mini"}"#
+        );
+        assert_eq!(serde_json::to_string(&event).expect("serializes"), expected);
+        assert_eq!(
+            serde_json::from_str::<SttEvent>(expected).expect("deserializes"),
+            event
+        );
+
+        // An older worker reports none of the three: the keys stay absent.
+        let legacy: SttEvent =
+            serde_json::from_str(r#"{"type":"capabilities","source":"builtin","providers":[]}"#)
+                .expect("deserializes an older worker");
+        assert_eq!(
+            serde_json::to_string(&legacy).expect("serializes"),
+            r#"{"type":"capabilities","source":"builtin","providers":[]}"#
+        );
+        assert_eq!(
+            legacy,
+            SttEvent::Capabilities {
+                request_id: None,
+                source: CapabilitySource::Builtin,
+                providers: Vec::new(),
+                languages: None,
+                language_models: None,
+                default_language_model: None,
             }
         );
     }

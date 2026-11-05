@@ -1668,6 +1668,8 @@ fn saving_settings_keeps_the_remembered_geometry(cx: &mut gpui_kit::TestAppConte
                 provider: "vercel-ai-gateway".to_string(),
                 model_streaming: "openai/gpt-realtime-whisper".to_string(),
                 model_batch: "openai/gpt-4o-transcribe".to_string(),
+                language: None,
+                language_model: None,
                 api_key: Some("sk-rotated".to_string()),
             });
         });

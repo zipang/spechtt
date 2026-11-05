@@ -2,12 +2,17 @@
  * Bun subprocess STT worker.
  *
  * Reads NDJSON `InboundCommand` lines from `stdin` and writes `OutboundEvent`
- * lines to `stdout`. `stderr` is reserved for diagnostics.
+ * lines to `stdout`. `stderr` is reserved for diagnostics, which the Rust host
+ * surfaces in its trace.
+ *
+ * Every route lives in [`runWorkerLoop`]: transcription (`start`,
+ * `transcribeFile`, `audio`, `pause`, `resume`, `stop`), the cleanup pass
+ * (`cleanTranscript`), and the read-only capabilities handshake.
  */
 import { defaultSegmentedModel, MistralAdapter } from "./adapters/mistral";
 import { createFileSession } from "./adapters/file";
 import type { TranscriptionModel } from "ai";
-import { transcribe as aiTranscribe } from "ai";
+import { createGateway, generateText, transcribe as aiTranscribe } from "ai";
 import type {
 	SttAdapterFactory,
 	SttSession,
@@ -15,10 +20,11 @@ import type {
 } from "./adapters/types";
 import { sessionConfigFromStart } from "./adapters/types";
 import { VercelAiSdkAdapter } from "./adapters/vercel-ai-sdk";
+import type { CleanDeps } from "./clean";
+import { cleanTranscript } from "./clean";
 import {
-	type DiscoveredModel,
 	type DiscoveryResult,
-	cachedGatewayModels,
+	cachedGatewayCatalogue,
 	discoverGatewayModels,
 } from "./discovery";
 import {
@@ -29,6 +35,7 @@ import {
 	probeDuration,
 } from "./file-input";
 import {
+	type CleanTranscriptCommand,
 	type InboundCommand,
 	type OutboundEvent,
 	type SttErrorCode,
@@ -48,14 +55,14 @@ import {
  * anonymous gateway client; tests inject a deterministic one.
  */
 export interface DiscoverySource {
-	/** Freshly cached models, if any, without performing I/O. */
-	cached(): readonly DiscoveredModel[] | undefined;
+	/** Freshly cached catalogue, if any, without performing I/O. */
+	cached(): DiscoveryResult | undefined;
 	/** Fetches the live catalogue; never receives an API key. */
 	discover(): Promise<DiscoveryResult | undefined>;
 }
 
 export const defaultDiscoverySource: DiscoverySource = {
-	cached: () => cachedGatewayModels(),
+	cached: () => cachedGatewayCatalogue(),
 	discover: () => discoverGatewayModels(),
 };
 
@@ -69,22 +76,42 @@ function errorMessage(error: unknown): string {
 	return "STT worker failed";
 }
 
+/** Length of the head and tail probe used to spot a transcript in a message. */
+const TRANSCRIPT_PROBE_LENGTH = 24;
+
 /**
- * Redacts credentials and transcript-bearing payloads from a diagnostic line.
- * Diagnostics stay on `stderr`; `stdout` remains NDJSON-only.
+ * A cleanup failure message that never carries the transcript.
+ *
+ * [`runWorkerLoop`] calls this for the `cleanup_failed` event: provider errors
+ * can quote the request they rejected, so a message containing the transcript
+ * — or enough of its start or end to identify it — is replaced with a generic
+ * one. Fragments shorter than eight characters are ignored, because they match
+ * ordinary prose too easily.
  */
-export function sanitizeDiagnostic(raw: string): string {
-	const collapsed = raw
-		.replace(/[\u0000-\u001f\u007f]+/g, " ")
-		.replace(/\s+/g, " ")
-		.trim();
-	const redacted = collapsed
-		.replace(/authorization:[^,;]*/gi, "[REDACTED]")
-		.replace(/bearer\s+\S+/gi, "[REDACTED]")
-		.replace(/sk-[a-z0-9_-]+/gi, "[REDACTED]")
-		.replace(/(api_key|key)=[^\s,;]+/gi, "[REDACTED]");
-	return redacted.length > 120 ? `${redacted.slice(0, 119)}…` : redacted;
+export function cleanupFailureMessage(
+	error: unknown,
+	transcript: string,
+): string {
+	const message = errorMessage(error);
+	const probe = transcript.trim();
+	if (probe.length === 0) {
+		return message;
+	}
+
+	const fragments = [
+		probe,
+		probe.slice(0, TRANSCRIPT_PROBE_LENGTH),
+		probe.slice(-TRANSCRIPT_PROBE_LENGTH),
+	];
+	const echoes = fragments.some(
+		(fragment) => fragment.length >= 8 && message.includes(fragment),
+	);
+	return echoes ? "Cleanup failed" : message;
 }
+
+import { sanitizeDiagnostic } from "./diagnostics";
+
+export { sanitizeDiagnostic } from "./diagnostics";
 
 /** Picks the streaming or segmented adapter from the model capability. */
 export function defaultAdapterFactory(
@@ -148,12 +175,34 @@ export const defaultFileDeps: FileDeps = {
 	},
 };
 
+/**
+ * Real cleanup wiring: the AI SDK `generateText` call, charged to the gateway
+ * key the request resolved.
+ *
+ * The model argument arrives as a gateway id string, so the provider instance
+ * is built from that key instead of the environment default. `temperature`
+ * comes from the caller so the repair pass stays close to deterministic.
+ */
+export function defaultCleanDeps(apiKey: string): CleanDeps {
+	return {
+		generate: async (args) => {
+			const { text } = await generateText({
+				model: createGateway({ apiKey })(args.model),
+				prompt: args.prompt,
+				temperature: args.temperature,
+			});
+			return { text };
+		},
+	};
+}
+
 export async function runWorkerLoop(
 	lines: AsyncIterable<string>,
 	emit: (event: OutboundEvent) => void,
 	adapterFactory: SttAdapterFactory = defaultAdapterFactory,
 	discovery: DiscoverySource = defaultDiscoverySource,
 	files: FileDeps = defaultFileDeps,
+	clean?: CleanDeps,
 ): Promise<void> {
 	let active: SttSession | undefined;
 	/** A file session never receives live audio, so routing must know the kind. */
@@ -165,13 +214,15 @@ export async function runWorkerLoop(
 		sessionId: string | undefined,
 		code: SttErrorCode,
 		message: string,
+		requestId?: string,
 	): void => {
 		console.error(
-			`[stt-worker] error code=${code} sessionId=${sessionId ?? "-"} message="${sanitizeDiagnostic(message)}"`,
+			`[stt-worker] error code=${code} sessionId=${sessionId ?? "-"} requestId=${requestId ?? "-"} message="${sanitizeDiagnostic(message)}"`,
 		);
 		emit({
 			type: "error",
 			...(sessionId === undefined ? {} : { sessionId }),
+			...(requestId === undefined ? {} : { requestId }),
 			code,
 			message,
 		});
@@ -306,6 +357,9 @@ export async function runWorkerLoop(
 			sampleRate: FILE_SAMPLE_RATE,
 			apiKey,
 			path: command.path,
+			...(command.language === undefined
+				? {}
+				: { language: command.language }),
 		};
 		try {
 			active = files.createSession(config, emit);
@@ -313,6 +367,52 @@ export async function runWorkerLoop(
 		} catch (error) {
 			active = undefined;
 			emitError(command.sessionId, "stream_failed", errorMessage(error));
+		}
+	};
+
+	/**
+	 * Repairs the transcript of a finished take. It never touches the active
+	 * session: the answer is correlated by `requestId`, so a cleanup can run
+	 * while a new take is recording.
+	 */
+	const handleCleanTranscript = async (
+		command: CleanTranscriptCommand,
+	): Promise<void> => {
+		const apiKey = resolveProviderApiKey(command.provider, command.apiKey);
+		if (apiKey === undefined) {
+			const provider = getProvider(command.provider);
+			const envHint = provider?.envVars.join(" or ") ?? "the provider key";
+			emitError(
+				undefined,
+				"missing_api_key",
+				`Missing API key for ${command.provider}; set ${envHint} or pass apiKey in cleanTranscript`,
+				command.requestId,
+			);
+			return;
+		}
+
+		const deps = clean ?? defaultCleanDeps(apiKey);
+		try {
+			const text = await cleanTranscript(
+				{
+					provider: command.provider,
+					model: command.model,
+					text: command.text,
+					...(command.language === undefined
+						? {}
+						: { language: command.language }),
+					apiKey,
+				},
+				deps,
+			);
+			emit({ type: "cleaned", requestId: command.requestId, text });
+		} catch (error) {
+			emitError(
+				undefined,
+				"cleanup_failed",
+				cleanupFailureMessage(error, command.text),
+				command.requestId,
+			);
 		}
 	};
 
@@ -325,21 +425,28 @@ export async function runWorkerLoop(
 				// is never passed to discovery either.
 				const capabilities = (
 					source: "builtin" | "discovered",
-					gatewayModels?: readonly DiscoveredModel[],
-				): OutboundEvent => ({
-					type: "capabilities",
-					...(command.requestId === undefined
-						? {}
-						: { requestId: command.requestId }),
-					source,
-					providers: listCapabilities({
+					catalogue?: DiscoveryResult,
+				): OutboundEvent => {
+					const payload = listCapabilities({
 						apiKeyFor: () => command.apiKey,
-						gatewayModels,
-					}),
-				});
+						gatewayModels: catalogue?.models,
+						languageModels: catalogue?.languageModels,
+					});
+					return {
+						type: "capabilities",
+						...(command.requestId === undefined
+							? {}
+							: { requestId: command.requestId }),
+						source,
+						providers: payload.providers,
+						languages: payload.languages,
+						languageModels: payload.languageModels,
+						defaultLanguageModel: payload.defaultLanguageModel,
+					};
+				};
 
 				const cached = discovery.cached();
-				if (cached !== undefined && cached.length > 0) {
+				if (cached !== undefined && cached.models.length > 0) {
 					emit(capabilities("discovered", cached));
 					return;
 				}
@@ -353,7 +460,7 @@ export async function runWorkerLoop(
 						if (closed || result === undefined || result.models.length === 0) {
 							return;
 						}
-						emit(capabilities("discovered", result.models));
+						emit(capabilities("discovered", result));
 					},
 					() => {
 						// Discovery is best-effort: keep the builtin catalogue.
@@ -368,6 +475,10 @@ export async function runWorkerLoop(
 
 			case "transcribeFile":
 				await handleTranscribeFile(command);
+				return;
+
+			case "cleanTranscript":
+				await handleCleanTranscript(command);
 				return;
 
 			case "audio":

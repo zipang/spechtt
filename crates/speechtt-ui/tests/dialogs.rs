@@ -99,6 +99,8 @@ fn settings_saves_a_complete_draft_and_closes() {
             provider: "vercel-ai-gateway".to_string(),
             model_streaming: "openai/gpt-realtime-whisper".to_string(),
             model_batch: "openai/gpt-4o-transcribe".to_string(),
+            language: None,
+            language_model: None,
             api_key: Some("sk-dialog-test".to_string()),
         }
     );
@@ -210,7 +212,7 @@ fn opening_a_dialog_does_not_disturb_the_recording_session() {
 mod common;
 
 use gpui_kit::AppContext as _;
-use gpui_kit::test::TestWindowExt;
+use gpui_kit::test::{TestAppContextExt as _, TestWindowExt};
 
 #[gpui_kit::test]
 fn dialogs_render_and_save_through_the_app(cx: &mut gpui_kit::TestAppContext) {
@@ -332,6 +334,99 @@ fn help_switches_to_the_model_catalogue_tab(cx: &mut gpui_kit::TestAppContext) {
                 .map(|model| model.id.as_str())
                 .collect::<Vec<_>>(),
             ["openai/gpt-4o-transcribe", "openai/gpt-realtime-whisper"]
+        );
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+async fn the_dialog_commits_the_dictation_language_and_offers_the_cleanup_models(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    use speechtt_core::protocol::{CapabilitySource, LanguageModelInfo, LanguageOption, SttEvent};
+
+    let (main, view, events) = common::open_speechtt_window_with_events(cx);
+
+    // The handshake is the only source of the cleanup catalogue and of the
+    // offered languages.
+    let handshake = |language_models: Option<Vec<LanguageModelInfo>>| SttEvent::Capabilities {
+        request_id: None,
+        source: CapabilitySource::Builtin,
+        providers: catalogue(),
+        languages: Some(vec![
+            LanguageOption {
+                code: "fr".to_owned(),
+                label: "French".to_owned(),
+            },
+            LanguageOption {
+                code: "en".to_owned(),
+                label: "English".to_owned(),
+            },
+        ]),
+        language_models,
+        default_language_model: Some("openai/gpt-4.1-mini".to_owned()),
+    };
+
+    events
+        .send_blocking(Ok(handshake(Some(vec![LanguageModelInfo {
+            id: "openai/gpt-4.1-mini".to_owned(),
+            label: "GPT-4.1 mini".to_owned(),
+        }]))))
+        .expect("event sent");
+    cx.run_until_parked();
+
+    cx.update_window(main.into(), |_, window, cx| {
+        view.update(cx, |app, cx| app.open_settings(window, cx));
+        window.render_frame(cx);
+    })
+    .unwrap();
+
+    let dialog = cx
+        .windows()
+        .into_iter()
+        .find(|window| window.window_id() != main.window_id())
+        .expect("Settings opened its own window");
+
+    // Choosing a language in the menu commits its ISO code to the draft.
+    cx.update_window(dialog, |_, window, cx| {
+        window.render_frame(cx);
+        window.within("field-settings-language").click("input", cx);
+        window.press("down", cx);
+        window.press("enter", cx);
+    })
+    .unwrap();
+
+    cx.wait_for(dialog, std::time::Duration::from_millis(500), |_, cx| {
+        view.read(cx).settings_draft().language.as_deref() == Some("fr")
+    })
+    .await;
+
+    // Discovered language models keep the row a menu.
+    cx.update_window(dialog, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            window.try_find("field-settings-cleanup").is_some(),
+            "the cleanup row offers the discovered models"
+        );
+    })
+    .unwrap();
+
+    // A worker that reports none leaves the row naming the resolved default
+    // instead of showing an empty menu.
+    events
+        .send_blocking(Ok(handshake(None)))
+        .expect("event sent");
+    cx.run_until_parked();
+
+    cx.update_window(dialog, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            window.try_find("field-settings-cleanup").is_none(),
+            "without language models the row names the default id"
+        );
+        assert!(
+            window.try_find("field-settings-language").is_some(),
+            "the language menu does not depend on the cleanup catalogue"
         );
     })
     .unwrap();

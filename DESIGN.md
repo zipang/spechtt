@@ -515,12 +515,35 @@ forward is dimmed until the step is complete.
 | `welcome` (mode chooser) | — | — | — (no footer) |
 | `session_setup` | Back → mode chooser (drops the draft and any pending file) | — | Forward (`ArrowBigRight`, disabled until the draft is complete) → starts the take |
 | `recording` (live take) | Back → mode chooser | take control | Stop |
-| `session_end` | Back → mode chooser | — | Copy + Save, or Open file |
+| `session_end` | Back → mode chooser | — | Clean up + Copy + Save, or Open file |
 | `session_transcription` | Back → mode chooser | Stop | Continue |
 
 Back means the same thing everywhere: one step towards the mode chooser, with
 no stale draft, pending file, finished take, output status or error strip left
 behind.
+
+**Trailing actions read left to right in the order the user is expected to
+reach them.** On the finished take that order is: the cleanup wand, its undo,
+Copy, Save.
+
+| Action | Icon | Label | Enabled when |
+|---|---|---|---|
+| Clean up text | `WandSparkles` | "Clean up text" | the take has text **and** a cleanup model resolves, and no pass is running |
+| Undo cleanup | `RotateCcw` | "Undo cleanup" | only rendered while the screen shows a repaired transcript |
+| Copy | `Copy` | "Copy" | the take has text |
+| Save | `HardDriveDownload` | "Save" | the take has text |
+
+The wand is a secondary `IconAction` like Copy and Save — same 34 px square,
+same `secondary` surface. It carries no accent colour: the repair it starts is
+not the screen's main action, and the filled round button keeps that role. While
+the request is outstanding the wand is dimmed and the muted status line under
+the transcript reads "Cleaning up…"; once the answer lands, the status line reads
+"Cleaned" and the undo appears to the wand's right. Undo is one step, not a
+toggle: it restores the transcript the take had before the repair and then
+disappears.
+
+A written take replaces the whole trailing zone with Open file: the text is
+already on disk, so there is nothing left to repair or copy.
 
 ### Icon buttons
 
@@ -540,15 +563,23 @@ documentation, not decoration.
 ### Settings panel
 
 A 560px-wide card in `surface-card`, `rounded-lg`, `elevation-md`, with rows
-separated by 1px `brand.secondary` hairlines. Provider select, masked API key
-field, **two** default-model selects, and save/cancel actions. Labels in `mono`
-uppercase `--font-size-xs`; values in `base` `--font-size-sm`.
+separated by 1px `brand.secondary` hairlines. Six rows, top to bottom: Dictation
+Language, Transcription Service, the two default models, Cleanup Model, and the
+masked API key field — then save/cancel actions. Labels in `mono` uppercase
+`--font-size-xs`; values in `base` `--font-size-sm`.
 
-The three selects use the same `components::ProviderSelect` and
-`components::ModelSelect` menus as the Session setup form, against the settings
-draft: the provider menu is disabled until the catalogue arrives, and both model
-menus until a provider is chosen. The model rows and the field beside each menu
-show the model's `TranscriptionModeBadge`.
+Every select uses the same components as the Session setup form, against the
+settings draft: `components::ProviderSelect`, `components::ModelSelect` and
+`components::LanguageSelect`. The provider menu is disabled until the catalogue
+arrives, and both default-model menus until a provider is chosen. The model rows
+and the field beside each menu show the model's `TranscriptionModeBadge`.
+
+**Dictation Language** — *"The language you speak; improves accuracy"*; it leads
+the list because it applies to the transcription itself, not to a model choice.
+Its first entry is **Auto (detect)**, whose value is the empty language; every
+other entry is an ISO-639-1 code the worker published, in the worker's order.
+An unset language therefore renders as Auto, never as a blank field. The menu is
+not searchable: one entry is a single word.
 
 The two model rows are one default per take mode, each a `SettingRow` on its own
 line because two dropdowns do not fit side by side:
@@ -561,6 +592,18 @@ line because two dropdowns do not fit side by side:
 Both are required to save, so every take starts from a model of its own mode. The
 provider menu lists every catalogue provider; an arriving catalogue refreshes the
 open dialog.
+
+**Cleanup Model** — *"Repairs typos and broken sentences after transcription"*,
+below the two model rows because it never transcribes: it repairs a finished
+transcript. It lists the text models the worker discovered, with the placeholder
+"Use DEFAULT_LANGUAGE_MODEL" while nothing is stored. A worker that reported no
+language models drops the menu and names the resolved default id as a `mono`
+value instead, so the row still reads as configured rather than as an empty
+field.
+
+The dictation language and the cleanup model are both **optional**: neither
+blocks Save, a take starts without either, and the cleanup action stays disabled
+until a model resolves.
 
 ## DO's and DON'Ts
 

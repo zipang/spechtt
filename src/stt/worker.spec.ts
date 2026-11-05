@@ -16,6 +16,9 @@ import type {
 } from "./adapters/types";
 import { MistralAdapter } from "./adapters/mistral";
 import { VercelAiSdkAdapter } from "./adapters/vercel-ai-sdk";
+import { FALLBACK_LANGUAGE_MODEL } from "./registry";
+import type { CleanDeps } from "./clean";
+import { CLEANUP_TEMPERATURE } from "./clean";
 import type { DiscoveredModel, DiscoveryResult } from "./discovery";
 import type { FfmpegTools } from "./file-input";
 import {
@@ -446,6 +449,7 @@ describe("runWorkerLoop capabilities handshake", () => {
 
 	const discoveryResult: DiscoveryResult = {
 		models: discoveredModels,
+		languageModels: [],
 		fetchedAt: 1_000,
 	};
 
@@ -665,7 +669,7 @@ describe("runWorkerLoop capabilities handshake", () => {
 		const { factory, events } = fakeFactory();
 		let discoverCalls = 0;
 		const source: DiscoverySource = {
-			cached: () => discoveredModels,
+			cached: () => discoveryResult,
 			discover: async () => {
 				discoverCalls += 1;
 				return discoveryResult;
@@ -1270,5 +1274,418 @@ describe("worker diagnostics", () => {
 		expect(sanitized).not.toContain("\n");
 		expect(sanitized).toContain("[REDACTED]");
 		expect(sanitized.length).toBeLessThanOrEqual(120);
+	});
+});
+
+describe("runWorkerLoop cleanup routing", () => {
+	const savedEnv: Record<string, string | undefined> = {};
+
+	beforeEach(() => {
+		for (const name of [
+			"AI_GATEWAY_API_KEY",
+			"VERCEL_AI_GATEWAY_API_KEY",
+			"DEFAULT_LANGUAGE_MODEL",
+		]) {
+			savedEnv[name] = process.env[name];
+			delete process.env[name];
+		}
+	});
+
+	afterEach(() => {
+		for (const [name, value] of Object.entries(savedEnv)) {
+			if (value === undefined) {
+				delete process.env[name];
+			} else {
+				process.env[name] = value;
+			}
+		}
+	});
+
+	const TRANSCRIPT = "euh bonjour, je d 'une idée très claire";
+
+	const cleanLine = (overrides: Record<string, unknown> = {}) =>
+		JSON.stringify({
+			type: "cleanTranscript",
+			requestId: "clean-1",
+			provider: "vercel-ai-gateway",
+			model: "openai/gpt-4.1-mini",
+			text: TRANSCRIPT,
+			...overrides,
+		});
+
+	function generateStub(answer = "Bonjour, j'ai une idée très claire.") {
+		const calls: Array<{
+			model: string;
+			prompt: string;
+			temperature: number;
+		}> = [];
+		const deps: CleanDeps = {
+			async generate(args) {
+				calls.push(args);
+				return { text: answer };
+			},
+		};
+		return { calls, deps };
+	}
+
+	async function runClean(
+		lines: string[],
+		deps: CleanDeps,
+		options: { events?: OutboundEvent[]; factory?: SttAdapterFactory } = {},
+	) {
+		const events = options.events ?? [];
+		const factory = options.factory ?? fakeFactory().factory;
+		await runWorkerLoop(
+			linesOf(lines),
+			(event) => events.push(event),
+			factory,
+			undefined,
+			undefined,
+			deps,
+		);
+		return events;
+	}
+
+	test("emits cleaned with the requestId and the repaired text", async () => {
+		const { calls, deps } = generateStub();
+
+		const events = await runClean(
+			[cleanLine({ requestId: "clean-7", apiKey: "sk-test", language: "fr" })],
+			deps,
+		);
+
+		expect(events).toEqual([
+			{ type: "ready" },
+			{
+				type: "cleaned",
+				requestId: "clean-7",
+				text: "Bonjour, j'ai une idée très claire.",
+			},
+		]);
+		expect(calls[0]?.model).toBe("openai/gpt-4.1-mini");
+		expect(calls[0]?.temperature).toBe(CLEANUP_TEMPERATURE);
+		expect(calls[0]?.prompt).toContain("French");
+		expect(calls[0]?.prompt).toContain(TRANSCRIPT);
+	});
+
+	test("resolves the API key from the environment when none is sent", async () => {
+		process.env.AI_GATEWAY_API_KEY = "env-key";
+		const { calls, deps } = generateStub();
+
+		await runClean([cleanLine()], deps);
+
+		expect(calls).toHaveLength(1);
+	});
+
+	test("emits missing_api_key correlated by requestId without calling the model", async () => {
+		const { calls, deps } = generateStub();
+
+		const events = await runClean([cleanLine({ requestId: "clean-9" })], deps);
+
+		expect(calls).toHaveLength(0);
+		expect(events).toEqual([
+			{ type: "ready" },
+			{
+				type: "error",
+				requestId: "clean-9",
+				code: "missing_api_key",
+				message: expect.stringContaining("vercel-ai-gateway"),
+			},
+		]);
+	});
+
+	test("emits cleanup_failed and never leaks the transcript", async () => {
+		const errorSpy = spyOn(console, "error").mockImplementation(() => {});
+		const deps: CleanDeps = {
+			async generate() {
+				throw new Error(`provider rejected the prompt: ${TRANSCRIPT}`);
+			},
+		};
+
+		try {
+			const events = await runClean(
+				[cleanLine({ requestId: "clean-boom", apiKey: "sk-test" })],
+				deps,
+			);
+
+			expect(events).toHaveLength(2);
+			const failure = events[1];
+			expect(failure).toMatchObject({
+				type: "error",
+				requestId: "clean-boom",
+				code: "cleanup_failed",
+			});
+			if (failure?.type !== "error") return;
+			expect(failure.message).not.toContain(TRANSCRIPT);
+			expect(failure.message).not.toContain("idée");
+			expect(failure.message.toLowerCase()).toContain("cleanup failed");
+
+			const diagnostics = errorSpy.mock.calls
+				.map((call) => call.join(" "))
+				.join("\n");
+			expect(diagnostics).not.toContain(TRANSCRIPT);
+			expect(diagnostics).not.toContain("sk-test");
+		} finally {
+			errorSpy.mockRestore();
+		}
+	});
+
+	test("keeps the provider error message when it carries no transcript", async () => {
+		const deps: CleanDeps = {
+			async generate() {
+				throw new Error("rate limited by the gateway");
+			},
+		};
+
+		const events = await runClean(
+			[cleanLine({ requestId: "clean-rate", apiKey: "sk-test" })],
+			deps,
+		);
+
+		expect(events[1]).toMatchObject({
+			type: "error",
+			requestId: "clean-rate",
+			code: "cleanup_failed",
+			message: "rate limited by the gateway",
+		});
+	});
+
+	test("does not disturb an active session", async () => {
+		const { factory, adapter } = fakeFactory();
+		const { deps } = generateStub();
+
+		const events = await runClean(
+			[
+				START,
+				cleanLine({ requestId: "clean-live", apiKey: "sk-test" }),
+				audio("a1"),
+				JSON.stringify({ type: "stop" }),
+			],
+			deps,
+			{ factory },
+		);
+
+		expect(events.map((event) => event.type)).toEqual([
+			"ready",
+			"started",
+			"cleaned",
+			"partial",
+			"delta",
+			"committed",
+			"stopped",
+		]);
+		expect(adapter.sessions).toHaveLength(1);
+		expect(adapter.sessions[0]?.stopped).toBe(true);
+		expect(adapter.sessions[0]?.aborted).toBe(false);
+	});
+
+	test("does not stop the active session on a cleanup failure", async () => {
+		const { factory, adapter } = fakeFactory();
+		const deps: CleanDeps = {
+			async generate() {
+				throw new Error("boom");
+			},
+		};
+
+		await runClean(
+			[
+				START,
+				cleanLine({ requestId: "clean-fail", apiKey: "sk-test" }),
+				JSON.stringify({ type: "stop" }),
+			],
+			deps,
+			{ factory },
+		);
+
+		expect(adapter.sessions).toHaveLength(1);
+		expect(adapter.sessions[0]?.paused).toBe(false);
+	});
+});
+
+describe("runWorkerLoop dictation language", () => {
+	const savedEnv: Record<string, string | undefined> = {};
+
+	beforeEach(() => {
+		for (const name of ["AI_GATEWAY_API_KEY", "VERCEL_AI_GATEWAY_API_KEY"]) {
+			savedEnv[name] = process.env[name];
+			delete process.env[name];
+		}
+	});
+
+	afterEach(() => {
+		for (const [name, value] of Object.entries(savedEnv)) {
+			if (value === undefined) {
+				delete process.env[name];
+			} else {
+				process.env[name] = value;
+			}
+		}
+	});
+
+	test("forwards the language into the live session config", async () => {
+		const { factory } = fakeFactory();
+		const configs: SttSessionConfig[] = [];
+		const capturingFactory: SttAdapterFactory = (config) => {
+			configs.push(config);
+			return factory(config);
+		};
+
+		await runWorkerLoop(
+			linesOf([
+				JSON.stringify({
+					...JSON.parse(START),
+					language: "fr",
+				}),
+				JSON.stringify({ type: "stop" }),
+			]),
+			() => {},
+			capturingFactory,
+		);
+
+		expect(configs[0]?.language).toBe("fr");
+	});
+
+	test("omits the language when the start command has none", async () => {
+		const { factory } = fakeFactory();
+		const configs: SttSessionConfig[] = [];
+		const capturingFactory: SttAdapterFactory = (config) => {
+			configs.push(config);
+			return factory(config);
+		};
+
+		await runWorkerLoop(
+			linesOf([START, JSON.stringify({ type: "stop" })]),
+			() => {},
+			capturingFactory,
+		);
+
+		expect(configs[0] !== undefined && "language" in configs[0]).toBe(false);
+	});
+
+	test("forwards the language into the file session config", async () => {
+		const { factory } = fakeFactory();
+		const files = fakeFileDeps();
+
+		await runWorkerLoop(
+			linesOf([
+				JSON.stringify({ ...JSON.parse(FILE_COMMAND), language: "fr" }),
+				JSON.stringify({ type: "stop" }),
+			]),
+			() => {},
+			factory,
+			undefined,
+			files.deps,
+		);
+
+		expect(files.configs[0]?.language).toBe("fr");
+	});
+});
+
+describe("runWorkerLoop capabilities cleanup fields", () => {
+	const savedEnv: Record<string, string | undefined> = {};
+
+	beforeEach(() => {
+		savedEnv.DEFAULT_LANGUAGE_MODEL = process.env.DEFAULT_LANGUAGE_MODEL;
+		delete process.env.DEFAULT_LANGUAGE_MODEL;
+	});
+
+	afterEach(() => {
+		const value = savedEnv.DEFAULT_LANGUAGE_MODEL;
+		if (value === undefined) {
+			delete process.env.DEFAULT_LANGUAGE_MODEL;
+		} else {
+			process.env.DEFAULT_LANGUAGE_MODEL = value;
+		}
+	});
+
+	const capabilitiesLine = (overrides: Record<string, unknown> = {}) =>
+		JSON.stringify({ type: "capabilities", ...overrides });
+
+	const catalogue: DiscoveryResult = {
+		models: [
+			{
+				id: "acme/live",
+				label: "Acme Live",
+				mode: "streaming",
+				description: null,
+				pricing: {},
+			},
+		],
+		languageModels: [
+			{ id: "openai/gpt-4.1-mini", label: "GPT-4.1 mini" },
+		],
+		fetchedAt: 1_000,
+	};
+
+	function lastCapabilities(events: OutboundEvent[]) {
+		const caps = events.filter(
+			(event): event is Extract<OutboundEvent, { type: "capabilities" }> =>
+				event.type === "capabilities",
+		);
+		return caps.at(-1);
+	}
+
+	test("reports the offered languages and the default cleanup model", async () => {
+		const { factory, events } = fakeFactory();
+
+		await runWorkerLoop(
+			linesOf([capabilitiesLine()]),
+			(event) => events.push(event),
+			factory,
+			{ cached: () => undefined, discover: async () => undefined },
+		);
+
+		const caps = lastCapabilities(events);
+		expect(caps?.languages?.map((option) => option.code)).toContain("fr");
+		expect(caps?.defaultLanguageModel).toBe(FALLBACK_LANGUAGE_MODEL);
+		expect(caps?.languageModels).toBeNull();
+	});
+
+	test("reports the default cleanup model from the environment", async () => {
+		process.env.DEFAULT_LANGUAGE_MODEL = "openai/gpt-4.1";
+		const { factory, events } = fakeFactory();
+
+		await runWorkerLoop(
+			linesOf([capabilitiesLine()]),
+			(event) => events.push(event),
+			factory,
+			{ cached: () => undefined, discover: async () => undefined },
+		);
+
+		expect(lastCapabilities(events)?.defaultLanguageModel).toBe("openai/gpt-4.1");
+	});
+
+	test("reports the language models from a fresh discovery cache", async () => {
+		const { factory, events } = fakeFactory();
+
+		await runWorkerLoop(
+			linesOf([capabilitiesLine({ requestId: "cap-clean" })]),
+			(event) => events.push(event),
+			factory,
+			{ cached: () => catalogue, discover: async () => catalogue },
+		);
+
+		const caps = lastCapabilities(events);
+		expect(caps?.source).toBe("discovered");
+		expect(caps?.languageModels).toEqual([
+			{ id: "openai/gpt-4.1-mini", label: "GPT-4.1 mini" },
+		]);
+	});
+
+	test("reports the language models a background discovery found", async () => {
+		const { factory, events } = fakeFactory();
+
+		await runWorkerLoop(
+			linesOf([capabilitiesLine({ requestId: "cap-bg" })]),
+			(event) => events.push(event),
+			factory,
+			{ cached: () => undefined, discover: async () => catalogue },
+		);
+
+		const caps = lastCapabilities(events);
+		expect(caps?.source).toBe("discovered");
+		expect(caps?.languageModels).toEqual([
+			{ id: "openai/gpt-4.1-mini", label: "GPT-4.1 mini" },
+		]);
 	});
 });

@@ -357,6 +357,8 @@ fn error_messages_never_contain_secret_material_or_transcript_text() {
         provider: "vercel".into(),
         model_streaming: "openai/gpt-realtime-whisper".into(),
         model_batch: "openai/gpt-4o-transcribe".into(),
+        language: Some("fr".into()),
+        language_model: None,
         api_key: Some(secret.into()),
     };
     let debug = format!("{change:?}");
@@ -380,6 +382,7 @@ fn controller_stores_and_dismisses_the_typed_error() {
     controller.set_sink(Box::new(NullSink));
     controller.handle_stt_event(SttEvent::Error {
         session_id: None,
+        request_id: None,
         code: "auth_failed".into(),
         message: "401".into(),
     });
@@ -401,6 +404,7 @@ fn inbound_stt_errors_name_their_code_and_sanitized_detail() {
     controller.set_sink(Box::new(NullSink));
     controller.handle_stt_event(SttEvent::Error {
         session_id: None,
+        request_id: None,
         code: "stream_failed".into(),
         message: "upstream refused sk-live-secret".into(),
     });
@@ -438,6 +442,7 @@ fn stale_errors_from_another_take_do_not_replace_the_current_error() {
     controller.set_sink(Box::new(NullSink));
     controller.handle_stt_event(SttEvent::Error {
         session_id: None,
+        request_id: None,
         code: "invalid_protocol".into(),
         message: "bad".into(),
     });
@@ -445,6 +450,7 @@ fn stale_errors_from_another_take_do_not_replace_the_current_error() {
     // No take has started, so any session-scoped error is stale.
     controller.handle_stt_event(SttEvent::Error {
         session_id: Some("take-1".into()),
+        request_id: None,
         code: "auth_failed".into(),
         message: "401".into(),
     });

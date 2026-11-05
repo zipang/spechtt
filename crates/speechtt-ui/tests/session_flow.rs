@@ -11,14 +11,17 @@
 
 use speechtt_core::session::{SessionField, SessionState};
 use speechtt_core::settings::Settings;
-use speechtt_ui::controller::{AppError, SessionController, SessionMode, ViewState};
+use speechtt_ui::controller::{
+    AppError, CleanState, CleanStatus, SessionController, SessionMode, ViewState,
+};
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use speechtt_core::backend::{BackendError, SttSessionSink};
 use speechtt_core::protocol::{
-    ModelCapabilityInfo, ProviderCapability, SttCommand, SttEvent, TranscriptionMode,
+    CapabilitySource, LanguageModelInfo, LanguageOption, ModelCapabilityInfo, ProviderCapability,
+    SecretString, SttCommand, SttEvent, TranscriptionMode,
 };
 use speechtt_ui::controller::SAMPLE_RATE;
 
@@ -1119,12 +1122,14 @@ fn transport_commands_are_emitted_in_order_and_paused_audio_is_dropped() {
             provider,
             model,
             sample_rate,
+            language,
             api_key,
         } => {
             assert_eq!(session_id, "take-1");
             assert_eq!(provider, "vercel-ai-gateway");
             assert_eq!(model, "openai/gpt-4o-transcribe");
             assert_eq!(*sample_rate, SAMPLE_RATE);
+            assert!(language.is_none(), "no dictation language is configured");
             assert!(api_key.is_none());
         }
         other => panic!("expected a start command, got {other:?}"),
@@ -1293,6 +1298,7 @@ fn backend_errors_are_surfaced_and_cleared_by_the_next_take() {
 
     controller.handle_stt_event(SttEvent::Error {
         session_id: Some("take-1".into()),
+        request_id: None,
         code: "missing_api_key".into(),
         message: "set MISTRAL_API_KEY".into(),
     });
@@ -1304,6 +1310,7 @@ fn backend_errors_are_surfaced_and_cleared_by_the_next_take() {
     // A stale error cannot overwrite the current take's status.
     controller.handle_stt_event(SttEvent::Error {
         session_id: Some("take-0".into()),
+        request_id: None,
         code: "stream_failed".into(),
         message: "old take".into(),
     });
@@ -1543,6 +1550,7 @@ fn file_session_sends_a_transcribe_file_command_and_enters_recording() {
             provider: "vercel-ai-gateway".to_string(),
             model: "openai/gpt-4o-transcribe".to_string(),
             path: file.path.to_string_lossy().into_owned(),
+            language: None,
             api_key: None,
         }]
     );
@@ -1998,4 +2006,598 @@ fn a_live_take_never_inherits_a_file_name() {
     let mut live = duplex_controller().0;
     assert!(live.start_recording());
     assert_eq!(live.file_display_name(), None, "a live take names no file");
+}
+
+// ----- T30.6: cleaning the finished transcript -------------------------
+
+/// The two take defaults plus a key, so a take can actually start.
+fn keyed_settings(streaming: &str, batch: &str) -> Settings {
+    let mut settings = configured_settings(streaming, batch);
+    settings.set_api_key("vercel-ai-gateway", "sk-clean-test");
+    settings
+}
+
+/// Settings with a cleanup model and the two take defaults.
+fn cleanable_settings(language_model: &str) -> Settings {
+    Settings {
+        language_model: language_model.to_owned(),
+        auto_paste: false,
+        ..keyed_settings(DEFAULTS.0, DEFAULTS.1)
+    }
+}
+
+/// A finished live take whose controller has a cleanup model to call.
+fn cleanable_take() -> SessionController {
+    let mut controller = finished_live_with("d une dict ée");
+    controller.apply_settings(cleanable_settings("openai/gpt-4.1-mini"));
+    controller
+}
+
+/// A finished live take that asked for the automatic copy/paste, with a
+/// cleanup model available.
+fn cleanable_take_with_auto_paste() -> SessionController {
+    let (mut controller, _sink) = duplex_controller();
+    controller.apply_settings(Settings {
+        auto_paste: true,
+        language_model: "openai/gpt-4.1-mini".to_owned(),
+        ..keyed_settings(DEFAULTS.0, DEFAULTS.1)
+    });
+    assert!(controller.start_recording());
+    controller.handle_stt_event(SttEvent::Committed {
+        session_id: "take-1".into(),
+        text: "d une dict ée".into(),
+        segment: None,
+    });
+    assert!(controller.pause_recording());
+    assert!(controller.finish_take());
+    controller.handle_stt_event(SttEvent::Stopped {
+        session_id: "take-1".into(),
+        full_text: "d une dict ée".into(),
+    });
+    controller
+}
+
+/// Records every copy the controller makes.
+#[derive(Clone, Default)]
+struct RecordingClipboard {
+    copies: Arc<Mutex<Vec<String>>>,
+}
+
+impl RecordingClipboard {
+    fn copies(&self) -> Vec<String> {
+        self.copies.lock().expect("clipboard lock").clone()
+    }
+}
+
+impl speechtt_core::output::clipboard::ClipboardSink for RecordingClipboard {
+    fn copy(&mut self, text: &str) -> Result<(), speechtt_core::output::OutputError> {
+        self.copies
+            .lock()
+            .expect("clipboard lock")
+            .push(text.to_owned());
+        Ok(())
+    }
+}
+
+/// Records every automatic paste the controller makes.
+#[derive(Clone, Default)]
+struct RecordingPaste {
+    pastes: Arc<Mutex<u32>>,
+}
+
+impl speechtt_core::output::paste::PasteSink for RecordingPaste {
+    fn paste(&mut self) -> Result<(), speechtt_core::output::OutputError> {
+        *self.pastes.lock().expect("paste lock") += 1;
+        Ok(())
+    }
+}
+
+#[test]
+fn the_cleanup_walks_unavailable_ready_running_cleaned_and_back() {
+    // No cleanup model resolves: the wand has nothing to call.
+    let mut controller = finished_live_with("d une dict ée");
+    assert_eq!(controller.clean_status(), CleanStatus::Unavailable);
+    assert_eq!(controller.clean_state(), CleanState::Unavailable);
+    assert_eq!(controller.cleanup_model(), None);
+    assert!(!controller.can_clean_transcript());
+    assert_eq!(controller.begin_clean_transcript(), None);
+
+    // A stored model makes it ready.
+    let mut controller = cleanable_take();
+    assert_eq!(controller.clean_status(), CleanStatus::Ready);
+    assert_eq!(controller.clean_state(), CleanState::Ready);
+    assert_eq!(controller.cleanup_model(), Some("openai/gpt-4.1-mini"));
+    assert!(controller.can_clean_transcript());
+
+    let request = controller.begin_clean_transcript().expect("a request id");
+    assert_eq!(controller.clean_status(), CleanStatus::Running);
+    assert!(controller.clean_is_running());
+    assert!(!controller.can_clean_transcript(), "one pass at a time");
+    assert_eq!(controller.begin_clean_transcript(), None);
+
+    assert!(controller.apply_cleaned(&request, "d'une dictée"));
+    assert_eq!(controller.clean_status(), CleanStatus::Cleaned);
+    assert_eq!(controller.clean_state(), CleanState::Cleaned);
+    assert!(!controller.clean_is_running());
+    assert!(!controller.can_clean_transcript(), "already cleaned");
+
+    assert!(controller.undo_clean_transcript());
+    assert_eq!(controller.clean_status(), CleanStatus::Ready);
+    assert!(!controller.undo_clean_transcript(), "undo is used once");
+    assert_eq!(controller.output_status(), Some("Original restored"));
+}
+
+#[test]
+fn a_cleanup_is_a_single_pass_over_a_non_empty_take() {
+    let (mut controller, _sink) = duplex_controller();
+    controller.apply_settings(cleanable_settings("openai/gpt-4.1-mini"));
+    assert!(controller.start_recording());
+    assert!(controller.pause_recording());
+    assert!(controller.finish_take());
+
+    assert!(controller.finished_take_is_empty());
+    assert_eq!(
+        controller.clean_status(),
+        CleanStatus::Ready,
+        "the model is known; only the take is empty"
+    );
+    assert!(!controller.can_clean_transcript());
+    assert_eq!(controller.begin_clean_transcript(), None);
+}
+
+#[test]
+fn a_worker_default_cleanup_model_is_enough_to_clean() {
+    let mut controller = finished_live_with("d une dict ée");
+    controller.apply_settings(cleanable_settings(""));
+    assert_eq!(controller.cleanup_model(), None);
+    assert_eq!(controller.clean_status(), CleanStatus::Unavailable);
+
+    controller.set_language_catalogue(
+        None,
+        Some(vec![LanguageModelInfo {
+            id: "openai/gpt-4.1-mini".to_owned(),
+            label: "GPT-4.1 mini".to_owned(),
+        }]),
+        Some("openai/gpt-4.1-mini".to_owned()),
+    );
+
+    assert_eq!(controller.cleanup_model(), Some("openai/gpt-4.1-mini"));
+    assert_eq!(controller.clean_status(), CleanStatus::Ready);
+
+    // A stored id wins over the worker default.
+    controller.apply_settings(cleanable_settings("openai/gpt-5-mini"));
+    assert_eq!(controller.cleanup_model(), Some("openai/gpt-5-mini"));
+    assert_eq!(
+        controller.default_cleanup_model(),
+        Some("openai/gpt-4.1-mini"),
+        "the dialog still knows what the worker would use"
+    );
+}
+
+#[test]
+fn undo_restores_the_original_transcript_exactly() {
+    let mut controller = cleanable_take();
+    let original = controller.displayed_transcript();
+    assert_eq!(original, "d une dict ée");
+
+    let request = controller.begin_clean_transcript().expect("a request id");
+    assert!(controller.apply_cleaned(&request, "d'une dictée"));
+
+    assert_eq!(controller.displayed_transcript(), "d'une dictée");
+    let take = controller.finished_take().expect("a finished take");
+    assert_eq!(take.committed().to_string(), "d'une dictée");
+    assert_eq!(take.live().to_string(), "");
+    assert_eq!(controller.output_status(), Some("Cleaned"));
+
+    assert!(controller.undo_clean_transcript());
+    assert_eq!(controller.displayed_transcript(), original);
+    let take = controller.finished_take().expect("a finished take");
+    assert_eq!(take.committed().to_string(), "d une dict ée");
+    assert_eq!(take.live().to_string(), "");
+}
+
+#[test]
+fn an_empty_cleaned_text_never_blanks_the_transcript() {
+    let mut controller = cleanable_take();
+    let request = controller.begin_clean_transcript().expect("a request id");
+
+    assert!(!controller.apply_cleaned(&request, "   "));
+    assert_eq!(controller.displayed_transcript(), "d une dict ée");
+    assert!(!controller.clean_is_running(), "the request is settled");
+    assert_eq!(controller.clean_status(), CleanStatus::Ready);
+}
+
+#[test]
+fn a_cleanup_answer_for_another_request_is_ignored() {
+    let mut controller = cleanable_take();
+    let first = controller.begin_clean_transcript().expect("first request");
+    assert!(controller.apply_cleaned(&first, "d'une dictée"));
+    assert!(controller.undo_clean_transcript());
+
+    let second = controller.begin_clean_transcript().expect("second request");
+    assert_ne!(first, second);
+    assert!(
+        !controller.apply_cleaned(&first, "a stale answer"),
+        "an answer to a superseded request is dropped"
+    );
+    assert!(controller.clean_is_running());
+    assert_eq!(controller.displayed_transcript(), "d une dict ée");
+
+    assert!(
+        !controller.apply_cleaned("clean-99-99", "invented"),
+        "a request id the controller never issued is dropped"
+    );
+    assert!(controller.apply_cleaned(&second, "d'une dictée"));
+}
+
+#[test]
+fn a_failed_cleanup_keeps_the_transcript_and_reports_a_typed_error() {
+    let mut controller = cleanable_take();
+    let request = controller.begin_clean_transcript().expect("a request id");
+
+    assert!(controller.fail_clean_transcript(&request, AppError::CleanupFailed));
+
+    assert!(!controller.clean_is_running());
+    assert_eq!(controller.clean_status(), CleanStatus::Ready);
+    assert_eq!(controller.displayed_transcript(), "d une dict ée");
+    assert!(!controller.undo_clean_transcript(), "nothing to undo");
+    assert!(matches!(
+        controller.app_error(),
+        Some(AppError::CleanupFailed)
+    ));
+    assert_eq!(
+        controller.app_error().map(AppError::message).as_deref(),
+        Some("The cleanup pass failed. The transcript is unchanged."),
+        "a cleanup failure names itself instead of blaming the backend"
+    );
+
+    let message = controller
+        .app_error()
+        .map(AppError::message)
+        .unwrap_or_default();
+    assert!(
+        !message.contains("dict"),
+        "the transcript never reaches an error message: {message}"
+    );
+
+    assert!(
+        !controller.fail_clean_transcript(&request, AppError::NetworkLost),
+        "a request settles exactly once"
+    );
+    assert_eq!(
+        controller.clean_status(),
+        CleanStatus::Ready,
+        "the second failure changed nothing"
+    );
+}
+
+#[test]
+fn copy_and_save_follow_the_displayed_text() {
+    let mut controller = cleanable_take();
+    let request = controller.begin_clean_transcript().expect("a request id");
+    assert!(controller.apply_cleaned(&request, "d'une dictée"));
+
+    let mut clipboard = RecordingClipboard::default();
+    controller
+        .copy_finished_transcript(&mut clipboard)
+        .expect("copy succeeds");
+    assert_eq!(clipboard.copies(), vec!["d'une dictée".to_owned()]);
+
+    let directory = TempDir::new("clean-save");
+    let target = directory.path().join("cleaned.md");
+    controller
+        .save_finished_transcript_to(&target)
+        .expect("save succeeds");
+    assert_eq!(
+        std::fs::read_to_string(&target).expect("saved file"),
+        "# cleaned\n\nd'une dictée\n"
+    );
+
+    assert!(controller.undo_clean_transcript());
+    let mut clipboard = RecordingClipboard::default();
+    controller
+        .copy_finished_transcript(&mut clipboard)
+        .expect("copy succeeds");
+    assert_eq!(clipboard.copies(), vec!["d une dict ée".to_owned()]);
+}
+
+#[test]
+fn the_automatic_paste_copies_the_displayed_text() {
+    let mut controller = cleanable_take_with_auto_paste();
+    assert!(
+        controller.take_auto_paste_request(),
+        "the gesture is pending"
+    );
+
+    let request = controller.begin_clean_transcript().expect("a request id");
+    assert!(controller.apply_cleaned(&request, "d'une dictée"));
+
+    let mut clipboard = RecordingClipboard::default();
+    let mut paste = RecordingPaste::default();
+    assert!(
+        controller
+            .auto_paste_after_finish(&mut clipboard, &mut paste)
+            .is_some(),
+        "auto-paste still runs after a cleanup"
+    );
+    assert_eq!(clipboard.copies(), vec!["d'une dictée".to_owned()]);
+    assert_eq!(*paste.pastes.lock().expect("paste lock"), 1);
+}
+
+#[test]
+fn a_new_take_forgets_the_cleanup_state() {
+    let mut controller = cleanable_take();
+    let request = controller.begin_clean_transcript().expect("a request id");
+    assert!(controller.apply_cleaned(&request, "d'une dictée"));
+
+    controller.new_take();
+
+    assert!(!controller.undo_clean_transcript());
+    assert!(!controller.clean_is_running());
+    assert!(
+        !controller.apply_cleaned(&request, "an answer to the discarded take"),
+        "an id issued for the previous take is ignored"
+    );
+    assert!(controller.finished_take().is_none());
+}
+
+#[test]
+fn a_take_that_starts_again_forgets_the_cleaned_text() {
+    let mut controller = cleanable_take();
+    let request = controller.begin_clean_transcript().expect("a request id");
+    assert!(controller.apply_cleaned(&request, "d'une dictée"));
+
+    controller.new_take();
+    assert!(controller.choose_mode(SessionMode::Live));
+    assert!(controller.start_recording());
+
+    assert!(!controller.clean_is_running());
+    assert!(controller.finished_take().is_none());
+    controller.handle_stt_event(SttEvent::Committed {
+        session_id: "take-2".into(),
+        text: "a new take".into(),
+        segment: None,
+    });
+    assert!(controller.pause_recording());
+    assert!(controller.finish_take());
+    assert_eq!(controller.displayed_transcript(), "a new take");
+    assert_eq!(controller.clean_status(), CleanStatus::Ready);
+}
+
+#[test]
+fn the_capabilities_event_installs_the_cleanup_catalogue_and_languages() {
+    let mut controller = SessionController::new();
+    controller.handle_stt_event(SttEvent::Capabilities {
+        request_id: None,
+        source: CapabilitySource::Builtin,
+        providers: catalogue(),
+        languages: Some(vec![LanguageOption {
+            code: "fr".to_owned(),
+            label: "French".to_owned(),
+        }]),
+        language_models: Some(vec![LanguageModelInfo {
+            id: "openai/gpt-4.1-mini".to_owned(),
+            label: "GPT-4.1 mini".to_owned(),
+        }]),
+        default_language_model: Some("openai/gpt-4.1-mini".to_owned()),
+    });
+
+    assert_eq!(controller.cleanup_models().len(), 1);
+    assert_eq!(
+        controller.default_cleanup_model(),
+        Some("openai/gpt-4.1-mini")
+    );
+
+    let options = controller.settings_language_options();
+    assert_eq!(options[0].id, "", "Auto is always the first entry");
+    assert_eq!(options[0].label, "Auto (detect)");
+    assert!(
+        options.iter().any(|option| option.id == "fr"),
+        "the worker's languages are offered: {options:?}"
+    );
+}
+
+#[test]
+fn an_older_worker_still_gets_a_language_menu() {
+    let controller = catalogued();
+
+    let options = controller.settings_language_options();
+
+    assert_eq!(options[0].id, "");
+    assert!(
+        options
+            .iter()
+            .any(|option| option.id == "fr" && option.label == "French"),
+        "the built-in list backs an older worker: {options:?}"
+    );
+    assert_eq!(controller.cleanup_models().len(), 0);
+    assert_eq!(controller.default_cleanup_model(), None);
+}
+
+#[test]
+fn the_settings_draft_carries_the_language_and_the_cleanup_model() {
+    let mut controller = catalogued();
+    controller.set_language_catalogue(
+        Some(vec![
+            LanguageOption {
+                code: "fr".to_owned(),
+                label: "French".to_owned(),
+            },
+            LanguageOption {
+                code: "en".to_owned(),
+                label: "English".to_owned(),
+            },
+        ]),
+        Some(vec![LanguageModelInfo {
+            id: "openai/gpt-4.1-mini".to_owned(),
+            label: "GPT-4.1 mini".to_owned(),
+        }]),
+        Some("openai/gpt-4.1-mini".to_owned()),
+    );
+    controller.apply_settings(configured_settings(DEFAULTS.0, DEFAULTS.1));
+    controller.open_settings();
+
+    // An unset language is Auto, not a blank field.
+    assert_eq!(controller.settings_draft().language, None);
+    assert!(controller.set_settings_language("FR"));
+    assert_eq!(
+        controller.settings_draft().language.as_deref(),
+        Some("fr"),
+        "the stored code is normalised"
+    );
+    assert!(
+        !controller.set_settings_language("xx"),
+        "a language the picker does not offer is refused"
+    );
+    assert!(controller.set_settings_language(""));
+    assert_eq!(
+        controller.settings_draft().language,
+        None,
+        "Auto is the empty language"
+    );
+
+    assert_eq!(controller.settings_draft().language_model, None);
+    assert!(controller.set_settings_cleanup_model("openai/gpt-4.1-mini"));
+    assert_eq!(
+        controller.settings_draft().language_model.as_deref(),
+        Some("openai/gpt-4.1-mini")
+    );
+    assert!(
+        !controller.set_settings_cleanup_model("unknown/model"),
+        "a model the catalogue does not offer is refused"
+    );
+    assert!(controller.set_settings_cleanup_model(""));
+    assert_eq!(controller.settings_draft().language_model, None);
+}
+
+#[test]
+fn a_take_carries_the_persisted_dictation_language() {
+    let mut controller = catalogued();
+    controller.apply_settings(Settings {
+        language: " FR ".into(),
+        ..keyed_settings(DEFAULTS.0, DEFAULTS.1)
+    });
+    let sink = RecordingSink::default();
+    controller.set_sink(Box::new(sink.clone()));
+
+    assert!(controller.choose_mode(SessionMode::Live));
+    assert!(controller.start_recording());
+
+    let commands = sink.take();
+    match &commands[0] {
+        SttCommand::Start { language, .. } => {
+            assert_eq!(
+                language.as_deref(),
+                Some("fr"),
+                "the normalized code reaches the worker"
+            );
+        }
+        other => panic!("expected a start command, got {other:?}"),
+    }
+}
+
+#[test]
+fn auto_sends_no_language_at_all() {
+    let mut controller = catalogued();
+    controller.apply_settings(keyed_settings(DEFAULTS.0, DEFAULTS.1));
+    let sink = RecordingSink::default();
+    controller.set_sink(Box::new(sink.clone()));
+
+    assert!(controller.choose_mode(SessionMode::Live));
+    assert!(controller.start_recording());
+
+    let commands = sink.take();
+    match &commands[0] {
+        SttCommand::Start { language, .. } => assert_eq!(*language, None),
+        other => panic!("expected a start command, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_file_take_forwards_the_dictation_language_too() {
+    let file = TempFile::new("dictated-french.mp4");
+    let mut controller = catalogued();
+    controller.apply_settings(Settings {
+        language: "fr".into(),
+        ..keyed_settings(DEFAULTS.0, DEFAULTS.1)
+    });
+    let sink = RecordingSink::default();
+    controller.set_sink(Box::new(sink.clone()));
+
+    assert!(!controller.choose_mode(SessionMode::File));
+    controller
+        .set_pending_file(file.path.clone())
+        .expect("a media path");
+    assert!(controller.create_session());
+    controller.start_file_session(&file.path).expect("starts");
+
+    let commands = sink.take();
+    match &commands[0] {
+        SttCommand::TranscribeFile { language, .. } => {
+            assert_eq!(language.as_deref(), Some("fr"));
+        }
+        other => panic!("expected a transcribeFile command, got {other:?}"),
+    }
+}
+
+#[test]
+fn the_clean_transcript_command_names_the_take_provider_model_and_text() {
+    let mut controller = finished_live_with("d une dict ée");
+    controller.apply_settings(Settings {
+        language_model: "openai/gpt-4.1-mini".to_owned(),
+        language: "fr".to_owned(),
+        auto_paste: false,
+        ..keyed_settings(DEFAULTS.0, DEFAULTS.1)
+    });
+
+    let request_id = controller.begin_clean_transcript().expect("a request id");
+    let command = controller
+        .clean_transcript_command(&request_id)
+        .expect("a command");
+
+    match command {
+        SttCommand::CleanTranscript {
+            request_id: id,
+            provider,
+            model,
+            text,
+            language,
+            api_key,
+        } => {
+            assert_eq!(id, request_id);
+            assert_eq!(provider, "vercel-ai-gateway");
+            assert_eq!(model, "openai/gpt-4.1-mini");
+            assert_eq!(text, "d une dict ée", "the text on screen is what travels");
+            assert_eq!(language.as_deref(), Some("fr"));
+            assert_eq!(
+                api_key.as_ref().map(SecretString::expose_secret),
+                Some("sk-clean-test")
+            );
+        }
+        other => panic!("expected a cleanTranscript command, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_cleanup_without_a_provider_key_sends_nothing() {
+    let mut controller = finished_live_with("d une dict ée");
+    controller.apply_settings(Settings {
+        language_model: "openai/gpt-4.1-mini".to_owned(),
+        ..configured_settings(DEFAULTS.0, DEFAULTS.1)
+    });
+
+    let request_id = controller.begin_clean_transcript().expect("a request id");
+
+    assert!(
+        controller.clean_transcript_command(&request_id).is_none(),
+        "a request the provider would reject is never sent"
+    );
+    assert!(controller.clean_is_running());
+    assert!(controller.fail_clean_transcript(
+        &request_id,
+        AppError::MissingApiKey {
+            provider: "vercel-ai-gateway".into()
+        }
+    ));
+    assert_eq!(controller.clean_status(), CleanStatus::Ready);
 }

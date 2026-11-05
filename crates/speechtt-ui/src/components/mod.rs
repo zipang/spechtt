@@ -19,6 +19,7 @@ mod icon_action;
 mod icon_button;
 mod info_note;
 mod key_cap;
+mod language_select;
 mod model_select;
 mod progress_bar;
 mod ripple;
@@ -45,6 +46,7 @@ pub use icon_action::IconAction;
 pub use icon_button::IconButton;
 pub use info_note::InfoNote;
 pub use key_cap::KeyCap;
+pub use language_select::{LanguageItem, LanguageSelect};
 pub use model_select::{
     ModelOption, ModelSelect, ProviderOption, ProviderSelect, SelectFields, SelectSnapshot,
     SettingsSelectFields, SettingsSnapshot,
