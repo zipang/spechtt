@@ -1015,6 +1015,105 @@ fn press(visual: &mut VisualTestContext, id: &'static str) {
     visual.run_until_parked();
 }
 
+// ----- The take screen's header ----------------------------------------
+
+/// Puts a live take on screen at `Ready`, with the model the setup form chose.
+fn ready_live_take(
+    window: gpui_kit::WindowHandle<gpui_kit::base::Root>,
+    view: &Entity<SpeechTtApp>,
+    events: &speechtt_core::async_channel::Sender<
+        Result<speechtt_core::protocol::SttEvent, speechtt_core::backend::BackendError>,
+    >,
+    cx: &mut TestAppContext,
+) {
+    cx.update_window(window.into(), |_, window, cx| {
+        events
+            .send_blocking(Ok(language_capabilities()))
+            .expect("event sent");
+        view.update(cx, |app, cx| {
+            app.choose_mode(SessionMode::Live, cx);
+            app.set_draft_provider("vercel-ai-gateway", cx);
+            app.set_draft_model("openai/gpt-4o-transcribe", cx);
+            app.create_session(cx);
+        });
+        window.render_frame(cx);
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn the_take_screen_shows_the_clock_and_the_model_before_recording(cx: &mut TestAppContext) {
+    let (window, view, _sink, _clipboard, events) = open_speechtt_window_with_channels(cx);
+
+    ready_live_take(window, &view, &events, cx);
+
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert_eq!(app.view_state(), ViewState::Live);
+        assert_eq!(
+            app.session_state(),
+            SessionState::Ready,
+            "the take has not started, so the header stands on its own"
+        );
+        assert_eq!(app.elapsed_seconds(), 0, "the clock starts at zero");
+        assert_eq!(
+            app.live_model_label(),
+            Some("GPT-4o Transcribe"),
+            "the model the take will use is named on the screen"
+        );
+    });
+}
+
+#[gpui_kit::test]
+fn choosing_another_model_on_the_take_screen_changes_the_take(cx: &mut TestAppContext) {
+    let (window, view, sink, _clipboard, events) = open_speechtt_window_with_channels(cx);
+
+    ready_live_take(window, &view, &events, cx);
+
+    cx.update_window(window.into(), |_, window, cx| {
+        assert!(view.update(cx, |app, cx| {
+            app.set_live_model("openai/gpt-realtime-whisper", cx)
+        }));
+        window.render_frame(cx);
+        view.update(cx, |app, cx| app.start_recording(cx));
+    })
+    .unwrap();
+
+    match sink.commands().last() {
+        Some(speechtt_core::protocol::SttCommand::Start { model, .. }) => {
+            assert_eq!(
+                model, "openai/gpt-realtime-whisper",
+                "the take carries the model chosen on its own screen"
+            );
+        }
+        other => panic!("expected a start command, got {other:?}"),
+    }
+}
+
+#[gpui_kit::test]
+fn a_running_take_shows_its_model_as_text_and_not_a_picker(cx: &mut TestAppContext) {
+    let (window, view, _sink, _clipboard, events) = open_speechtt_window_with_channels(cx);
+
+    ready_live_take(window, &view, &events, cx);
+
+    cx.update_window(window.into(), |_, window, cx| {
+        view.update(cx, |app, cx| app.start_recording(cx));
+        window.render_frame(cx);
+
+        assert_eq!(view.read(cx).session_state(), SessionState::Recording);
+        assert!(
+            !view.update(cx, |app, cx| app
+                .set_live_model("openai/gpt-realtime-whisper", cx)),
+            "the configuration is frozen from the first recorded frame"
+        );
+        assert!(
+            view.read(cx).live_model_label().is_some(),
+            "the model stays named, as text"
+        );
+    })
+    .unwrap();
+}
+
 #[gpui_kit::test]
 fn the_clean_button_repairs_and_then_flips_between_both_texts(cx: &mut TestAppContext) {
     let (window, view, sink, clipboard, events) = open_speechtt_window_with_channels(cx);

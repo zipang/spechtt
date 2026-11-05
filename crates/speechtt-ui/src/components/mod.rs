@@ -20,6 +20,7 @@ mod icon_button;
 mod info_note;
 mod key_cap;
 mod language_select;
+mod live_model_select;
 mod model_select;
 mod progress_bar;
 mod ripple;
@@ -47,6 +48,7 @@ pub use icon_button::IconButton;
 pub use info_note::InfoNote;
 pub use key_cap::KeyCap;
 pub use language_select::{LanguageItem, LanguageSelect};
+pub use live_model_select::{LiveModelField, LiveModelSelect};
 pub use model_select::{
     ModelOption, ModelSelect, ProviderOption, ProviderSelect, SelectFields, SelectSnapshot,
     SettingsSelectFields, SettingsSnapshot,
@@ -69,5 +71,5 @@ pub use toggle_round_button::{
     TOGGLE_WAVE_SELECTOR, ToggleRoundButton, ToggleState, pulse_scale, toggle_wave_frame,
 };
 pub use transcription_mode_badge::{TranscriptionModeBadge, mode_label};
-pub use transport_header::TransportHeader;
+pub use transport_header::{TransportHeader, TransportModel};
 pub use waveform::Waveform;

@@ -124,6 +124,7 @@ _(none)_
 | Ticket | Title | Track |
 |---|---|---|
 | [T0031](review/T0031-live-transcript-window-overlap.md) | Split the partial and delta channels in the live transcript | Rust core (transcript) |
+| [T0034](review/T0034-live-take-header-model-and-timer.md) | Show the model and the timer on the live take screen from the start | Rust UI (components + view + controller) |
 
 ### Planned
 
@@ -131,4 +132,3 @@ _(none)_
 |---|---|---|---|
 | [T0016](planned/T0016-dependency-bootstrap-script.md) | Dependency bootstrap for Bun and ffmpeg | Tooling (TypeScript/Bun) | — |
 | [T0032](planned/T0032-language-reach-honesty.md) | Say honestly what the dictation language can reach | Cross-cutting (worker → core → UI) | T0030 |
-| [T0034](planned/T0034-live-take-header-model-and-timer.md) | Show the model and the timer on the live take screen from the start | Rust UI (components + view + controller) | T0028, T0029 |

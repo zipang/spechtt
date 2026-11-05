@@ -1521,6 +1521,83 @@ impl SessionController {
         self.model_mode(provider, model)
     }
 
+    /// Provider the live take uses, or would use.
+    ///
+    /// The machine's own choice wins while a take exists, then the persisted
+    /// settings, then the catalogue's first entry: the take screen must name a
+    /// model even on an install whose settings were never saved.
+    fn live_provider(&self) -> String {
+        let provider = self.active_provider();
+        if !provider.trim().is_empty() {
+            return provider;
+        }
+        self.capabilities
+            .as_ref()
+            .and_then(|providers| providers.first())
+            .map(|option| option.id.clone())
+            .unwrap_or_default()
+    }
+
+    /// Catalogue id of the model the live take uses, or would use.
+    ///
+    /// The active take's model wins, because the machine freezes it when
+    /// recording starts; before that, the default the settings resolve for Live.
+    /// `None` when nothing resolves.
+    #[must_use]
+    pub fn live_model_id(&self) -> Option<&str> {
+        let provider = self.live_provider();
+        if let Some(model) = self
+            .machine
+            .config()
+            .model
+            .as_deref()
+            .filter(|model| !model.trim().is_empty())
+            && self.model_exists(&provider, model)
+        {
+            return Some(model);
+        }
+        self.default_model_for(SessionMode::Live)
+    }
+
+    /// Catalogue label of the model the live take uses, or would use.
+    #[must_use]
+    pub fn live_model_label(&self) -> Option<&str> {
+        let provider = self.live_provider();
+        self.model_label_for(&provider, self.live_model_id()?)
+    }
+
+    /// Models the live picker may offer for the take being prepared.
+    ///
+    /// Every model of the live provider, not only the streaming ones: a live
+    /// take may use a segmented model, which batches the microphone audio.
+    /// Empty when no catalogue has arrived or no provider resolves.
+    #[must_use]
+    pub fn live_model_options(&self) -> Vec<SelectOption> {
+        let provider = self.live_provider();
+        self.capability_model_options(&provider, None)
+    }
+
+    /// Chooses the model for the take being prepared.
+    ///
+    /// Returns `false` — changing nothing — when the catalogue does not know the
+    /// id, when the take mode is not Live, or when the session is already
+    /// active: the machine freezes its configuration from the first recorded
+    /// frame.
+    ///
+    /// The choice is take-scoped. It does not rewrite the Settings default,
+    /// because a live take may legitimately use a segmented model and
+    /// `model_streaming` accepts only a streaming one.
+    pub fn set_live_model(&mut self, model: &str) -> bool {
+        if self.mode != SessionMode::Live || self.machine.state().is_active() {
+            return false;
+        }
+        let provider = self.live_provider();
+        if !self.model_exists(&provider, model) {
+            return false;
+        }
+        self.machine.set_model(model).is_ok()
+    }
+
     /// Where the current catalogue came from.
     #[must_use]
     pub fn catalogue_source(&self) -> Option<CapabilitySource> {
@@ -3548,6 +3625,45 @@ mod tests {
         controller.set_capabilities(test_capabilities());
     }
 
+    /// Records the commands a controller sends, shared with the test.
+    #[derive(Clone, Default)]
+    struct CommandLog {
+        commands: Arc<std::sync::Mutex<Vec<SttCommand>>>,
+    }
+
+    impl CommandLog {
+        fn take(&self) -> Vec<SttCommand> {
+            std::mem::take(&mut *self.commands.lock().expect("command log"))
+        }
+    }
+
+    impl SttSessionSink for CommandLog {
+        fn send(&mut self, command: SttCommand) -> Result<(), BackendError> {
+            self.commands.lock().expect("command log").push(command);
+            Ok(())
+        }
+    }
+
+    /// A live take that has already started, with a sink attached.
+    fn recording_live_take() -> (SessionController, CommandLog) {
+        let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
+        let mut settings = Settings {
+            provider: "vercel-ai-gateway".to_string(),
+            model_streaming: "openai/gpt-realtime-whisper".to_string(),
+            model_batch: "openai/gpt-4o-transcribe".to_string(),
+            ..Settings::default()
+        };
+        settings.set_api_key("vercel-ai-gateway", "sk-test-key");
+        controller.apply_settings(settings);
+        let sink = CommandLog::default();
+        controller.set_sink(Box::new(sink.clone()));
+        assert!(controller.choose_mode(SessionMode::Live));
+        assert!(controller.start_recording_at(Instant::now()));
+        let _ = sink.take();
+        (controller, sink)
+    }
+
     fn complete_controller() -> SessionController {
         let mut controller = SessionController::new();
         install_catalogue(&mut controller);
@@ -4146,6 +4262,129 @@ mod tests {
             controller.settings_api_key_env(),
             Some("AI_GATEWAY_API_KEY")
         );
+    }
+
+    // ----- The live take's model and clock ------------------------------
+
+    #[test]
+    fn the_live_take_names_the_model_the_settings_resolve() {
+        let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
+        controller.apply_settings(stored_settings(
+            "openai/gpt-realtime-whisper",
+            "openai/gpt-4o-transcribe",
+        ));
+
+        assert_eq!(
+            controller.live_model_id(),
+            Some("openai/gpt-realtime-whisper"),
+            "the streaming default is what a live take uses"
+        );
+        assert_eq!(controller.live_model_label(), Some("GPT Realtime Whisper"));
+    }
+
+    #[test]
+    fn the_live_take_names_the_model_the_machine_froze() {
+        let (mut controller, _sink) = recording_live_take();
+
+        // The take froze its model; the settings may say something else.
+        controller.apply_settings(
+            SessionController::default()
+                .settings()
+                .cloned()
+                .unwrap_or_default(),
+        );
+        controller.apply_settings(Settings {
+            provider: "vercel-ai-gateway".to_string(),
+            model_streaming: "openai/gpt-4o-transcribe".to_string(),
+            model_batch: "openai/gpt-4o-transcribe".to_string(),
+            ..Settings::default()
+        });
+
+        assert_eq!(
+            controller.live_model_id(),
+            Some("openai/gpt-realtime-whisper"),
+            "the frozen configuration wins while a take exists"
+        );
+    }
+
+    #[test]
+    fn a_live_take_with_no_catalogue_names_no_model() {
+        let controller = SessionController::new();
+
+        assert_eq!(controller.live_model_id(), None);
+        assert_eq!(controller.live_model_label(), None);
+        assert!(controller.live_model_options().is_empty());
+    }
+
+    #[test]
+    fn the_live_picker_offers_every_model_of_the_provider() {
+        let controller = live_form();
+        let ids: Vec<String> = controller
+            .live_model_options()
+            .into_iter()
+            .map(|option| option.id)
+            .collect();
+
+        assert_eq!(
+            ids,
+            [
+                "openai/gpt-4o-transcribe",
+                "openai/gpt-realtime-whisper",
+                "fish-audio/transcribe-1",
+            ],
+            "a live take may batch the microphone, so segmented models are offered"
+        );
+    }
+
+    #[test]
+    fn choosing_a_live_model_changes_the_take_but_not_the_default() {
+        let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
+        let mut settings =
+            stored_settings("openai/gpt-realtime-whisper", "openai/gpt-4o-transcribe");
+        settings.set_api_key("vercel-ai-gateway", "sk-test-key");
+        controller.apply_settings(settings);
+        assert!(controller.choose_mode(SessionMode::Live));
+
+        assert!(controller.set_live_model("openai/gpt-4o-transcribe"));
+        assert_eq!(controller.live_model_id(), Some("openai/gpt-4o-transcribe"));
+        assert_eq!(
+            controller
+                .settings()
+                .map(|settings| settings.model_streaming.as_str()),
+            Some("openai/gpt-realtime-whisper"),
+            "the take-scoped choice never rewrites the Settings default"
+        );
+
+        // The next Start carries the picker's model.
+        let sink = CommandLog::default();
+        controller.set_sink(Box::new(sink.clone()));
+        assert!(controller.start_recording_at(Instant::now()));
+        match sink.take().first() {
+            Some(SttCommand::Start { model, .. }) => {
+                assert_eq!(model, "openai/gpt-4o-transcribe");
+            }
+            other => panic!("expected a start command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_live_model_cannot_change_once_the_take_is_active() {
+        let (mut controller, _sink) = recording_live_take();
+
+        assert!(!controller.set_live_model("openai/gpt-4o-transcribe"));
+        assert!(
+            !controller.set_live_model("not-a-model"),
+            "the catalogue still has the last word"
+        );
+    }
+
+    #[test]
+    fn a_file_take_never_accepts_the_live_picker_choice() {
+        let mut controller = file_form();
+
+        assert!(!controller.set_live_model("openai/gpt-4o-transcribe"));
     }
 
     fn live_form() -> SessionController {

@@ -4,6 +4,8 @@
 - **Wave**: 1 (independent)
 - **Depends on**: T0028 (the model dropdown component), T0029 (per-mode defaults)
 - **Blocks**: nothing
+- **Owner**: CTO
+- **Started**: 2026-11-05
 - **References**:
   - `AGENTS.md` §2 (component and view rules), §3 (documentation), §5 (gates)
   - `DESIGN.md` § "Live take screen", § "Action buttons", § "Settings panel"
@@ -190,19 +192,19 @@ form screen. A `cx.subscribe` on its state lives in `_subscriptions`.
 
 ## TDD Tasks
 
-- [ ] **T34.1 — Red: controller accessors.** Failing tests for `live_model_label`
+- [x] **T34.1 — Red: controller accessors.** Failing tests for `live_model_label`
   / `live_model_id` (active take wins over settings; `None` with no catalogue),
   `live_model_options` (every model of the provider, streaming and segmented),
   and `set_live_model` (accepts in `Ready`, refuses in `Recording`/`Paused`,
   refuses an unknown id, leaves `model_streaming` untouched). Then implement.
-- [ ] **T34.2 — Red: the header.** Failing unit tests for `TransportHeader`'s
+- [x] **T34.2 — Red: the header.** Failing unit tests for `TransportHeader`'s
   three `TransportModel` variants and for `LiveModelField::sync` idempotence.
   Then implement the component and `live_model_select.rs`.
-- [ ] **T34.3 — Green: the view.** Always attach the header; pick the variant per
+- [x] **T34.3 — Green: the view.** Always attach the header; pick the variant per
   state; wire the confirm event. Headless test: at `Ready` the screen shows
   `00:00` and the model; after choosing another model, `Start` carries it; while
   recording the picker is gone.
-- [ ] **T34.4 — Docs and gates.** `DESIGN.md` § "Live take screen": the trailing
+- [x] **T34.4 — Docs and gates.** `DESIGN.md` § "Live take screen": the trailing
   edge now holds the model on the left and the clock on the right, with the
   picker's enabled/disabled states and why. Module headers and item docs per
   `AGENTS.md` §3. Then `cargo fmt -- --check`,
@@ -232,3 +234,50 @@ and leaves the Settings default alone. If it should also become the remembered
 Live default, that needs a rule for segmented models (which a live take may use
 but `model_streaming` does not accept), and it is a follow-up rather than part of
 this ticket.
+
+## Implementation Notes
+
+### Decisions
+
+- **`TransportModel` carries the three presentations.** The view picks one from
+  the session state; it never inspects select internals. A frozen take cannot
+  offer a control that would be refused, so it shows a `Label`.
+- **`live_provider` falls back to the catalogue's first provider.** The screen must
+  name a model even on an install whose settings were never saved;
+  `active_provider` alone returns an empty string in that case, which made the
+  picker offer nothing.
+- **`LiveModelField` mirrors the Settings selects.** Same snapshot rule, same
+  `apply_models` helper (now `pub(crate)`), so a repaint that changes nothing
+  leaves the menu alone and a selection the catalogue dropped is cleared.
+- **Take-scoped, as agreed.** `set_live_model` writes the session machine's model
+  and never touches `settings.model_streaming`.
+- **The picker is not searchable.** It sits in a header beside the clock and the
+  live catalogue is short; a search box there would outweigh the list.
+
+### Deviations
+
+- **`views/session_transcription.rs` needed one line.** `TransportHeader::new`
+  gained a second argument, so the file-take screen must pass one. It passes
+  `TransportModel::Absent`, which renders exactly as before — zero visual change,
+  and the ticket keeps that screen out of scope. Showing the file take's own model
+  there is a worthwhile follow-up, not part of this ticket.
+- `components/model_select.rs` changed by two visibility keywords
+  (`apply_models`, `searchable_model_state` → `pub(crate)`), so the new component
+  reuses them instead of duplicating the sync rule.
+
+### Gates (repository root, zero warnings, no skipped tests)
+
+| Command | Result |
+|---|---|
+| `cargo fmt -- --check` | clean |
+| `cargo clippy --all-targets -- -D warnings` | clean |
+| `cargo test` | **582 passed, 0 failed** |
+| `bun test` | 348 passed, 0 failed |
+| `bun check src/stt` | 32 files, no type errors |
+| `bun run design:validate` | 66 tokens, 0 errors |
+
+### Left for the user
+
+Visual review of the take screen: `00:00` and the model before the first word,
+the dropdown's width beside the clock, and the read-only name once recording
+starts. No GUI run or screenshot was taken autonomously.

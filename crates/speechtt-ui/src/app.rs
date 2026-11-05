@@ -58,8 +58,8 @@ use speechtt_core::session::{SessionField, SessionState};
 use speechtt_core::settings::{JsonFileStore, Settings, SettingsStore, WindowLayout};
 
 use crate::components::{
-    AppHeader, IconButton, Label, ModelOption, ProviderOption, Ripple, RippleRing, SelectFields,
-    SelectSnapshot,
+    AppHeader, IconButton, Label, LiveModelField, ModelOption, ProviderOption, Ripple, RippleRing,
+    SelectFields, SelectSnapshot,
 };
 use crate::controller::{
     AppError, CleanStatus, CleanToggle, Clock, Dialog, ErrorAction, FinishedTake, HelpTab,
@@ -147,6 +147,8 @@ pub struct SpeechTtApp {
     settings_key_revealed: bool,
     /// The provider and model dropdowns of the Session setup form.
     draft_selects: SelectFields,
+    /// The model dropdown of the live take screen's header.
+    live_model_field: LiveModelField,
     /// The open dialog window, if any. Dialogs are separate floating windows.
     dialog_window: Option<(Dialog, AnyWindowHandle)>,
     /// Mirrors the dialog window id for the window-closed observer, which runs
@@ -276,6 +278,16 @@ impl SpeechTtApp {
             },
         );
 
+        let live_model_field = LiveModelField::new(window, cx);
+        let live_model_subscription = cx.subscribe(
+            live_model_field.state(),
+            |this, _, event: &SelectEvent<SearchableVec<ModelOption>>, cx| {
+                if let SelectEvent::Confirm(Some(id)) = event {
+                    this.set_live_model(id.as_ref(), cx);
+                }
+            },
+        );
+
         // An OS-level close (window manager X button) must clear the dialog
         // state just like the in-window Cancel button does. Our own closes
         // clear the tracked id first, so this observer never re-enters the
@@ -310,6 +322,7 @@ impl SpeechTtApp {
             settings_api_key,
             settings_key_revealed: false,
             draft_selects,
+            live_model_field,
             dialog_window: None,
             dialog_window_id,
             pending_settings: None,
@@ -317,6 +330,7 @@ impl SpeechTtApp {
                 settings_subscription,
                 provider_subscription,
                 model_subscription,
+                live_model_subscription,
                 window_closed,
             ],
             _event_task: None,
@@ -576,6 +590,28 @@ impl SpeechTtApp {
     /// The provider and model dropdowns of the Session setup form.
     pub(crate) fn draft_selects(&self) -> &SelectFields {
         &self.draft_selects
+    }
+
+    /// The model dropdown of the live take screen's header.
+    pub(crate) fn live_model_field(&self) -> &LiveModelField {
+        &self.live_model_field
+    }
+
+    /// Catalogue label of the model the live take uses, or would use.
+    pub fn live_model_label(&self) -> Option<&str> {
+        self.controller.live_model_label()
+    }
+
+    /// Chooses the model for the take being prepared.
+    ///
+    /// Take-scoped: it changes the model of the take about to be recorded and
+    /// leaves the Settings default alone.
+    pub fn set_live_model(&mut self, model: &str, cx: &mut Context<Self>) -> bool {
+        if !self.controller.set_live_model(model) {
+            return false;
+        }
+        cx.notify();
+        true
     }
 
     /// Catalogue id of the provider chosen for the next take.
@@ -1571,6 +1607,15 @@ impl gpui_kit::Render for SpeechTtApp {
                 selected_model: self.controller.draft_model().map(str::to_string),
             };
             self.draft_selects.sync(snapshot, window, cx);
+        }
+
+        // The take screen owns the model picker, so its snapshot is rebuilt only
+        // while that screen is on show.
+        if self.view_state() == ViewState::Live {
+            let options = self.controller.live_model_options();
+            let selected = self.controller.live_model_id().map(str::to_owned);
+            self.live_model_field
+                .sync(options, selected.as_deref(), window, cx);
         }
 
         // The root declares the application's key context and owns the copy

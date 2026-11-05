@@ -363,10 +363,30 @@ microphone.
 Idle, recording and paused are three states of this one screen: the status pill
 and the waveform say which, and colour is never the only signal.
 
-The top-right corner of the take screen holds **one** read-out: the elapsed
-`mm:ss` timer, or the decoded position in seconds for a file take. The
-streaming/batched distinction belongs to the model picker, where a model is
-chosen.
+The header's trailing edge holds **two** things, left to right: the model, then
+the elapsed `mm:ss` timer. The clock is attached in every state, including before
+the microphone is pressed — `00:00` on an idle screen is what makes the later
+`00:07` legible. A file take shows the elapsed read-out alone; its model was
+chosen on the setup form and never changes.
+
+The model is a **picker** while the session can still change it, and plain text
+once it cannot:
+
+| Session state | Trailing model | Why |
+|---|---|---|
+| `Ready` — before the first recorded frame | `LiveModelSelect` dropdown, opened on the take's model | the user may still change engines without leaving the screen |
+| `Recording` / `Paused` | muted `Label` with the model name | the machine freezes its configuration from the first frame, so a control would be a lie |
+| no catalogue, or no model resolves | nothing | the clock still shows |
+
+The picker is **take-scoped**: it changes the model of the take about to be
+recorded and never rewrites the Settings default. A live take may use a
+*segmented* model — which batches the microphone audio — and `model_streaming`
+accepts only a streaming one, so writing the choice back would break the default
+seeding the Settings panel guarantees.
+
+The streaming/batched distinction belongs to the model picker, where a model is
+chosen: a model row in these menus carries its `TranscriptionModeBadge`, so the
+header names the engine without repeating the chip.
 
 ### File transcription
 

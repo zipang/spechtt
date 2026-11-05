@@ -23,8 +23,8 @@ use speechtt_core::session::SessionState;
 
 use crate::app::SpeechTtApp;
 use crate::components::{
-    BadgeTone, CaptionWell, IconAction, ScreenFooter, StatusBadge, ToggleRoundButton, ToggleState,
-    TransportHeader, Waveform,
+    BadgeTone, CaptionWell, IconAction, LiveModelSelect, ScreenFooter, StatusBadge,
+    ToggleRoundButton, ToggleState, TransportHeader, TransportModel, Waveform,
 };
 use crate::layout::ScreenShell;
 use crate::tokens::space;
@@ -38,6 +38,7 @@ pub(crate) fn render(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyEle
     let bars = controller.waveform_bars();
     let committed = controller.transcript_committed();
     let live = controller.transcript_live();
+    let has_models = !controller.live_model_options().is_empty();
 
     let badge = match state {
         SessionState::Recording => StatusBadge::tone("RECORDING", BadgeTone::Recording),
@@ -72,9 +73,28 @@ pub(crate) fn render(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyEle
         .body(Waveform::new(bars, recording))
         .body(CaptionWell::new(committed, live).follow(app.caption_scroll()));
 
-    if active {
-        shell = shell.header_trailing(TransportHeader::new(elapsed));
-    }
+    // The header is always attached: `00:00` before the first word is what makes
+    // the later `00:07` legible, and the model beside it names the engine that
+    // will listen.
+    let model = if active {
+        // The session configuration is frozen from the first recorded frame, so
+        // the picker would be a control that cannot act.
+        match app.live_model_label() {
+            Some(label) => TransportModel::Label(label.into()),
+            None => TransportModel::Absent,
+        }
+    } else if has_models {
+        TransportModel::Picker(
+            LiveModelSelect::new("field-live-model", app.live_model_field().state())
+                .placeholder("Choose model"),
+        )
+    } else {
+        match app.live_model_label() {
+            Some(label) => TransportModel::Label(label.into()),
+            None => TransportModel::Absent,
+        }
+    };
+    shell = shell.header_trailing(TransportHeader::new(elapsed, model));
 
     let mut footer = ScreenFooter::new()
         // Cancel is always live, including mid-take: it discards the take and

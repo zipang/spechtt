@@ -489,7 +489,7 @@ fn apply_providers(
 }
 
 /// Replaces a model menu's items and selection.
-fn apply_models(
+pub(crate) fn apply_models(
     state: &Entity<SelectState<SearchableVec<ModelOption>>>,
     options: &[SelectOption],
     selected: &Option<String>,
@@ -508,7 +508,7 @@ fn apply_models(
 }
 
 /// An empty, searchable model menu.
-fn searchable_model_state(
+pub(crate) fn searchable_model_state(
     window: &mut Window,
     cx: &mut Context<'_, SelectState<SearchableVec<ModelOption>>>,
 ) -> SelectState<SearchableVec<ModelOption>> {

@@ -28,6 +28,7 @@ use gpui_kit::{AnyElement, Context};
 use crate::app::SpeechTtApp;
 use crate::components::{
     BadgeTone, IconAction, Label, ProgressBar, ScreenFooter, StatusBadge, TransportHeader,
+    TransportModel,
 };
 use crate::layout::{ScreenShell, SurfaceBox};
 use crate::tokens::space;
@@ -95,7 +96,7 @@ pub(crate) fn render(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyEle
     ScreenShell::new(badge)
         // The corner times the take, exactly as on the live screen; the body
         // reports the file position.
-        .header_trailing(TransportHeader::new(elapsed))
+        .header_trailing(TransportHeader::new(elapsed, TransportModel::Absent))
         .gap(space::SM)
         .body(v_flex().w_full().child(body))
         .footer(footer)
