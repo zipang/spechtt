@@ -109,14 +109,18 @@ fn reclassified_catalogue() -> Vec<ProviderCapability> {
     }]
 }
 
-/// Settings that resolve against [`catalogue`].
-fn configured_settings(model: &str) -> Settings {
+/// Settings that resolve against [`catalogue`]: one default per take mode.
+fn configured_settings(streaming: &str, batch: &str) -> Settings {
     Settings {
         provider: "vercel-ai-gateway".to_string(),
-        model: model.to_string(),
+        model_streaming: streaming.to_string(),
+        model_batch: batch.to_string(),
         ..Settings::default()
     }
 }
+
+/// A pair of known defaults, streaming first.
+const DEFAULTS: (&str, &str) = ("openai/gpt-realtime-whisper", "openai/gpt-4o-transcribe");
 
 /// A controller in Live mode, past the form and `Ready`.
 fn ready_live() -> SessionController {
@@ -180,7 +184,7 @@ fn choosing_a_mode_without_settings_opens_the_two_field_form() {
 #[test]
 fn choosing_live_with_configured_settings_opens_the_take_screen_directly() {
     let mut controller = catalogued();
-    controller.apply_settings(configured_settings("openai/gpt-4o-transcribe"));
+    controller.apply_settings(configured_settings(DEFAULTS.0, DEFAULTS.1));
     let sink = RecordingSink::default();
     controller.set_sink(Box::new(sink.clone()));
 
@@ -199,7 +203,7 @@ fn choosing_live_with_configured_settings_opens_the_take_screen_directly() {
 #[test]
 fn choosing_file_waits_for_the_picker_on_the_welcome_screen() {
     let mut controller = catalogued();
-    controller.apply_settings(configured_settings("openai/gpt-4o-transcribe"));
+    controller.apply_settings(configured_settings(DEFAULTS.0, DEFAULTS.1));
 
     assert!(!controller.choose_mode(SessionMode::File));
 
@@ -224,7 +228,7 @@ fn choosing_file_waits_for_the_picker_on_the_welcome_screen() {
 #[test]
 fn a_pending_file_opens_the_form_and_seeds_a_segmented_model() {
     let mut controller = catalogued();
-    controller.apply_settings(configured_settings("openai/gpt-4o-transcribe"));
+    controller.apply_settings(configured_settings(DEFAULTS.0, DEFAULTS.1));
     assert!(!controller.choose_mode(SessionMode::File));
 
     controller
@@ -250,7 +254,7 @@ fn a_pending_file_opens_the_form_and_seeds_a_segmented_model() {
 #[test]
 fn a_pending_file_does_not_seed_a_streaming_model() {
     let mut controller = catalogued();
-    controller.apply_settings(configured_settings("openai/gpt-realtime-whisper"));
+    controller.apply_settings(configured_settings(DEFAULTS.0, ""));
     assert!(!controller.choose_mode(SessionMode::File));
 
     controller
@@ -295,7 +299,7 @@ fn the_pending_file_is_cleared_by_every_way_out() {
 #[test]
 fn the_file_model_list_only_offers_segmented_models() {
     let mut controller = catalogued();
-    controller.apply_settings(configured_settings("openai/gpt-4o-transcribe"));
+    controller.apply_settings(configured_settings(DEFAULTS.0, DEFAULTS.1));
     controller.choose_mode(SessionMode::File);
     controller
         .set_pending_file(PathBuf::from("/tmp/a.mp4"))
@@ -327,7 +331,7 @@ fn the_file_model_list_only_offers_segmented_models() {
 #[test]
 fn file_mode_never_cycles_onto_a_streaming_model() {
     let mut controller = catalogued();
-    controller.apply_settings(configured_settings("openai/gpt-realtime-whisper"));
+    controller.apply_settings(configured_settings(DEFAULTS.0, ""));
     controller.choose_mode(SessionMode::File);
     controller
         .set_pending_file(PathBuf::from("/tmp/a.mp4"))
@@ -359,7 +363,7 @@ fn file_mode_never_cycles_onto_a_streaming_model() {
 #[test]
 fn a_streaming_model_cannot_complete_a_file_draft() {
     let mut controller = catalogued();
-    controller.apply_settings(configured_settings("openai/gpt-4o-transcribe"));
+    controller.apply_settings(configured_settings(DEFAULTS.0, DEFAULTS.1));
     controller.choose_mode(SessionMode::File);
     controller
         .set_pending_file(PathBuf::from("/tmp/a.mp4"))
@@ -393,7 +397,7 @@ fn a_file_take_refuses_a_streaming_model_before_reaching_the_worker() {
 #[test]
 fn a_stale_configured_model_falls_back_to_the_form() {
     let mut controller = catalogued();
-    controller.apply_settings(configured_settings("retired/model"));
+    controller.apply_settings(configured_settings("retired/model", "retired/model"));
 
     assert!(!controller.choose_mode(SessionMode::Live));
 

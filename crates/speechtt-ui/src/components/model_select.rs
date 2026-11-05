@@ -2,9 +2,11 @@
 //! Settings dialog.
 //!
 //! Rendered by `views::session_setup` and `views::dialogs::settings`, which
-//! compose [`ProviderSelect`] and [`ModelSelect`] into their form rows. Both
-//! windows own one [`SelectFields`] pair and refresh it from a
-//! [`SelectSnapshot`] built from the controller.
+//! compose [`ProviderSelect`] and [`ModelSelect`] into their form rows.
+//! `SpeechTtApp` owns one [`SelectFields`] pair for the setup form and refreshes
+//! it from a [`SelectSnapshot`]; `DialogWindow` owns the [`SettingsSelectFields`]
+//! trio and refreshes it from a [`SettingsSnapshot`], so the dialog can offer one
+//! default model per take mode.
 //!
 //! Implements `DESIGN.md` § "Session setup form" and § "Settings panel": the
 //! rows reuse the existing [`TranscriptionModeBadge`] and no new chip, colour
@@ -298,34 +300,172 @@ impl SelectFields {
         if !snapshot.differs_from(self.applied.as_ref()) {
             return false;
         }
-
-        let provider_value = offered_value(&snapshot.selected_provider, &snapshot.providers);
-        let provider_items: Vec<ProviderOption> = snapshot
-            .providers
-            .iter()
-            .map(ProviderOption::from)
-            .collect();
-        self.provider.update(cx, |state, cx| {
-            state.set_items(SearchableVec::new(provider_items), window, cx);
-            match &provider_value {
-                Some(value) => state.set_selected_value(value, window, cx),
-                None => state.set_selected_index(None, window, cx),
-            }
-        });
-
-        let model_value = offered_value(&snapshot.selected_model, &snapshot.models);
-        let model_items: Vec<ModelOption> = snapshot.models.iter().map(ModelOption::from).collect();
-        self.model.update(cx, |state, cx| {
-            state.set_items(SearchableVec::new(model_items), window, cx);
-            match &model_value {
-                Some(value) => state.set_selected_value(value, window, cx),
-                None => state.set_selected_index(None, window, cx),
-            }
-        });
-
+        apply_providers(
+            &self.provider,
+            &snapshot.providers,
+            &snapshot.selected_provider,
+            window,
+            cx,
+        );
+        apply_models(
+            &self.model,
+            &snapshot.models,
+            &snapshot.selected_model,
+            window,
+            cx,
+        );
         self.applied = Some(snapshot);
         true
     }
+}
+
+/// The choices and selections the Settings dialog should show: every provider,
+/// the streaming default and the batch default.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SettingsSnapshot {
+    pub providers: Vec<SelectOption>,
+    pub selected_provider: Option<String>,
+    pub streaming_models: Vec<SelectOption>,
+    pub selected_streaming_model: Option<String>,
+    pub batch_models: Vec<SelectOption>,
+    pub selected_batch_model: Option<String>,
+}
+
+impl SettingsSnapshot {
+    /// Whether this snapshot differs from the one last applied.
+    #[must_use]
+    pub fn differs_from(&self, applied: Option<&SettingsSnapshot>) -> bool {
+        applied != Some(self)
+    }
+}
+
+/// The Settings dialog's three select states: provider, streaming default and
+/// batch default, plus the snapshot they were last built from.
+pub struct SettingsSelectFields {
+    provider: Entity<SelectState<SearchableVec<ProviderOption>>>,
+    streaming: Entity<SelectState<SearchableVec<ModelOption>>>,
+    batch: Entity<SelectState<SearchableVec<ModelOption>>>,
+    applied: Option<SettingsSnapshot>,
+}
+
+impl SettingsSelectFields {
+    /// Creates the three states empty. Both model menus are searchable.
+    pub fn new(window: &mut Window, cx: &mut App) -> Self {
+        let provider = cx.new(|cx| {
+            SelectState::new(
+                SearchableVec::new(Vec::<ProviderOption>::new()),
+                None,
+                window,
+                cx,
+            )
+        });
+        let streaming = cx.new(|cx| searchable_model_state(window, cx));
+        let batch = cx.new(|cx| searchable_model_state(window, cx));
+        Self {
+            provider,
+            streaming,
+            batch,
+            applied: None,
+        }
+    }
+
+    #[must_use]
+    pub fn provider(&self) -> &Entity<SelectState<SearchableVec<ProviderOption>>> {
+        &self.provider
+    }
+
+    #[must_use]
+    pub fn streaming(&self) -> &Entity<SelectState<SearchableVec<ModelOption>>> {
+        &self.streaming
+    }
+
+    #[must_use]
+    pub fn batch(&self) -> &Entity<SelectState<SearchableVec<ModelOption>>> {
+        &self.batch
+    }
+
+    /// Rebuilds the three menus only when `snapshot` differs from the last one
+    /// applied, using the same rule as [`SelectFields::sync`].
+    pub fn sync(&mut self, snapshot: SettingsSnapshot, window: &mut Window, cx: &mut App) -> bool {
+        if !snapshot.differs_from(self.applied.as_ref()) {
+            return false;
+        }
+        apply_providers(
+            &self.provider,
+            &snapshot.providers,
+            &snapshot.selected_provider,
+            window,
+            cx,
+        );
+        apply_models(
+            &self.streaming,
+            &snapshot.streaming_models,
+            &snapshot.selected_streaming_model,
+            window,
+            cx,
+        );
+        apply_models(
+            &self.batch,
+            &snapshot.batch_models,
+            &snapshot.selected_batch_model,
+            window,
+            cx,
+        );
+        self.applied = Some(snapshot);
+        true
+    }
+}
+
+/// Replaces a provider menu's items and selection.
+fn apply_providers(
+    state: &Entity<SelectState<SearchableVec<ProviderOption>>>,
+    options: &[SelectOption],
+    selected: &Option<String>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let items: Vec<ProviderOption> = options.iter().map(ProviderOption::from).collect();
+    let value = offered_value(selected, options);
+    state.update(cx, |state, cx| {
+        state.set_items(SearchableVec::new(items), window, cx);
+        match &value {
+            Some(value) => state.set_selected_value(value, window, cx),
+            None => state.set_selected_index(None, window, cx),
+        }
+    });
+}
+
+/// Replaces a model menu's items and selection.
+fn apply_models(
+    state: &Entity<SelectState<SearchableVec<ModelOption>>>,
+    options: &[SelectOption],
+    selected: &Option<String>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let items: Vec<ModelOption> = options.iter().map(ModelOption::from).collect();
+    let value = offered_value(selected, options);
+    state.update(cx, |state, cx| {
+        state.set_items(SearchableVec::new(items), window, cx);
+        match &value {
+            Some(value) => state.set_selected_value(value, window, cx),
+            None => state.set_selected_index(None, window, cx),
+        }
+    });
+}
+
+/// An empty, searchable model menu.
+fn searchable_model_state(
+    window: &mut Window,
+    cx: &mut Context<'_, SelectState<SearchableVec<ModelOption>>>,
+) -> SelectState<SearchableVec<ModelOption>> {
+    SelectState::new(
+        SearchableVec::new(Vec::<ModelOption>::new()),
+        None,
+        window,
+        cx,
+    )
+    .searchable(true)
 }
 
 /// The selected id as a `SharedString` when the menu still offers it.

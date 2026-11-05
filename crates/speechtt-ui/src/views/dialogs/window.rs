@@ -17,7 +17,7 @@ use gpui_kit::{
 
 use crate::app::SpeechTtApp;
 use crate::components::{
-    AppHeader, IconButton, ModelOption, ProviderOption, SelectFields, SelectSnapshot,
+    AppHeader, IconButton, ModelOption, ProviderOption, SettingsSelectFields, SettingsSnapshot,
 };
 use crate::controller::{Dialog, HelpTab};
 use crate::views::dialogs::{help, settings, window_title};
@@ -26,8 +26,8 @@ pub(crate) struct DialogWindow {
     dialog: Dialog,
     app: Entity<SpeechTtApp>,
     focus: FocusHandle,
-    /// The provider and model dropdowns of the Settings dialog.
-    selects: SelectFields,
+    /// The provider, streaming and batch dropdowns of the Settings dialog.
+    selects: SettingsSelectFields,
     /// Keeps the select and app subscriptions alive; dropped with the window.
     _subscriptions: Vec<Subscription>,
 }
@@ -42,7 +42,7 @@ impl DialogWindow {
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
 
-        let selects = SelectFields::new(window, cx);
+        let selects = SettingsSelectFields::new(window, cx);
         let provider_subscription = cx.subscribe(
             selects.provider(),
             |this, _, event: &SelectEvent<SearchableVec<ProviderOption>>, cx| {
@@ -53,13 +53,23 @@ impl DialogWindow {
                 }
             },
         );
-        let model_subscription = cx.subscribe(
-            selects.model(),
+        let streaming_subscription = cx.subscribe(
+            selects.streaming(),
             |this, _, event: &SelectEvent<SearchableVec<ModelOption>>, cx| {
                 if let SelectEvent::Confirm(Some(id)) = event {
                     let id = id.to_string();
                     this.app
-                        .update(cx, |app, cx| app.set_settings_model(&id, cx));
+                        .update(cx, |app, cx| app.set_settings_streaming_model(&id, cx));
+                }
+            },
+        );
+        let batch_subscription = cx.subscribe(
+            selects.batch(),
+            |this, _, event: &SelectEvent<SearchableVec<ModelOption>>, cx| {
+                if let SelectEvent::Confirm(Some(id)) = event {
+                    let id = id.to_string();
+                    this.app
+                        .update(cx, |app, cx| app.set_settings_batch_model(&id, cx));
                 }
             },
         );
@@ -71,7 +81,12 @@ impl DialogWindow {
             app,
             focus,
             selects,
-            _subscriptions: vec![provider_subscription, model_subscription, app_observer],
+            _subscriptions: vec![
+                provider_subscription,
+                streaming_subscription,
+                batch_subscription,
+                app_observer,
+            ],
         }
     }
 
@@ -79,8 +94,8 @@ impl DialogWindow {
         &self.app
     }
 
-    /// The Settings provider and model dropdown states.
-    pub(crate) fn selects(&self) -> &SelectFields {
+    /// The Settings provider and default-model dropdown states.
+    pub(crate) fn selects(&self) -> &SettingsSelectFields {
         &self.selects
     }
 
@@ -114,11 +129,14 @@ impl Render for DialogWindow {
         let snapshot = {
             let app = self.app.read(cx);
             let controller = app.controller();
-            SelectSnapshot {
+            let draft = app.settings_draft();
+            SettingsSnapshot {
                 providers: controller.settings_provider_options(),
-                selected_provider: app.settings_draft().provider.clone(),
-                models: controller.settings_model_options(),
-                selected_model: app.settings_draft().model.clone(),
+                selected_provider: draft.provider.clone(),
+                streaming_models: controller.settings_streaming_model_options(),
+                selected_streaming_model: draft.model_streaming.clone(),
+                batch_models: controller.settings_batch_model_options(),
+                selected_batch_model: draft.model_batch.clone(),
             }
         };
         self.selects.sync(snapshot, window, cx);

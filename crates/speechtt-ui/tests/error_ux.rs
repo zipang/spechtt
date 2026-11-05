@@ -355,7 +355,8 @@ fn error_messages_never_contain_secret_material_or_transcript_text() {
 
     let change = SettingsChange {
         provider: "vercel".into(),
-        model: "openai/gpt-realtime-whisper".into(),
+        model_streaming: "openai/gpt-realtime-whisper".into(),
+        model_batch: "openai/gpt-4o-transcribe".into(),
         api_key: Some(secret.into()),
     };
     let debug = format!("{change:?}");

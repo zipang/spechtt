@@ -643,7 +643,10 @@ pub const STORED_KEY_REVEAL_HINT: &str =
 #[derive(Clone, Default, PartialEq, Eq)]
 pub struct SettingsDraft {
     pub provider: Option<String>,
-    pub model: Option<String>,
+    /// Default model for live takes.
+    pub model_streaming: Option<String>,
+    /// Default model for file takes.
+    pub model_batch: Option<String>,
     /// Raw user input. Never printed by `Debug` or written to logs.
     pub api_key: String,
     /// `true` when a key was already stored and the field is untouched.
@@ -655,7 +658,8 @@ impl fmt::Debug for SettingsDraft {
         formatter
             .debug_struct("SettingsDraft")
             .field("provider", &self.provider)
-            .field("model", &self.model)
+            .field("model_streaming", &self.model_streaming)
+            .field("model_batch", &self.model_batch)
             .field(
                 "api_key",
                 &if self.api_key.is_empty() {
@@ -674,7 +678,8 @@ impl fmt::Debug for SettingsDraft {
 #[derive(Clone, PartialEq, Eq)]
 pub struct SettingsChange {
     pub provider: String,
-    pub model: String,
+    pub model_streaming: String,
+    pub model_batch: String,
     pub api_key: Option<String>,
 }
 
@@ -683,7 +688,8 @@ impl fmt::Debug for SettingsChange {
         formatter
             .debug_struct("SettingsChange")
             .field("provider", &self.provider)
-            .field("model", &self.model)
+            .field("model_streaming", &self.model_streaming)
+            .field("model_batch", &self.model_batch)
             .field("api_key", &self.api_key.as_ref().map(|_| "[REDACTED]"))
             .finish()
     }
@@ -1168,14 +1174,6 @@ impl SessionController {
             })
     }
 
-    fn model_ids(&self, provider: &str) -> Vec<String> {
-        self.capabilities
-            .as_ref()
-            .and_then(|providers| providers.iter().find(|option| option.id == provider))
-            .map(|option| option.models.iter().map(|model| model.id.clone()).collect())
-            .unwrap_or_default()
-    }
-
     fn capability_provider_options(&self) -> Vec<SelectOption> {
         self.capabilities
             .as_ref()
@@ -1191,11 +1189,16 @@ impl SessionController {
             })
     }
 
-    /// Census of a provider's models as dropdown options.
+    /// A provider's models as dropdown options.
     ///
-    /// With `all_models = false` only [`TranscriptionMode::Segmented`] models
-    /// are listed, which is the file-take rule.
-    fn capability_model_options(&self, provider: &str, all_models: bool) -> Vec<SelectOption> {
+    /// `mode` keeps only the models of that mode; `None` lists every model the
+    /// provider offers. The mode is carried on each option so the menu row can
+    /// draw its badge.
+    fn capability_model_options(
+        &self,
+        provider: &str,
+        mode: Option<TranscriptionMode>,
+    ) -> Vec<SelectOption> {
         self.capabilities
             .as_ref()
             .and_then(|providers| providers.iter().find(|option| option.id == provider))
@@ -1203,7 +1206,7 @@ impl SessionController {
                 option
                     .models
                     .iter()
-                    .filter(|model| all_models || model.mode == TranscriptionMode::Segmented)
+                    .filter(|model| mode.is_none_or(|mode| model.mode == mode))
                     .map(|model| SelectOption {
                         id: model.id.clone(),
                         label: model.label.clone(),
@@ -1233,12 +1236,21 @@ impl SessionController {
         self.provider_label_for(self.settings_draft.provider.as_deref()?)
     }
 
-    /// Label of the model selected in the Settings dialog.
+    /// Label of the streaming default selected in the Settings dialog.
     #[must_use]
-    pub fn settings_model_label(&self) -> Option<&str> {
+    pub fn settings_streaming_model_label(&self) -> Option<&str> {
         self.model_label_for(
             self.settings_draft.provider.as_deref()?,
-            self.settings_draft.model.as_deref()?,
+            self.settings_draft.model_streaming.as_deref()?,
+        )
+    }
+
+    /// Label of the batch default selected in the Settings dialog.
+    #[must_use]
+    pub fn settings_batch_model_label(&self) -> Option<&str> {
+        self.model_label_for(
+            self.settings_draft.provider.as_deref()?,
+            self.settings_draft.model_batch.as_deref()?,
         )
     }
 
@@ -1286,7 +1298,8 @@ impl SessionController {
         let Some(provider) = self.draft.provider.as_deref() else {
             return Vec::new();
         };
-        self.capability_model_options(provider, self.mode != SessionMode::File)
+        let mode = (self.mode == SessionMode::File).then_some(TranscriptionMode::Segmented);
+        self.capability_model_options(provider, mode)
     }
 
     /// Every provider in the capability catalogue, for the Settings menu.
@@ -1295,24 +1308,43 @@ impl SessionController {
         self.capability_provider_options()
     }
 
-    /// Every model the Settings provider offers.
+    /// Streaming models the Settings provider offers.
     ///
-    /// The Settings dialog is not bound to a take mode, so it lists the whole
-    /// provider catalogue. Empty until a provider is chosen.
+    /// Empty until a provider is chosen.
     #[must_use]
-    pub fn settings_model_options(&self) -> Vec<SelectOption> {
+    pub fn settings_streaming_model_options(&self) -> Vec<SelectOption> {
         let Some(provider) = self.settings_draft.provider.as_deref() else {
             return Vec::new();
         };
-        self.capability_model_options(provider, true)
+        self.capability_model_options(provider, Some(TranscriptionMode::Streaming))
     }
 
-    /// Mode of the model selected in the Settings dialog.
+    /// Batch (segmented) models the Settings provider offers.
+    ///
+    /// Empty until a provider is chosen.
     #[must_use]
-    pub fn settings_model_mode(&self) -> Option<TranscriptionMode> {
+    pub fn settings_batch_model_options(&self) -> Vec<SelectOption> {
+        let Some(provider) = self.settings_draft.provider.as_deref() else {
+            return Vec::new();
+        };
+        self.capability_model_options(provider, Some(TranscriptionMode::Segmented))
+    }
+
+    /// Mode of the streaming default selected in the Settings dialog.
+    #[must_use]
+    pub fn settings_streaming_model_mode(&self) -> Option<TranscriptionMode> {
         self.model_mode(
             self.settings_draft.provider.as_deref()?,
-            self.settings_draft.model.as_deref()?,
+            self.settings_draft.model_streaming.as_deref()?,
+        )
+    }
+
+    /// Mode of the batch default selected in the Settings dialog.
+    #[must_use]
+    pub fn settings_batch_model_mode(&self) -> Option<TranscriptionMode> {
+        self.model_mode(
+            self.settings_draft.provider.as_deref()?,
+            self.settings_draft.model_batch.as_deref()?,
         )
     }
 
@@ -1429,13 +1461,16 @@ impl SessionController {
         self.settings_has_key() && !unavailable
     }
 
-    /// A complete provider + model + usable key is required before saving.
+    /// A complete provider + one default per mode + usable key is required
+    /// before saving.
+    ///
     /// Availability is deliberately not required: saving a key is how an
     /// unavailable provider becomes connected on the next handshake.
     #[must_use]
     pub fn settings_draft_valid(&self) -> bool {
         self.settings_provider_known()
-            && self.settings_draft.model.is_some()
+            && self.settings_draft.model_streaming.is_some()
+            && self.settings_draft.model_batch.is_some()
             && self.settings_has_key()
     }
 
@@ -1462,6 +1497,9 @@ impl SessionController {
     ) {
         self.capabilities = Some(providers);
         self.capability_source = Some(source);
+        // The catalogue is what reveals the mode of a legacy single default,
+        // so the migration retries here for files written by older releases.
+        self.migrate_legacy_default();
         if self.screen == Screen::Form {
             self.seed_draft_from_settings();
         }
@@ -1487,6 +1525,7 @@ impl SessionController {
     /// Apply persisted settings (provider/model/key/auto-paste).
     pub fn apply_settings(&mut self, settings: Settings) {
         self.settings = Some(settings);
+        self.migrate_legacy_default();
         if self.screen == Screen::Form {
             self.seed_draft_from_settings();
         }
@@ -1698,7 +1737,7 @@ impl SessionController {
     /// starts from "Choose provider" so changing a provider always starts from
     /// the first catalogue entry, independent of any previously stored file.
     pub fn open_settings(&mut self) {
-        self.open_settings_with(None, None, false);
+        self.open_settings_with(None, None, None, false);
     }
 
     /// Seed the Settings draft from persisted values.
@@ -1709,20 +1748,26 @@ impl SessionController {
     pub fn open_settings_with(
         &mut self,
         provider: Option<&str>,
-        model: Option<&str>,
+        model_streaming: Option<&str>,
+        model_batch: Option<&str>,
         api_key_unchanged: bool,
     ) {
         self.settings_draft = SettingsDraft {
             provider: None,
-            model: None,
+            model_streaming: None,
+            model_batch: None,
             api_key: String::new(),
             api_key_unchanged,
         };
         if let Some(provider) = provider
             && self.set_settings_provider(provider)
-            && let Some(model) = model
         {
-            self.set_settings_model(model);
+            if let Some(model) = model_streaming {
+                self.set_settings_streaming_model(model);
+            }
+            if let Some(model) = model_batch {
+                self.set_settings_batch_model(model);
+            }
         }
         self.active_dialog = Some(Dialog::Settings);
     }
@@ -1746,20 +1791,47 @@ impl SessionController {
         }
         if self.settings_draft.provider.as_deref() != Some(provider) {
             self.settings_draft.provider = Some(provider.to_string());
-            self.settings_draft.model = None;
+            self.settings_draft.model_streaming = None;
+            self.settings_draft.model_batch = None;
         }
         true
     }
 
-    /// Returns `true` when the model belongs to the selected provider.
-    pub fn set_settings_model(&mut self, model: &str) -> bool {
+    /// Selects the live-take default model.
+    ///
+    /// Returns `true` when `model` belongs to the settings provider and the
+    /// catalogue reports it as [`TranscriptionMode::Streaming`]. The batch slot
+    /// is untouched: the two defaults are chosen independently.
+    pub fn set_settings_streaming_model(&mut self, model: &str) -> bool {
+        self.select_settings_model(model, TranscriptionMode::Streaming)
+    }
+
+    /// Selects the file-take default model.
+    ///
+    /// Returns `true` when `model` belongs to the settings provider and the
+    /// catalogue reports it as [`TranscriptionMode::Segmented`]. The streaming
+    /// slot is untouched.
+    pub fn set_settings_batch_model(&mut self, model: &str) -> bool {
+        self.select_settings_model(model, TranscriptionMode::Segmented)
+    }
+
+    /// Shared body of the two default setters: the id must exist for the
+    /// settings provider and carry exactly `mode`.
+    fn select_settings_model(&mut self, model: &str, mode: TranscriptionMode) -> bool {
         let Some(provider) = self.settings_draft.provider.clone() else {
             return false;
         };
-        if !self.model_exists(&provider, model) {
+        if self.model_mode(&provider, model) != Some(mode) {
             return false;
         }
-        self.settings_draft.model = Some(model.to_string());
+        match mode {
+            TranscriptionMode::Streaming => {
+                self.settings_draft.model_streaming = Some(model.to_string());
+            }
+            TranscriptionMode::Segmented => {
+                self.settings_draft.model_batch = Some(model.to_string());
+            }
+        }
         true
     }
 
@@ -1783,18 +1855,6 @@ impl SessionController {
         self.set_settings_provider(&next)
     }
 
-    /// Cycles the selected provider's models.
-    pub fn cycle_settings_model(&mut self) -> bool {
-        let Some(provider) = self.settings_draft.provider.clone() else {
-            return false;
-        };
-        let ids = self.model_ids(&provider);
-        let Some(next) = next_id(&ids, self.settings_draft.model.as_deref()) else {
-            return false;
-        };
-        self.set_settings_model(&next)
-    }
-
     /// Commits the Settings draft when valid and closes the dialog.
     ///
     /// Returns `None` and leaves the dialog open otherwise.
@@ -1804,7 +1864,8 @@ impl SessionController {
         }
         let change = SettingsChange {
             provider: self.settings_draft.provider.clone()?,
-            model: self.settings_draft.model.clone()?,
+            model_streaming: self.settings_draft.model_streaming.clone()?,
+            model_batch: self.settings_draft.model_batch.clone()?,
             api_key: if self.settings_draft.api_key_unchanged {
                 None
             } else {
@@ -1935,8 +1996,42 @@ impl SessionController {
     /// A file take can only be batched, so file mode seeds the model only when
     /// it is segmented; the provider is still seeded so the user picks from the
     /// right list.
+    /// The stored default for `mode`, when the catalogue resolves it.
+    ///
+    /// A live take uses the streaming default and a file take the batch one.
+    /// `None` when no settings were loaded, the provider is unknown, the stored
+    /// id is not in the catalogue, or its catalogue mode does not match the
+    /// take's mode.
+    #[must_use]
+    pub fn default_model_for(&self, mode: SessionMode) -> Option<&str> {
+        let settings = self.settings.as_ref()?;
+        let stored = match mode {
+            SessionMode::Live => settings.model_streaming.as_str(),
+            SessionMode::File => settings.model_batch.as_str(),
+        };
+        if stored.trim().is_empty() {
+            return None;
+        }
+        if !self.model_exists(&settings.provider, stored) {
+            return None;
+        }
+        let expected = match mode {
+            SessionMode::Live => TranscriptionMode::Streaming,
+            SessionMode::File => TranscriptionMode::Segmented,
+        };
+        if self.model_mode(&settings.provider, stored) != Some(expected) {
+            return None;
+        }
+        Some(stored)
+    }
+
+    /// Opens the form with the defaults its mode should start from.
+    ///
+    /// Both fields are prefilled so a take can start without touching the
+    /// menus: provider from the stored settings, model from
+    /// [`Self::default_model_for`] for the current mode. A choice the user
+    /// already made in this draft is never overwritten.
     fn seed_draft_from_settings(&mut self) {
-        // Never overwrite a choice the user already made in this draft.
         if self.draft.provider.is_some() {
             return;
         }
@@ -1947,20 +2042,44 @@ impl SessionController {
             return;
         }
         self.draft.provider = Some(settings.provider.clone());
+        self.draft.model = self.default_model_for(self.mode).map(str::to_string);
+    }
 
-        if settings.model.trim().is_empty()
-            || !self.model_exists(&settings.provider, &settings.model)
-        {
+    /// Moves a single default written by an older release into its mode slot.
+    ///
+    /// Older settings files hold one `model`. The catalogue is the only thing
+    /// that knows whether it streams or batches, so the migration runs after
+    /// the handshake as well as after loading. It applies only while both new
+    /// slots are empty, never overwrites a chosen slot, and clears the legacy
+    /// value so the next save writes the two mode-specific keys.
+    fn migrate_legacy_default(&mut self) {
+        let Some(settings) = self.settings.as_ref() else {
+            return;
+        };
+        let legacy = settings.model.trim().to_owned();
+        if legacy.is_empty() {
             return;
         }
-        if self.mode == SessionMode::File
-            && self.model_mode(&settings.provider, &settings.model)
-                != Some(TranscriptionMode::Segmented)
-        {
-            // Streaming models cannot transcribe files: force a choice.
+        if !settings.model_streaming.is_empty() || !settings.model_batch.is_empty() {
             return;
         }
-        self.draft.model = Some(settings.model);
+        let provider = settings.provider.clone();
+        let slot = match self.model_mode(&provider, &legacy) {
+            Some(TranscriptionMode::Streaming) => {
+                let mut settings = settings.clone();
+                settings.model_streaming = legacy.clone();
+                settings.model.clear();
+                settings
+            }
+            Some(TranscriptionMode::Segmented) => {
+                let mut settings = settings.clone();
+                settings.model_batch = legacy.clone();
+                settings.model.clear();
+                settings
+            }
+            None => return,
+        };
+        self.settings = Some(slot);
     }
 
     /// Leave the setup form for the mode chooser, discarding the draft, the
@@ -2604,11 +2723,15 @@ impl SessionController {
     }
 
     /// Whether the persisted settings ask for automatic paste.
+    ///
+    /// Paste needs a configured default for the current take mode: without one
+    /// the take cannot start, and the worker never produces a transcript.
     #[must_use]
     pub fn auto_paste_enabled(&self) -> bool {
         self.settings
             .as_ref()
-            .is_some_and(|settings| settings.auto_paste && !settings.model.trim().is_empty())
+            .is_some_and(|settings| settings.auto_paste)
+            && self.default_model_for(self.mode).is_some()
     }
 
     // ----- Internals ---------------------------------------------------
@@ -2641,11 +2764,7 @@ impl SessionController {
             .model
             .clone()
             .filter(|model| !model.trim().is_empty())
-            .or_else(|| {
-                self.settings
-                    .as_ref()
-                    .map(|settings| settings.model.clone())
-            })
+            .or_else(|| self.default_model_for(self.mode).map(str::to_string))
             .unwrap_or_default();
 
         let Some(settings) = &self.settings else {
@@ -2794,7 +2913,8 @@ mod tests {
         install_catalogue(controller);
         controller.open_settings();
         controller.set_settings_provider("vercel-ai-gateway");
-        controller.set_settings_model("openai/gpt-realtime-whisper");
+        controller.set_settings_streaming_model("openai/gpt-realtime-whisper");
+        controller.set_settings_batch_model("openai/gpt-4o-transcribe");
         controller.set_settings_api_key("sk-test-key");
         controller.settings_draft_valid()
     }
@@ -2831,7 +2951,12 @@ mod tests {
 
         assert!(controller.set_settings_provider("vercel-ai-gateway"));
         assert!(!controller.settings_draft_valid());
-        assert!(controller.set_settings_model("openai/gpt-realtime-whisper"));
+        assert!(controller.set_settings_streaming_model("openai/gpt-realtime-whisper"));
+        assert!(
+            !controller.settings_draft_valid(),
+            "the batch default is still missing"
+        );
+        assert!(controller.set_settings_batch_model("openai/gpt-4o-transcribe"));
         assert!(!controller.settings_draft_valid(), "no key yet");
 
         controller.set_settings_api_key("sk-test-key");
@@ -2844,6 +2969,7 @@ mod tests {
         install_catalogue(&mut controller);
         controller.open_settings_with(
             Some("vercel-ai-gateway"),
+            Some("openai/gpt-realtime-whisper"),
             Some("openai/gpt-4o-transcribe"),
             true,
         );
@@ -2857,7 +2983,8 @@ mod tests {
         install_catalogue(&mut controller);
         controller.open_settings();
         assert!(controller.set_settings_provider("vercel-ai-gateway"));
-        assert!(controller.set_settings_model("openai/gpt-realtime-whisper"));
+        assert!(controller.set_settings_streaming_model("openai/gpt-realtime-whisper"));
+        assert!(controller.set_settings_batch_model("openai/gpt-4o-transcribe"));
 
         // Only the gateway is offered: an unknown provider is rejected and the
         // current choice survives, while cycling a single provider keeps it.
@@ -2868,10 +2995,15 @@ mod tests {
             Some("vercel-ai-gateway")
         );
         assert_eq!(
-            controller.settings_draft().model.as_deref(),
+            controller.settings_draft().model_streaming.as_deref(),
             Some("openai/gpt-realtime-whisper")
         );
-        assert!(!controller.set_settings_model("not-a-model"));
+        assert_eq!(
+            controller.settings_draft().model_batch.as_deref(),
+            Some("openai/gpt-4o-transcribe")
+        );
+        assert!(!controller.set_settings_streaming_model("not-a-model"));
+        assert!(!controller.set_settings_batch_model("not-a-model"));
     }
 
     #[test]
@@ -2884,7 +3016,8 @@ mod tests {
             change,
             SettingsChange {
                 provider: "vercel-ai-gateway".to_string(),
-                model: "openai/gpt-realtime-whisper".to_string(),
+                model_streaming: "openai/gpt-realtime-whisper".to_string(),
+                model_batch: "openai/gpt-4o-transcribe".to_string(),
                 api_key: Some("sk-test-key".to_string()),
             }
         );
@@ -2897,6 +3030,7 @@ mod tests {
         install_catalogue(&mut controller);
         controller.open_settings_with(
             Some("vercel-ai-gateway"),
+            Some("openai/gpt-realtime-whisper"),
             Some("openai/gpt-4o-transcribe"),
             true,
         );
@@ -2919,7 +3053,8 @@ mod tests {
         install_catalogue(&mut controller);
         controller.open_settings();
         controller.set_settings_provider("vercel-ai-gateway");
-        controller.set_settings_model("openai/gpt-realtime-whisper");
+        controller.set_settings_streaming_model("openai/gpt-realtime-whisper");
+        controller.set_settings_batch_model("openai/gpt-4o-transcribe");
         controller.set_settings_api_key("sk-super-secret-value");
 
         let draft = format!("{:?}", controller.settings_draft());
@@ -2953,18 +3088,216 @@ mod tests {
         controller.open_settings();
         assert!(controller.set_settings_provider("vercel-ai-gateway"));
 
-        assert!(controller.set_settings_model("openai/gpt-realtime-whisper"));
+        assert!(controller.set_settings_streaming_model("openai/gpt-realtime-whisper"));
         assert_eq!(
-            controller.settings_model_mode(),
+            controller.settings_streaming_model_mode(),
             Some(TranscriptionMode::Streaming)
         );
 
-        assert!(controller.set_settings_model("openai/gpt-4o-transcribe"));
+        assert!(controller.set_settings_batch_model("openai/gpt-4o-transcribe"));
         assert_eq!(
-            controller.settings_model_mode(),
+            controller.settings_batch_model_mode(),
             Some(TranscriptionMode::Segmented)
         );
         assert_eq!(controller.session_model_mode(), None, "no take yet");
+    }
+
+    /// Stored settings with the given per-mode defaults and no API key.
+    fn stored_settings(streaming: &str, batch: &str) -> Settings {
+        Settings {
+            provider: "vercel-ai-gateway".to_string(),
+            model_streaming: streaming.to_string(),
+            model_batch: batch.to_string(),
+            ..Settings::default()
+        }
+    }
+
+    #[test]
+    fn a_live_take_starts_from_the_streaming_default() {
+        let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
+        controller.apply_settings(stored_settings(
+            "openai/gpt-realtime-whisper",
+            "openai/gpt-4o-transcribe",
+        ));
+
+        // Both defaults resolve, so the form is skipped entirely and the live
+        // take is configured from the streaming slot.
+        assert!(controller.choose_mode(SessionMode::Live));
+
+        let config = controller.machine.config();
+        assert_eq!(config.provider.as_deref(), Some("vercel-ai-gateway"));
+        assert_eq!(
+            config.model.as_deref(),
+            Some("openai/gpt-realtime-whisper"),
+            "a live take starts from the streaming default"
+        );
+    }
+
+    #[test]
+    fn a_live_form_seeds_the_streaming_default() {
+        let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
+        // A retired streaming default leaves the draft incomplete, so the form
+        // stays on screen with the provider already chosen.
+        controller.apply_settings(Settings {
+            model_streaming: "retired/model".to_string(),
+            model_batch: "openai/gpt-4o-transcribe".to_string(),
+            ..stored_settings("", "")
+        });
+
+        assert!(!controller.choose_mode(SessionMode::Live));
+        assert_eq!(controller.draft_provider(), Some("vercel-ai-gateway"));
+        assert_eq!(controller.draft_model(), None);
+
+        // Choosing the streaming model is enough to continue.
+        assert!(controller.set_draft_model("openai/gpt-realtime-whisper"));
+        assert!(controller.create_session());
+    }
+
+    #[test]
+    fn a_file_take_seeds_the_batch_default() {
+        let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
+        controller.apply_settings(stored_settings(
+            "openai/gpt-realtime-whisper",
+            "openai/gpt-4o-transcribe",
+        ));
+        assert!(!controller.choose_mode(SessionMode::File));
+
+        controller
+            .set_pending_file(PathBuf::from("/tmp/interview.mp4"))
+            .expect("a media file opens the form");
+
+        assert_eq!(
+            controller.draft_model(),
+            Some("openai/gpt-4o-transcribe"),
+            "a file take starts from the batch default"
+        );
+        assert_eq!(
+            controller.draft_model_mode(),
+            Some(TranscriptionMode::Segmented)
+        );
+        assert!(controller.is_draft_complete(), "the form is already usable");
+    }
+
+    #[test]
+    fn a_default_the_catalogue_does_not_know_leaves_the_draft_empty() {
+        let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
+        controller.apply_settings(stored_settings(
+            "some/retired-model",
+            "some/retired-batch-model",
+        ));
+
+        assert!(!controller.choose_mode(SessionMode::Live));
+
+        assert_eq!(controller.draft_provider(), Some("vercel-ai-gateway"));
+        assert_eq!(controller.draft_model(), None);
+    }
+
+    #[test]
+    fn default_model_for_reads_the_slot_of_its_mode() {
+        let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
+        controller.apply_settings(stored_settings(
+            "openai/gpt-realtime-whisper",
+            "openai/gpt-4o-transcribe",
+        ));
+
+        assert_eq!(
+            controller.default_model_for(SessionMode::Live),
+            Some("openai/gpt-realtime-whisper")
+        );
+        assert_eq!(
+            controller.default_model_for(SessionMode::File),
+            Some("openai/gpt-4o-transcribe")
+        );
+    }
+
+    #[test]
+    fn a_legacy_streaming_default_migrates_into_the_streaming_slot() {
+        let mut controller = SessionController::new();
+        controller.apply_settings(Settings {
+            model: "openai/gpt-realtime-whisper".to_string(),
+            ..stored_settings("", "")
+        });
+        assert!(
+            controller
+                .settings()
+                .expect("settings")
+                .model_streaming
+                .is_empty(),
+            "the catalogue has not revealed the mode yet"
+        );
+
+        install_catalogue(&mut controller);
+
+        let settings = controller.settings().expect("settings");
+        assert_eq!(settings.model_streaming, "openai/gpt-realtime-whisper");
+        assert!(settings.model_batch.is_empty());
+        assert!(settings.model.is_empty(), "the legacy key is consumed");
+    }
+
+    #[test]
+    fn a_legacy_batch_default_migrates_into_the_batch_slot() {
+        let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
+        controller.apply_settings(Settings {
+            model: "openai/gpt-4o-transcribe".to_string(),
+            ..stored_settings("", "")
+        });
+
+        let settings = controller.settings().expect("settings");
+        assert_eq!(settings.model_batch, "openai/gpt-4o-transcribe");
+        assert!(settings.model_streaming.is_empty());
+    }
+
+    #[test]
+    fn an_unknown_legacy_default_is_left_in_place() {
+        let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
+        controller.apply_settings(Settings {
+            model: "retired/model".to_string(),
+            ..stored_settings("", "")
+        });
+
+        let settings = controller.settings().expect("settings");
+        assert!(settings.model_streaming.is_empty());
+        assert!(settings.model_batch.is_empty());
+        assert_eq!(settings.model, "retired/model");
+    }
+
+    #[test]
+    fn the_legacy_migration_never_overwrites_a_chosen_slot() {
+        let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
+        controller.apply_settings(Settings {
+            model: "openai/gpt-realtime-whisper".to_string(),
+            ..stored_settings("", "openai/gpt-4o-transcribe")
+        });
+
+        let settings = controller.settings().expect("settings");
+        assert_eq!(settings.model_batch, "openai/gpt-4o-transcribe");
+        assert!(
+            settings.model_streaming.is_empty(),
+            "an existing default wins over the legacy one"
+        );
+    }
+
+    #[test]
+    fn the_legacy_migration_is_idempotent() {
+        let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
+        controller.apply_settings(Settings {
+            model: "openai/gpt-realtime-whisper".to_string(),
+            ..stored_settings("", "")
+        });
+        let once = controller.settings().expect("settings").clone();
+
+        install_catalogue(&mut controller);
+
+        assert_eq!(controller.settings().expect("settings"), &once);
     }
 
     #[test]
@@ -3248,21 +3581,32 @@ mod tests {
         let providers = controller.settings_provider_options();
         assert_eq!(providers.len(), 1);
         assert_eq!(providers[0].id, "vercel-ai-gateway");
-        assert!(controller.settings_model_options().is_empty());
+        assert!(controller.settings_streaming_model_options().is_empty());
+        assert!(controller.settings_batch_model_options().is_empty());
 
         assert!(controller.set_settings_provider("vercel-ai-gateway"));
-        let models = controller.settings_model_options();
-        let ids: Vec<_> = models.iter().map(|option| option.id.as_str()).collect();
+
+        let streaming = controller.settings_streaming_model_options();
+        let streaming_ids: Vec<_> = streaming.iter().map(|option| option.id.as_str()).collect();
         assert_eq!(
-            ids,
-            [
-                "openai/gpt-4o-transcribe",
-                "openai/gpt-realtime-whisper",
-                "fish-audio/transcribe-1",
-            ],
-            "the settings dialog always offers every model"
+            streaming_ids,
+            ["openai/gpt-realtime-whisper"],
+            "the streaming menu offers only streaming models"
         );
-        assert_eq!(models[1].mode, Some(TranscriptionMode::Streaming));
+        assert_eq!(streaming[0].mode, Some(TranscriptionMode::Streaming));
+
+        let batch = controller.settings_batch_model_options();
+        let batch_ids: Vec<_> = batch.iter().map(|option| option.id.as_str()).collect();
+        assert_eq!(
+            batch_ids,
+            ["openai/gpt-4o-transcribe", "fish-audio/transcribe-1"],
+            "the batch menu offers only segmented models"
+        );
+        assert!(
+            batch
+                .iter()
+                .all(|option| option.mode == Some(TranscriptionMode::Segmented))
+        );
     }
 
     #[test]
@@ -3362,7 +3706,7 @@ mod tests {
     }
 
     #[test]
-    fn cycling_selects_a_provider_and_then_its_first_model() {
+    fn cycling_the_provider_keeps_both_default_slots_empty() {
         let mut controller = SessionController::new();
         install_catalogue(&mut controller);
         controller.open_settings();
@@ -3372,12 +3716,59 @@ mod tests {
             controller.settings_draft().provider.as_deref(),
             Some("vercel-ai-gateway")
         );
-        assert_eq!(controller.settings_draft().model, None);
+        assert_eq!(controller.settings_draft().model_streaming, None);
+        assert_eq!(controller.settings_draft().model_batch, None);
+    }
 
-        assert!(controller.cycle_settings_model());
-        assert_eq!(
-            controller.settings_draft().model.as_deref(),
-            Some("openai/gpt-4o-transcribe")
+    #[test]
+    fn each_default_slot_rejects_the_other_modes_model() {
+        let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
+        controller.open_settings();
+        assert!(controller.set_settings_provider("vercel-ai-gateway"));
+
+        assert!(
+            !controller.set_settings_streaming_model("openai/gpt-4o-transcribe"),
+            "a batch model cannot be the live default"
         );
+        assert!(
+            !controller.set_settings_batch_model("openai/gpt-realtime-whisper"),
+            "a streaming model cannot be the file default"
+        );
+        assert_eq!(controller.settings_draft().model_streaming, None);
+        assert_eq!(controller.settings_draft().model_batch, None);
+
+        assert!(controller.set_settings_streaming_model("openai/gpt-realtime-whisper"));
+        assert!(controller.set_settings_batch_model("openai/gpt-4o-transcribe"));
+    }
+
+    #[test]
+    fn changing_the_settings_provider_clears_both_defaults() {
+        let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
+        controller.set_capabilities(vec![
+            ProviderCapability {
+                id: "vercel-ai-gateway".to_string(),
+                label: "Vercel AI Gateway".to_string(),
+                available: true,
+                key_env_vars: vec!["AI_GATEWAY_API_KEY".to_string()],
+                models: test_capabilities()[0].models.clone(),
+            },
+            ProviderCapability {
+                id: "other-provider".to_string(),
+                label: "Other".to_string(),
+                available: true,
+                key_env_vars: vec!["OTHER_KEY".to_string()],
+                models: test_capabilities()[0].models.clone(),
+            },
+        ]);
+        controller.open_settings();
+        assert!(controller.set_settings_provider("vercel-ai-gateway"));
+        assert!(controller.set_settings_streaming_model("openai/gpt-realtime-whisper"));
+        assert!(controller.set_settings_batch_model("openai/gpt-4o-transcribe"));
+
+        assert!(controller.set_settings_provider("other-provider"));
+        assert_eq!(controller.settings_draft().model_streaming, None);
+        assert_eq!(controller.settings_draft().model_batch, None);
     }
 }

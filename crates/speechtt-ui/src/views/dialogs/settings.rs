@@ -16,6 +16,8 @@ use crate::components::{
     ActionButton, AppFooter, Body, InfoNote, Label, ModelSelect, ProviderSelect, SettingRow,
     StatusBadge, StatusDot, TranscriptionModeBadge,
 };
+use speechtt_core::protocol::TranscriptionMode;
+
 use crate::tokens::color;
 use crate::views::dialogs::{DialogShell, DialogWindow};
 
@@ -23,7 +25,8 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
     let (
         has_provider,
         catalogue_loaded,
-        model_mode,
+        streaming_mode,
+        batch_mode,
         connected,
         valid,
         key_env,
@@ -47,7 +50,8 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
         (
             has_provider,
             catalogue_loaded,
-            controller.settings_model_mode(),
+            controller.settings_streaming_model_mode(),
+            controller.settings_batch_model_mode(),
             controller.settings_connected(),
             controller.settings_draft_valid(),
             controller
@@ -71,21 +75,28 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
                 "Loading providers…"
             })
             .disabled(!catalogue_loaded);
-    let model_select = ModelSelect::new("field-settings-model", dialog.selects().model())
-        .placeholder(if has_provider {
-            "Choose model"
-        } else {
-            "Choose provider first"
-        })
+    let model_placeholder = if has_provider {
+        "Choose model"
+    } else {
+        "Choose provider first"
+    };
+    let streaming_select =
+        ModelSelect::new("field-settings-streaming", dialog.selects().streaming())
+            .placeholder(model_placeholder)
+            .disabled(!has_provider);
+    let batch_select = ModelSelect::new("field-settings-batch", dialog.selects().batch())
+        .placeholder(model_placeholder)
         .disabled(!has_provider);
 
-    let model_control = {
-        let mut row = h_flex().gap_2().items_center().child(model_select);
-        if let Some(mode) = model_mode {
+    let model_control = |select: AnyElement, mode: Option<TranscriptionMode>| {
+        let mut row = h_flex().gap_2().items_center().child(select);
+        if let Some(mode) = mode {
             row = row.child(TranscriptionModeBadge::new(mode));
         }
-        row
+        row.into_any_element()
     };
+    let streaming_control = model_control(streaming_select.into_any_element(), streaming_mode);
+    let batch_control = model_control(batch_select.into_any_element(), batch_mode);
 
     let badge = if connected {
         h_flex()
@@ -176,9 +187,14 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
                 .control(provider_select),
         )
         .body(
-            SettingRow::new("Default Model", "Which engine transcribes your voice")
+            SettingRow::new("Default Streaming Model", "Used for live dictation")
                 .prominent()
-                .control(model_control),
+                .control(streaming_control),
+        )
+        .body(
+            SettingRow::new("Default Batch Model", "Used for audio and video files")
+                .prominent()
+                .control(batch_control),
         )
         .body(api_key)
         .body(note)

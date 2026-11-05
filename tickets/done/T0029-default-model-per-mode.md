@@ -4,6 +4,8 @@
 - **Wave**: 1 (independent)
 - **Depends on**: T0028 (the dropdown menus these defaults feed)
 - **Blocks**: nothing
+- **Owner**: CTO
+- **Started**: 2026-11-05
 - **References**:
   - `AGENTS.md` §2 (component/view rules), §5 (gates), §6 (official documentation)
   - `DESIGN.md` § "Session setup form" and § "Settings panel"
@@ -227,36 +229,36 @@ provider state is not.
 
 ## TDD Tasks
 
-- [ ] **T29.1 — Red: core settings.** Failing tests in `settings.rs` for the
+- [x] **T29.1 — Red: core settings.** Failing tests in `settings.rs` for the
   two fields, the legacy key load, `validate()` naming each missing default,
   and the JSON shape (both keys written, legacy key dropped). Then implement.
-- [ ] **T29.2 — Red: controller defaults and validation.** Failing tests for
+- [x] **T29.2 — Red: controller defaults and validation.** Failing tests for
   `default_model_for` (live/file), `set_settings_streaming_model` /
   `set_settings_batch_model` (wrong mode rejected, provider change clears both),
   `settings_draft_valid` requiring both, and `SettingsChange` carrying both.
   Then implement.
-- [ ] **T29.3 — Red: migration.** Failing tests: legacy `model` equal to a
+- [x] **T29.3 — Red: migration.** Failing tests: legacy `model` equal to a
   streaming id lands in `model_streaming`; equal to a segmented id lands in
   `model_batch`; unknown id or absent catalogue leaves both empty; running it
   twice changes nothing; it never overwrites an already-chosen slot. Then
   implement `migrate_legacy_default`.
-- [ ] **T29.4 — Red: seeding.** Failing tests: `set_pending_file` opens the form
+- [x] **T29.4 — Red: seeding.** Failing tests: `set_pending_file` opens the form
   with the batch default already selected; `choose_mode(Live)` opens it with the
   streaming default; a stored default the catalogue does not know leaves the
   slot empty. Then implement in `seed_draft_from_settings`.
-- [ ] **T29.5 — Red: component.** Failing tests for `SettingsSnapshot`
+- [x] **T29.5 — Red: component.** Failing tests for `SettingsSnapshot`
   equality and the "selection no longer offered is cleared" rule (the pure part
   is testable without a window). Then implement
   `SettingsSelectFields` + `sync`.
-- [ ] **T29.6 — Green: wire the dialog.** Extend `DialogWindow`, its
+- [x] **T29.6 — Green: wire the dialog.** Extend `DialogWindow`, its
   subscriptions and `views/dialogs/settings.rs` to three rows, update
   `apply_settings_change` and the `set_settings_*` app wrappers, and make the
   headless widget test drive all three menus.
-- [ ] **T29.7 — Fixtures and docs.** Update `tests/common/mod.rs` and every test
+- [x] **T29.7 — Fixtures and docs.** Update `tests/common/mod.rs` and every test
   that builds a `Settings` to the two fields; refresh `DESIGN.md` § "Settings
   panel" and the seeding sentence of § "Session setup form"; update the module
   and item docs (`AGENTS.md` §3: present tense, callers named, no ticket IDs).
-- [ ] **T29.8 — Gates.** `cargo fmt -- --check`,
+- [x] **T29.8 — Gates.** `cargo fmt -- --check`,
   `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
   `bun check src/stt`, `bun run design:validate`. Record exact counts in
   `## Implementation Notes`.
@@ -280,3 +282,60 @@ provider state is not.
   components and badges.
 - All six gates are green with zero warnings and no skipped tests.
 - Final visual review is left to the user.
+
+## Implementation Notes
+
+Implemented by the CTO (the coding sub-agent pool was out of credits).
+
+### Decisions
+
+- **Legacy field kept, never written.** `Settings` gains `model_streaming` and
+  `model_batch` and keeps `model` behind `skip_serializing_if = "String::is_empty"`.
+  Dropping the key from the struct would have made every existing file a
+  `deny_unknown_fields` load error, so the field stays readable and disappears on
+  the first save.
+- **Migration lives in the controller, not the core.** Only the capability
+  catalogue knows whether a model streams or batches, and the core never sees a
+  catalogue. `SessionController::migrate_legacy_default` therefore runs from
+  `apply_settings` and again from `apply_capabilities`, and it is a no-op once a
+  slot is filled or the id is unknown.
+- **The dialog seeds from the controller's settings.** `apply_settings` migrates
+  the controller's copy, so `SpeechTtApp::open_settings` reads
+  `controller.settings()` rather than its own `stored_settings` snapshot;
+  otherwise a migrated file would open the dialog on an empty provider.
+- **Two model menu states in Settings.** `SettingsSelectFields` owns provider +
+  streaming + batch states; `SelectFields` keeps its provider + model pair for the
+  setup form, which offers one mode's models. Both share `apply_providers` /
+  `apply_models` and the "selection no longer offered is cleared" rule.
+- **Both defaults are mandatory.** `Settings::validate` and
+  `settings_draft_valid` name the missing field, so a take always starts from a
+  model of its own mode. `set_settings_provider` clears both slots together.
+- **Seeding is unconditional.** `seed_draft_from_settings` now always fills the
+  model from `default_model_for(mode)`; the old "force a choice in file mode"
+  branch is gone because the batch default is segmented by construction.
+- **`start_configuration` and `auto_paste_enabled` follow the mode.** Both used
+  to read the single `settings.model`; they now use `default_model_for(self.mode)`.
+- **Retired helpers removed.** `cycle_settings_model` and the unused
+  `model_ids` helper are deleted; `cycle_settings_provider` stays because the
+  provider list is a single entry and its test still exercises it.
+
+### Deviations
+
+- None from the agreed behaviour. The Settings row titles are
+  "Default Streaming Model" / "Default Batch Model" on two separate rows.
+
+### Gates (repository root, zero warnings, no skipped tests)
+
+| Command | Result |
+|---|---|
+| `cargo fmt -- --check` | clean |
+| `cargo clippy --all-targets -- -D warnings` | clean |
+| `cargo test` | 497 passed, 0 failed (core 221 + 3 + 14, ui 93 + 3 + 11 + 33 + 14 + 74 + 4 + 27) |
+| `bun test` | 221 passed, 0 failed |
+| `bun check src/stt` | no type errors in 23 files |
+| `bun run design:validate` | 66 tokens, 0 errors |
+
+### Left for the user
+
+Final visual review of the three Settings rows and of the prefilled setup form
+(live and file). No GUI run or screenshot was taken autonomously.

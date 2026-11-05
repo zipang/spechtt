@@ -696,24 +696,34 @@ fn capabilities_populate_options_and_connection_state() {
         label: "Vercel AI Gateway".into(),
         available: false,
         key_env_vars: Vec::new(),
-        models: vec![speechtt_core::protocol::ModelCapabilityInfo {
-            id: "openai/gpt-realtime-whisper".into(),
-            label: "GPT Realtime Whisper".into(),
-            mode: speechtt_core::protocol::TranscriptionMode::Streaming,
-            description: None,
-            pricing: std::collections::BTreeMap::new(),
-        }],
+        models: vec![
+            speechtt_core::protocol::ModelCapabilityInfo {
+                id: "openai/gpt-realtime-whisper".into(),
+                label: "GPT Realtime Whisper".into(),
+                mode: speechtt_core::protocol::TranscriptionMode::Streaming,
+                description: None,
+                pricing: std::collections::BTreeMap::new(),
+            },
+            speechtt_core::protocol::ModelCapabilityInfo {
+                id: "openai/gpt-4o-transcribe".into(),
+                label: "GPT-4o Transcribe".into(),
+                mode: speechtt_core::protocol::TranscriptionMode::Segmented,
+                description: None,
+                pricing: std::collections::BTreeMap::new(),
+            },
+        ],
     }]);
 
     controller.open_settings();
     assert!(controller.set_settings_provider("vercel-ai-gateway"));
-    assert!(controller.set_settings_model("openai/gpt-realtime-whisper"));
+    assert!(controller.set_settings_streaming_model("openai/gpt-realtime-whisper"));
+    assert!(controller.set_settings_batch_model("openai/gpt-4o-transcribe"));
     assert_eq!(
         controller.settings_provider_label(),
         Some("Vercel AI Gateway")
     );
     assert_eq!(
-        controller.settings_model_label(),
+        controller.settings_streaming_model_label(),
         Some("GPT Realtime Whisper")
     );
     assert_eq!(
@@ -738,13 +748,22 @@ fn capabilities_populate_options_and_connection_state() {
         label: "Vercel AI Gateway".into(),
         available: true,
         key_env_vars: vec!["AI_GATEWAY_API_KEY".into()],
-        models: vec![speechtt_core::protocol::ModelCapabilityInfo {
-            id: "openai/gpt-realtime-whisper".into(),
-            label: "GPT Realtime Whisper".into(),
-            mode: speechtt_core::protocol::TranscriptionMode::Streaming,
-            description: None,
-            pricing: std::collections::BTreeMap::new(),
-        }],
+        models: vec![
+            speechtt_core::protocol::ModelCapabilityInfo {
+                id: "openai/gpt-realtime-whisper".into(),
+                label: "GPT Realtime Whisper".into(),
+                mode: speechtt_core::protocol::TranscriptionMode::Streaming,
+                description: None,
+                pricing: std::collections::BTreeMap::new(),
+            },
+            speechtt_core::protocol::ModelCapabilityInfo {
+                id: "openai/gpt-4o-transcribe".into(),
+                label: "GPT-4o Transcribe".into(),
+                mode: speechtt_core::protocol::TranscriptionMode::Segmented,
+                description: None,
+                pricing: std::collections::BTreeMap::new(),
+            },
+        ],
     }]);
     assert!(controller.settings_connected());
     assert!(controller.settings_draft_valid());
@@ -934,13 +953,15 @@ fn settings_save_round_trips_to_the_store_and_start_carries_the_key() {
     install_catalogue(&mut controller);
     controller.open_settings();
     assert!(controller.set_settings_provider("vercel-ai-gateway"));
-    assert!(controller.set_settings_model("openai/gpt-realtime-whisper"));
+    assert!(controller.set_settings_streaming_model("openai/gpt-realtime-whisper"));
+    assert!(controller.set_settings_batch_model("openai/gpt-4o-transcribe"));
     controller.set_settings_api_key("sk-round-trip");
 
     let change = controller.save_settings().expect("valid draft");
     let mut settings = store.get();
     settings.provider = change.provider.clone();
-    settings.model = change.model.clone();
+    settings.model_streaming = change.model_streaming.clone();
+    settings.model_batch = change.model_batch.clone();
     if let Some(key) = &change.api_key {
         settings.set_api_key(&change.provider, key.clone());
     }
@@ -1126,7 +1147,8 @@ fn the_app_constructs_from_fakes_and_persists_settings(cx: &mut gpui_kit::TestAp
         window.render_frame(cx);
         view.update(cx, |app, cx| {
             app.set_settings_provider("vercel-ai-gateway", cx);
-            app.set_settings_model("openai/gpt-4o-transcribe", cx);
+            app.set_settings_streaming_model("openai/gpt-realtime-whisper", cx);
+            app.set_settings_batch_model("openai/gpt-4o-transcribe", cx);
             app.set_settings_api_key_value("sk-app-round-trip", window, cx);
             assert!(app.save_settings(cx));
         });
@@ -1136,7 +1158,8 @@ fn the_app_constructs_from_fakes_and_persists_settings(cx: &mut gpui_kit::TestAp
 
     let saved = store_handle.get();
     assert_eq!(saved.provider, "vercel-ai-gateway");
-    assert!(!saved.model.is_empty());
+    assert!(!saved.model_streaming.is_empty());
+    assert!(!saved.model_batch.is_empty());
     assert_eq!(saved.api_key("vercel"), Some("sk-app-round-trip"));
     assert_eq!(cx.update(|cx| view.read(cx).active_dialog()), None);
 
@@ -1148,7 +1171,14 @@ fn the_app_constructs_from_fakes_and_persists_settings(cx: &mut gpui_kit::TestAp
         let app = view.read(cx);
         let draft = app.settings_draft();
         assert_eq!(draft.provider.as_deref(), Some("vercel-ai-gateway"));
-        assert_eq!(draft.model.as_deref(), Some(saved.model.as_str()));
+        assert_eq!(
+            draft.model_streaming.as_deref(),
+            Some(saved.model_streaming.as_str())
+        );
+        assert_eq!(
+            draft.model_batch.as_deref(),
+            Some(saved.model_batch.as_str())
+        );
         assert!(draft.api_key_unchanged, "the stored key is not re-typed");
         assert!(app.settings_connected(), "the stored key shows CONNECTED");
     })
@@ -1168,7 +1198,8 @@ fn the_shared_test_window_does_not_write_the_real_settings_file(cx: &mut gpui_ki
         view.update(cx, |app, cx| app.open_settings(window, cx));
         view.update(cx, |app, cx| {
             app.set_settings_provider("vercel-ai-gateway", cx);
-            app.set_settings_model("openai/gpt-4o-transcribe", cx);
+            app.set_settings_streaming_model("openai/gpt-realtime-whisper", cx);
+            app.set_settings_batch_model("openai/gpt-4o-transcribe", cx);
             app.set_settings_api_key_value("sk-hermetic", window, cx);
             assert!(app.save_settings(cx));
         });
@@ -1298,7 +1329,8 @@ fn a_mixed_case_settings_key_is_saved_byte_for_byte(cx: &mut gpui_kit::TestAppCo
         view.update(cx, |app, cx| {
             app.open_settings(window, cx);
             app.set_settings_provider("vercel-ai-gateway", cx);
-            app.set_settings_model("openai/gpt-4o-transcribe", cx);
+            app.set_settings_streaming_model("openai/gpt-realtime-whisper", cx);
+            app.set_settings_batch_model("openai/gpt-4o-transcribe", cx);
             app.set_settings_api_key_value(MIXED_CASE_KEY, window, cx);
 
             assert!(
@@ -1363,7 +1395,8 @@ fn a_pasted_mixed_case_key_reaches_the_store_unchanged(cx: &mut gpui_kit::TestAp
         view.update(cx, |app, cx| {
             app.open_settings(window, cx);
             app.set_settings_provider("vercel-ai-gateway", cx);
-            app.set_settings_model("openai/gpt-4o-transcribe", cx);
+            app.set_settings_streaming_model("openai/gpt-realtime-whisper", cx);
+            app.set_settings_batch_model("openai/gpt-4o-transcribe", cx);
         });
         // A paste is a whole-value input update, the same path
         // `set_settings_api_key_value` drives through `InputState::set_value`.
@@ -1497,7 +1530,8 @@ fn saving_settings_keeps_the_remembered_geometry(cx: &mut gpui_kit::TestAppConte
         view.update(cx, |app, _| {
             app.apply_settings_change(SettingsChange {
                 provider: "vercel-ai-gateway".to_string(),
-                model: "openai/gpt-4o-transcribe".to_string(),
+                model_streaming: "openai/gpt-realtime-whisper".to_string(),
+                model_batch: "openai/gpt-4o-transcribe".to_string(),
                 api_key: Some("sk-rotated".to_string()),
             });
         });
@@ -1505,7 +1539,7 @@ fn saving_settings_keeps_the_remembered_geometry(cx: &mut gpui_kit::TestAppConte
 
     let saved = store_handle.get();
     assert_eq!(saved.window, Some(layout));
-    assert_eq!(saved.model, "openai/gpt-4o-transcribe");
+    assert_eq!(saved.model_batch, "openai/gpt-4o-transcribe");
 }
 
 // ----- T15.8: file transcription wiring -------------------------------

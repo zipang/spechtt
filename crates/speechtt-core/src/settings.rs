@@ -1,9 +1,10 @@
 //! Typed user settings and their on-disk JSON representation.
 //!
-//! [`Settings`] holds the active provider/model, per-provider API keys and the
-//! raw shortcut strings (parsed by [`crate::hotkeys`], which keeps this module
-//! free of shortcut semantics). API keys are [`SecretString`]s: they serialize
-//! for persistence but never appear in `Debug` output.
+//! [`Settings`] holds the active provider, one default model per take mode,
+//! per-provider API keys and the raw shortcut strings (parsed by
+//! [`crate::hotkeys`], which keeps this module free of shortcut semantics). API
+//! keys are [`SecretString`]s: they serialize for persistence but never appear
+//! in `Debug` output.
 //!
 //! [`JsonFileStore`] persists settings as pretty-printed JSON. Saves are
 //! atomic (write `<file>.tmp`, `sync_all`, rename over the target) and, on
@@ -98,7 +99,16 @@ impl WindowLayout {
 pub struct Settings {
     /// Active STT provider id (for example `vercel`).
     pub provider: String,
-    /// Active model id for the provider; empty until the user chooses one.
+    /// Default model for live takes; empty until the user chooses one.
+    pub model_streaming: String,
+    /// Default model for file takes; empty until the user chooses one.
+    pub model_batch: String,
+    /// Single default written by older releases.
+    ///
+    /// Read for migration only: the controller moves it into the slot its
+    /// catalogue mode belongs to, and the next save writes the two mode-specific
+    /// keys instead. It is skipped when empty, so a migrated file drops the key.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub model: String,
     /// Provider id -> API key. Serialized, but never exposed by `Debug`.
     pub api_keys: BTreeMap<String, SecretString>,
@@ -116,6 +126,8 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             provider: DEFAULT_PROVIDER.to_owned(),
+            model_streaming: String::new(),
+            model_batch: String::new(),
             model: String::new(),
             api_keys: BTreeMap::new(),
             shortcuts: BTreeMap::new(),
@@ -130,7 +142,9 @@ impl fmt::Debug for Settings {
         formatter
             .debug_struct("Settings")
             .field("provider", &self.provider)
-            .field("model", &self.model)
+            .field("model_streaming", &self.model_streaming)
+            .field("model_batch", &self.model_batch)
+            .field("legacy_model_present", &!self.model.is_empty())
             .field("api_keys", &"[REDACTED]")
             .field("shortcuts", &self.shortcuts)
             .field("auto_paste", &self.auto_paste)
@@ -217,14 +231,16 @@ impl Settings {
         Some(format!("{first}…{last}"))
     }
 
-    /// Checks the fields the core layer requires: a non-empty provider and
-    /// model. Unknown provider ids are allowed because the Bun registry, not
-    /// the core, owns provider discovery.
+    /// Checks the fields the core layer requires: a non-empty provider and one
+    /// default model per take mode. Unknown provider ids are allowed because the
+    /// Bun registry, not the core, owns provider discovery.
+    ///
+    /// Both defaults are required because every take — live or from a file —
+    /// must start from a model of the right mode without asking the user again.
     ///
     /// # Errors
     ///
-    /// Returns [`SettingsError::Invalid`] when the provider or model is empty
-    /// or whitespace-only.
+    /// Returns [`SettingsError::Invalid`] naming the first empty required field.
     pub fn validate(&self) -> Result<(), SettingsError> {
         if self.provider.trim().is_empty() {
             return Err(SettingsError::Invalid(
@@ -232,8 +248,16 @@ impl Settings {
             ));
         }
 
-        if self.model.trim().is_empty() {
-            return Err(SettingsError::Invalid("model must not be empty".to_owned()));
+        if self.model_streaming.trim().is_empty() {
+            return Err(SettingsError::Invalid(
+                "model_streaming must not be empty".to_owned(),
+            ));
+        }
+
+        if self.model_batch.trim().is_empty() {
+            return Err(SettingsError::Invalid(
+                "model_batch must not be empty".to_owned(),
+            ));
         }
 
         Ok(())
@@ -480,7 +504,9 @@ mod tests {
     fn sample_settings() -> Settings {
         Settings {
             provider: DEFAULT_PROVIDER.to_owned(),
-            model: "mistral/voxtral-mini-transcribe-3".to_owned(),
+            model_streaming: "openai/gpt-realtime-whisper".to_owned(),
+            model_batch: "mistral/voxtral-mini-transcribe-3".to_owned(),
+            model: String::new(),
             api_keys: BTreeMap::from([(
                 DEFAULT_PROVIDER.to_owned(),
                 SecretString::new("sk-live-secret-123456"),
@@ -494,27 +520,35 @@ mod tests {
     // T6.1 — model -------------------------------------------------------
 
     #[test]
-    fn default_settings_are_usable_but_need_a_model() {
+    fn default_settings_are_usable_but_need_one_default_model_per_mode() {
         let settings = Settings::default();
 
         assert_eq!(settings.provider, DEFAULT_PROVIDER);
         assert_eq!(settings.provider, "vercel-ai-gateway");
+        assert!(settings.model_streaming.is_empty());
+        assert!(settings.model_batch.is_empty());
         assert!(settings.model.is_empty());
         assert!(settings.api_keys.is_empty());
         assert!(settings.shortcuts.is_empty());
         assert!(settings.auto_paste);
 
-        // A fresh install has no model yet, so validation fails until the
-        // user (or the provider registry) supplies one.
+        // A fresh install has no default yet, so validation fails until the
+        // user (or the provider registry) supplies both.
         assert!(matches!(
             settings.validate(),
-            Err(SettingsError::Invalid(message)) if message.contains("model")
+            Err(SettingsError::Invalid(message)) if message.contains("model_streaming")
         ));
 
-        let chosen = Settings {
-            model: "mistral/voxtral-mini-transcribe-3".to_owned(),
+        let partial = Settings {
+            model_streaming: "openai/gpt-realtime-whisper".to_owned(),
             ..Settings::default()
         };
+        assert!(matches!(
+            partial.validate(),
+            Err(SettingsError::Invalid(message)) if message.contains("model_batch")
+        ));
+
+        let chosen = sample_settings();
         assert!(chosen.validate().is_ok());
     }
 
@@ -602,33 +636,73 @@ mod tests {
     }
 
     #[test]
-    fn validate_rejects_blank_provider_and_model() {
+    fn validate_rejects_a_blank_provider_or_either_missing_default() {
         let no_provider = Settings {
             provider: "  ".to_owned(),
-            model: "m".to_owned(),
-            ..Settings::default()
+            ..sample_settings()
         };
         assert!(matches!(
             no_provider.validate(),
-            Err(SettingsError::Invalid(_))
+            Err(SettingsError::Invalid(message)) if message.contains("provider")
         ));
 
-        let no_model = Settings {
-            model: String::new(),
-            ..Settings::default()
+        let no_streaming = Settings {
+            model_streaming: String::new(),
+            ..sample_settings()
         };
         assert!(matches!(
-            no_model.validate(),
-            Err(SettingsError::Invalid(_))
+            no_streaming.validate(),
+            Err(SettingsError::Invalid(message)) if message.contains("model_streaming")
         ));
+
+        let no_batch = Settings {
+            model_batch: "   ".to_owned(),
+            ..sample_settings()
+        };
+        assert!(matches!(
+            no_batch.validate(),
+            Err(SettingsError::Invalid(message)) if message.contains("model_batch")
+        ));
+    }
+
+    #[test]
+    fn a_legacy_single_model_file_loads_without_filling_the_new_slots() {
+        let dir = TempDir::new("legacy-model");
+        let store = JsonFileStore::new(dir.join("settings.json"));
+        fs::write(
+            store.path(),
+            r#"{"provider":"vercel-ai-gateway","model":"openai/gpt-realtime-whisper"}"#,
+        )
+        .expect("write legacy settings");
+
+        let loaded = store.load().expect("legacy settings load");
+
+        assert_eq!(loaded.model, "openai/gpt-realtime-whisper");
+        assert!(loaded.model_streaming.is_empty());
+        assert!(loaded.model_batch.is_empty());
+    }
+
+    #[test]
+    fn saving_writes_one_key_per_mode_and_drops_the_legacy_key() {
+        let dir = TempDir::new("two-defaults");
+        let store = JsonFileStore::new(dir.join("settings.json"));
+        store.save(&sample_settings()).expect("save settings");
+
+        let json = fs::read_to_string(store.path()).expect("read saved settings");
+
+        assert!(json.contains(r#""model_streaming": "openai/gpt-realtime-whisper""#));
+        assert!(json.contains(r#""model_batch": "mistral/voxtral-mini-transcribe-3""#));
+        assert!(
+            !json.contains(r#""model":"#),
+            "the legacy single-default key must not be written"
+        );
     }
 
     #[test]
     fn validate_allows_unknown_provider_ids() {
         let settings = Settings {
             provider: "future-provider".to_owned(),
-            model: "future-model".to_owned(),
-            ..Settings::default()
+            ..sample_settings()
         };
 
         assert!(settings.validate().is_ok());
@@ -694,6 +768,8 @@ mod tests {
         let settings = store.load().expect("partial settings load");
 
         assert_eq!(settings.provider, DEFAULT_PROVIDER);
+        assert_eq!(settings.model_streaming, "");
+        assert_eq!(settings.model_batch, "");
         assert_eq!(settings.model, "");
         assert!(settings.auto_paste);
     }
@@ -754,7 +830,7 @@ mod tests {
         fs::create_dir(dir.join("settings.json.tmp")).expect("block temporary path");
 
         let updated = Settings {
-            model: "other/model".to_owned(),
+            model_streaming: "other/model".to_owned(),
             ..original.clone()
         };
         let error = store
@@ -808,12 +884,16 @@ mod tests {
         assert!(json.ends_with("}\n"));
         assert!(json.contains("\n  \"provider\": \"vercel-ai-gateway\""));
         let provider = json.find("\"provider\"").expect("provider field");
-        let model = json.find("\"model\"").expect("model field");
+        let streaming = json
+            .find("\"model_streaming\"")
+            .expect("model_streaming field");
+        let batch = json.find("\"model_batch\"").expect("model_batch field");
         let api_keys = json.find("\"api_keys\"").expect("api_keys field");
         let shortcuts = json.find("\"shortcuts\"").expect("shortcuts field");
         let auto_paste = json.find("\"auto_paste\"").expect("auto_paste field");
-        assert!(provider < model);
-        assert!(model < api_keys);
+        assert!(provider < streaming);
+        assert!(streaming < batch);
+        assert!(batch < api_keys);
         assert!(api_keys < shortcuts);
         assert!(shortcuts < auto_paste);
     }
@@ -1028,7 +1108,8 @@ mod tests {
 
         assert_eq!(settings, once);
         assert_eq!(settings.api_key("mistral"), Some("msk-other"));
-        assert_eq!(settings.model, once.model);
+        assert_eq!(settings.model_streaming, once.model_streaming);
+        assert_eq!(settings.model_batch, once.model_batch);
     }
 
     #[test]

@@ -969,19 +969,33 @@ impl SpeechTtApp {
     }
 
     /// Opens Settings in its own floating window beside the widget.
+    ///
+    /// A configured install opens on its stored values, so the dialog shows
+    /// what will be used rather than an empty form. A fresh install opens empty
+    /// and asks for a provider first.
     pub fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.close_dialog_window(cx);
-        if !self.stored_settings.model.trim().is_empty() {
-            let provider = self.stored_settings.provider.clone();
-            let model = self.stored_settings.model.clone();
-            let has_key = self
-                .stored_settings
-                .api_key(&self.stored_settings.provider)
-                .is_some();
-            self.controller
-                .open_settings_with(Some(&provider), Some(&model), has_key);
-        } else {
+        // The controller holds the migrated view of the settings: a file
+        // written before the two defaults existed only shows its single model
+        // there, once the catalogue has resolved its mode.
+        let stored = self
+            .controller
+            .settings()
+            .cloned()
+            .unwrap_or_else(|| self.stored_settings.clone());
+        let provider = stored.provider.clone();
+        let streaming = stored.model_streaming.clone();
+        let batch = stored.model_batch.clone();
+        if streaming.trim().is_empty() && batch.trim().is_empty() {
             self.controller.open_settings();
+        } else {
+            let has_key = stored.api_key(&stored.provider).is_some();
+            self.controller.open_settings_with(
+                Some(&provider),
+                (!streaming.trim().is_empty()).then_some(streaming.as_str()),
+                (!batch.trim().is_empty()).then_some(batch.as_str()),
+                has_key,
+            );
         }
         // Refresh the provider/model catalogue each time the dialog opens so
         // a key exported after startup appears as connected.
@@ -1120,9 +1134,18 @@ impl SpeechTtApp {
         true
     }
 
-    /// Commits the Settings dropdown's model choice into the draft.
-    pub fn set_settings_model(&mut self, model: &str, cx: &mut Context<Self>) -> bool {
-        if !self.controller.set_settings_model(model) {
+    /// Commits the Settings dialog's streaming default into the draft.
+    pub fn set_settings_streaming_model(&mut self, model: &str, cx: &mut Context<Self>) -> bool {
+        if !self.controller.set_settings_streaming_model(model) {
+            return false;
+        }
+        cx.notify();
+        true
+    }
+
+    /// Commits the Settings dialog's batch default into the draft.
+    pub fn set_settings_batch_model(&mut self, model: &str, cx: &mut Context<Self>) -> bool {
+        if !self.controller.set_settings_batch_model(model) {
             return false;
         }
         cx.notify();
@@ -1174,7 +1197,9 @@ impl SpeechTtApp {
         let provider = change.provider.clone();
         let next = Settings {
             provider: change.provider.clone(),
-            model: change.model.clone(),
+            model_streaming: change.model_streaming.clone(),
+            model_batch: change.model_batch.clone(),
+            model: String::new(),
             api_keys: self.stored_settings.api_keys.clone(),
             shortcuts: self.stored_settings.shortcuts.clone(),
             auto_paste: self.stored_settings.auto_paste,

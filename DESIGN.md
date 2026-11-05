@@ -301,6 +301,10 @@ commits it and clears the dependent model. The model select is a searchable
 `TranscriptionModeBadge`; the same badge stays beside the field for the current
 draft.
 
+The form opens already seeded from the Settings defaults: a live take starts from
+**Default Streaming Model** and a file take from **Default Batch Model**, so the
+two fields are filled and Continue is enabled without a visit to the menus.
+
 In **file** mode the body is preceded by an `InfoNote` reading *"Files are
 transcribed in batches, so only non-streaming models are listed."*, because a
 file take cannot use a streaming model; the model menu then lists only
@@ -537,16 +541,26 @@ documentation, not decoration.
 
 A 560px-wide card in `surface-card`, `rounded-lg`, `elevation-md`, with rows
 separated by 1px `brand.secondary` hairlines. Provider select, masked API key
-field, default model select, and save/cancel actions. Labels in `mono`
+field, **two** default-model selects, and save/cancel actions. Labels in `mono`
 uppercase `--font-size-xs`; values in `base` `--font-size-sm`.
 
-Both selects use the same `components::ProviderSelect` and
+The three selects use the same `components::ProviderSelect` and
 `components::ModelSelect` menus as the Session setup form, against the settings
-draft: the provider menu is disabled until the catalogue arrives, and the model
-menu until a provider is chosen. A model row and the field beside it both show
-the model's `TranscriptionModeBadge`. The provider menu lists every catalogue
-provider and the model menu every model of the chosen provider; an arriving
-catalogue refreshes the open dialog.
+draft: the provider menu is disabled until the catalogue arrives, and both model
+menus until a provider is chosen. The model rows and the field beside each menu
+show the model's `TranscriptionModeBadge`.
+
+The two model rows are one default per take mode, each a `SettingRow` on its own
+line because two dropdowns do not fit side by side:
+
+- **Default Streaming Model** — *"Used for live dictation"*; lists only
+  `Streaming` models.
+- **Default Batch Model** — *"Used for audio and video files"*; lists only
+  `Segmented` models.
+
+Both are required to save, so every take starts from a model of its own mode. The
+provider menu lists every catalogue provider; an arriving catalogue refreshes the
+open dialog.
 
 ## DO's and DON'Ts
 

@@ -45,7 +45,8 @@ fn install_catalogue(controller: &mut SessionController) {
 fn settings_with_mixed_case_key() -> Settings {
     let mut settings = Settings {
         provider: "vercel-ai-gateway".to_string(),
-        model: "openai/gpt-realtime-whisper".to_string(),
+        model_streaming: "openai/gpt-realtime-whisper".to_string(),
+        model_batch: "openai/gpt-4o-transcribe".to_string(),
         auto_paste: false,
         ..Settings::default()
     };
@@ -60,6 +61,7 @@ fn open_settings_with_stored_key() -> SessionController {
     controller.open_settings_with(
         Some("vercel-ai-gateway"),
         Some("openai/gpt-realtime-whisper"),
+        Some("openai/gpt-4o-transcribe"),
         true,
     );
     controller
@@ -69,7 +71,8 @@ fn open_valid_settings(controller: &mut SessionController) {
     install_catalogue(controller);
     controller.open_settings();
     assert!(controller.set_settings_provider("vercel-ai-gateway"));
-    assert!(controller.set_settings_model("openai/gpt-realtime-whisper"));
+    assert!(controller.set_settings_streaming_model("openai/gpt-realtime-whisper"));
+    assert!(controller.set_settings_batch_model("openai/gpt-4o-transcribe"));
     controller.set_settings_api_key("sk-dialog-test");
 }
 
@@ -94,7 +97,8 @@ fn settings_saves_a_complete_draft_and_closes() {
         change,
         SettingsChange {
             provider: "vercel-ai-gateway".to_string(),
-            model: "openai/gpt-realtime-whisper".to_string(),
+            model_streaming: "openai/gpt-realtime-whisper".to_string(),
+            model_batch: "openai/gpt-4o-transcribe".to_string(),
             api_key: Some("sk-dialog-test".to_string()),
         }
     );
@@ -165,7 +169,8 @@ fn cancel_discards_the_draft() {
     let mut controller = SessionController::new();
     controller.open_settings();
     controller.set_settings_provider("mistral");
-    controller.set_settings_model("voxtral-mini-transcribe-3-0");
+    controller.set_settings_streaming_model("voxtral-mini-transcribe-3-0");
+    controller.set_settings_batch_model("voxtral-mini-transcribe-3-0");
     controller.set_settings_api_key("sk-discard-me");
 
     controller.close_dialog();
@@ -173,7 +178,8 @@ fn cancel_discards_the_draft() {
 
     controller.open_settings();
     assert_eq!(controller.settings_draft().provider, None);
-    assert_eq!(controller.settings_draft().model, None);
+    assert_eq!(controller.settings_draft().model_streaming, None);
+    assert_eq!(controller.settings_draft().model_batch, None);
     assert_eq!(controller.settings_draft().api_key, "");
     assert!(!controller.settings_draft_valid());
 }
@@ -224,7 +230,8 @@ fn dialogs_render_and_save_through_the_app(cx: &mut gpui_kit::TestAppContext) {
 
         view.update(cx, |app, cx| {
             app.set_settings_provider("vercel-ai-gateway", cx);
-            app.set_settings_model("openai/gpt-4o-transcribe", cx);
+            app.set_settings_streaming_model("openai/gpt-realtime-whisper", cx);
+            app.set_settings_batch_model("openai/gpt-4o-transcribe", cx);
             app.set_settings_api_key_value("sk-app-test", window, cx);
         });
         window.render_frame(cx);

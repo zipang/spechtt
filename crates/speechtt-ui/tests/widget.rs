@@ -866,14 +866,30 @@ async fn the_settings_menus_commit_the_settings_draft(cx: &mut TestAppContext) {
 
     cx.update_window(dialog, |_, window, cx| {
         window.render_frame(cx);
-        window.within("field-settings-model").click("input", cx);
+        window.within("field-settings-streaming").click("input", cx);
         window.press("down", cx);
         window.press("enter", cx);
     })
     .unwrap();
 
     cx.wait_for(dialog, std::time::Duration::from_millis(500), |_, cx| {
-        view.read(cx).settings_draft().model.as_deref() == Some("openai/gpt-4o-transcribe")
+        view.read(cx).settings_draft().model_streaming.as_deref()
+            == Some("openai/gpt-realtime-whisper")
+    })
+    .await;
+
+    cx.update_window(dialog, |_, window, cx| {
+        window.render_frame(cx);
+        window.within("field-settings-batch").click("input", cx);
+        window.press("down", cx);
+        window.press("enter", cx);
+    })
+    .unwrap();
+
+    cx.wait_for(dialog, std::time::Duration::from_millis(500), |_, cx| {
+        let draft = view.read(cx).settings_draft();
+        draft.model_streaming.as_deref() == Some("openai/gpt-realtime-whisper")
+            && draft.model_batch.as_deref() == Some("openai/gpt-4o-transcribe")
     })
     .await;
 }

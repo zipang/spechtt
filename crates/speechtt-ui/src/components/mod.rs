@@ -47,6 +47,7 @@ pub use info_note::InfoNote;
 pub use key_cap::KeyCap;
 pub use model_select::{
     ModelOption, ModelSelect, ProviderOption, ProviderSelect, SelectFields, SelectSnapshot,
+    SettingsSelectFields, SettingsSnapshot,
 };
 pub use progress_bar::{
     PROGRESS_BARS, ProgressBar, bar_height, progress_fraction, progress_readout, revealed_bars,
