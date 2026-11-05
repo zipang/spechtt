@@ -113,6 +113,7 @@ Decisions, deviations, verification output.
 | [T0028](done/T0028-real-dropdown-transcription-selects.md) | Real dropdown menus for the transcription provider and model | Rust UI (components + views + controller + design) |
 | [T0029](done/T0029-default-model-per-mode.md) | One default model per transcription mode | Rust core + Rust UI + design |
 | [T0030](done/T0030-clean-transcript-with-language-model.md) | Clean the transcript with a language model, in a chosen language | Cross-cutting (core + Bun worker + UI) |
+| [T0033](done/T0033-single-cleanup-toggle.md) | One cleanup button that toggles between the repaired and original text | Rust UI (controller + view + design) |
 
 ### In Progress
 

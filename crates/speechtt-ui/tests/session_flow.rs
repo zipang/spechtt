@@ -12,7 +12,7 @@
 use speechtt_core::session::{SessionField, SessionState};
 use speechtt_core::settings::Settings;
 use speechtt_ui::controller::{
-    AppError, CleanState, CleanStatus, SessionController, SessionMode, ViewState,
+    AppError, CleanState, CleanStatus, CleanToggle, SessionController, SessionMode, ViewState,
 };
 
 use std::path::{Path, PathBuf};
@@ -2119,12 +2119,74 @@ fn the_cleanup_walks_unavailable_ready_running_cleaned_and_back() {
     assert_eq!(controller.clean_status(), CleanStatus::Cleaned);
     assert_eq!(controller.clean_state(), CleanState::Cleaned);
     assert!(!controller.clean_is_running());
-    assert!(!controller.can_clean_transcript(), "already cleaned");
 
-    assert!(controller.undo_clean_transcript());
-    assert_eq!(controller.clean_status(), CleanStatus::Ready);
-    assert!(!controller.undo_clean_transcript(), "undo is used once");
+    // The toggle now flips between the two halves, so the button stays live.
+    assert!(controller.can_clean_transcript());
+    assert_eq!(controller.clean_toggle(), CleanToggle::ShowOriginal);
+
+    assert!(controller.flip_clean_transcript());
+    assert_eq!(controller.clean_status(), CleanStatus::ShowingOriginal);
+    assert_eq!(controller.clean_state(), CleanState::ShowingOriginal);
+    assert_eq!(controller.clean_toggle(), CleanToggle::ShowCleaned);
+    assert_eq!(controller.displayed_transcript(), "d une dict ée");
     assert_eq!(controller.output_status(), Some("Original restored"));
+
+    assert!(controller.flip_clean_transcript());
+    assert_eq!(controller.clean_status(), CleanStatus::Cleaned);
+    assert_eq!(controller.displayed_transcript(), "d'une dictée");
+    assert_eq!(controller.output_status(), Some("Cleaned"));
+}
+
+#[test]
+fn the_toggle_starts_once_and_then_only_flips() {
+    let mut controller = cleanable_take();
+    assert_eq!(controller.clean_toggle(), CleanToggle::Start);
+
+    let request = controller.begin_clean_transcript().expect("a request id");
+    assert_eq!(
+        controller.clean_toggle(),
+        CleanToggle::Inert,
+        "a request in flight cannot be started twice"
+    );
+
+    assert!(controller.apply_cleaned(&request, "d'une dictée"));
+    assert_eq!(controller.clean_toggle(), CleanToggle::ShowOriginal);
+    assert!(controller.flip_clean_transcript());
+    assert_eq!(controller.clean_toggle(), CleanToggle::ShowCleaned);
+    assert!(controller.flip_clean_transcript());
+    assert_eq!(controller.clean_toggle(), CleanToggle::ShowOriginal);
+}
+
+#[test]
+fn a_cached_pass_stays_flippable_after_the_model_disappears() {
+    let mut controller = cleanable_take();
+    let request = controller.begin_clean_transcript().expect("a request id");
+    assert!(controller.apply_cleaned(&request, "d'une dictée"));
+
+    // Neither a stored model nor a worker default resolves any more: the button
+    // must still let the user compare the two halves it already holds.
+    controller.apply_settings(speechtt_core::settings::Settings::default());
+    controller.set_capabilities(Vec::new());
+    assert_eq!(controller.cleanup_model(), None);
+    assert_eq!(controller.clean_status(), CleanStatus::Cleaned);
+    assert!(controller.can_clean_transcript());
+    assert!(controller.flip_clean_transcript());
+    assert_eq!(controller.displayed_transcript(), "d une dict ée");
+}
+
+#[test]
+fn a_flip_is_inert_without_a_cached_pass() {
+    let mut controller = cleanable_take();
+    assert!(!controller.flip_clean_transcript());
+    assert_eq!(controller.displayed_transcript(), "d une dict ée");
+
+    let request = controller.begin_clean_transcript().expect("a request id");
+    assert!(
+        !controller.flip_clean_transcript(),
+        "a request in flight cannot be flipped"
+    );
+    assert!(controller.clean_is_running());
+    let _ = request;
 }
 
 #[test]
@@ -2189,7 +2251,7 @@ fn undo_restores_the_original_transcript_exactly() {
     assert_eq!(take.live().to_string(), "");
     assert_eq!(controller.output_status(), Some("Cleaned"));
 
-    assert!(controller.undo_clean_transcript());
+    assert!(controller.flip_clean_transcript());
     assert_eq!(controller.displayed_transcript(), original);
     let take = controller.finished_take().expect("a finished take");
     assert_eq!(take.committed().to_string(), "d une dict ée");
@@ -2212,7 +2274,7 @@ fn a_cleanup_answer_for_another_request_is_ignored() {
     let mut controller = cleanable_take();
     let first = controller.begin_clean_transcript().expect("first request");
     assert!(controller.apply_cleaned(&first, "d'une dictée"));
-    assert!(controller.undo_clean_transcript());
+    assert!(controller.flip_clean_transcript());
 
     let second = controller.begin_clean_transcript().expect("second request");
     assert_ne!(first, second);
@@ -2240,7 +2302,10 @@ fn a_failed_cleanup_keeps_the_transcript_and_reports_a_typed_error() {
     assert!(!controller.clean_is_running());
     assert_eq!(controller.clean_status(), CleanStatus::Ready);
     assert_eq!(controller.displayed_transcript(), "d une dict ée");
-    assert!(!controller.undo_clean_transcript(), "nothing to undo");
+    assert!(
+        !controller.flip_clean_transcript(),
+        "nothing cached to flip"
+    );
     assert!(matches!(
         controller.app_error(),
         Some(AppError::CleanupFailed)
@@ -2293,7 +2358,7 @@ fn copy_and_save_follow_the_displayed_text() {
         "# cleaned\n\nd'une dictée\n"
     );
 
-    assert!(controller.undo_clean_transcript());
+    assert!(controller.flip_clean_transcript());
     let mut clipboard = RecordingClipboard::default();
     controller
         .copy_finished_transcript(&mut clipboard)
@@ -2332,7 +2397,7 @@ fn a_new_take_forgets_the_cleanup_state() {
 
     controller.new_take();
 
-    assert!(!controller.undo_clean_transcript());
+    assert!(!controller.flip_clean_transcript());
     assert!(!controller.clean_is_running());
     assert!(
         !controller.apply_cleaned(&request, "an answer to the discarded take"),

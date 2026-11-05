@@ -6,11 +6,13 @@
 //! "Cleaned"/"Original restored" feedback comes from the controller's transient
 //! output status.
 //!
-//! The magic-wand action repairs the transcript through the worker's language
-//! model and then offers an undo; while the request is outstanding the status
-//! line reads "Cleaning up…" and the action is disabled. Copy, Save and the
-//! automatic paste all read the text that is on screen, so a repaired take is
-//! what leaves the widget and an undo puts the original back.
+//! One cleanup toggle repairs the transcript through the worker's language
+//! model and then flips between the repaired and the original text. The pass
+//! runs once per take: every later flip reads the cached result, so comparing
+//! the two halves costs nothing. While the request is outstanding the status
+//! line reads "Cleaning up…" and the toggle is disabled. Copy, Save and the
+//! automatic paste all read the text that is on screen, so whichever half is
+//! displayed is what leaves the widget.
 //!
 //! A take that recorded nothing is a normal outcome: Clean up, Copy and Save are
 //! disabled and a muted label replaces the transient status area, so no failure
@@ -33,6 +35,21 @@ use crate::tokens::space;
 
 /// Finished take. A written take exposes the path and an open action; an
 /// unsaved take exposes cleanup, copy and save.
+/// Glyph and label of the cleanup button for `status`.
+///
+/// The glyph names **the action**, not the state: the wand means "end up on the
+/// repaired text", the reverse arrow "go back to the original". A user comparing
+/// the two halves therefore reads one control whose meaning flips, instead of two
+/// buttons that take turns.
+fn clean_action(status: CleanStatus) -> (IconName, &'static str) {
+    match status {
+        CleanStatus::Cleaned => (IconName::RotateCcw, "Show original text"),
+        CleanStatus::ShowingOriginal => (IconName::WandSparkles, "Show cleaned text"),
+        CleanStatus::Running => (IconName::WandSparkles, "Cleaning up…"),
+        CleanStatus::Ready | CleanStatus::Unavailable => (IconName::WandSparkles, "Clean up text"),
+    }
+}
+
 pub(crate) fn render(app: &mut SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyElement {
     let Some(result) = app.controller().finished_take() else {
         return ScreenShell::headerless().into_any_element();
@@ -50,7 +67,6 @@ pub(crate) fn render(app: &mut SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> An
     let clean_status = app.clean_status();
     let cleanable = app.can_clean_transcript();
     let cleaning = clean_status == CleanStatus::Running;
-    let cleaned = clean_status == CleanStatus::Cleaned;
 
     // Save turns the transcript into a written-path view.
     let path = written_path.unwrap_or_default();
@@ -66,25 +82,18 @@ pub(crate) fn render(app: &mut SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> An
         )
     } else {
         // The trailing zone renders left to right in insertion order, so the
-        // wand and its undo sit to the left of Copy and Save.
-        let mut controls = h_flex().gap_2().child(
-            IconAction::new("btn-clean-transcript", IconName::WandSparkles)
-                .label("Clean up text")
-                .disabled(!cleanable)
-                .on_click(cx.listener(|this, _event, _window, cx| {
-                    this.clean_transcript(cx);
-                })),
-        );
-        if cleaned {
-            controls = controls.child(
-                IconAction::new("btn-undo-clean", IconName::RotateCcw)
-                    .label("Undo cleanup")
+        // cleanup toggle sits to the left of Copy and Save.
+        let (clean_icon, clean_label) = clean_action(clean_status);
+        h_flex()
+            .gap_2()
+            .child(
+                IconAction::new("btn-clean-transcript", clean_icon)
+                    .label(clean_label)
+                    .disabled(!cleanable)
                     .on_click(cx.listener(|this, _event, _window, cx| {
-                        this.undo_clean_transcript(cx);
+                        this.toggle_clean_transcript(cx);
                     })),
-            );
-        }
-        controls
+            )
             .child(
                 IconAction::new("btn-copy", IconName::Copy)
                     .label("Copy")

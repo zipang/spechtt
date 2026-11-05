@@ -23,7 +23,7 @@ use speechtt_ui::components::{
     RoundTone, ScreenFooter, TOGGLE_PULSE_AMPLITUDE, TOGGLE_PULSE_PERIOD, TOGGLE_WAVE_MAX_SIZE,
     ToggleRoundButton, ToggleState, pulse_scale, ripple_frame, toggle_wave_frame,
 };
-use speechtt_ui::controller::{AppError, CleanStatus, SessionMode, ViewState};
+use speechtt_ui::controller::{AppError, CleanStatus, CleanToggle, SessionMode, ViewState};
 
 mod common;
 
@@ -1016,7 +1016,7 @@ fn press(visual: &mut VisualTestContext, id: &'static str) {
 }
 
 #[gpui_kit::test]
-fn the_wand_cleans_the_finished_take_and_undo_restores_it(cx: &mut TestAppContext) {
+fn the_clean_button_repairs_and_then_flips_between_both_texts(cx: &mut TestAppContext) {
     let (window, view, sink, clipboard, events) = open_speechtt_window_with_channels(cx);
     let mut visual = VisualTestContext::from_window(window.into(), cx);
     visual.run_until_parked();
@@ -1094,13 +1094,15 @@ fn the_wand_cleans_the_finished_take_and_undo_restores_it(cx: &mut TestAppContex
     });
     assert_eq!(clipboard.copies(), vec!["d'une dictée".to_owned()]);
 
-    // The undo action restores the original, and Copy follows it.
-    press(&mut visual, "btn-undo-clean");
+    // The same button now offers the original, and Copy follows it.
+    let before = sink.commands().len();
+    press(&mut visual, "btn-clean-transcript");
 
     visual.update(|window, cx| {
         let app = view.read(cx);
         assert_eq!(app.displayed_transcript(), "d une dict ée");
-        assert_eq!(app.clean_status(), CleanStatus::Ready);
+        assert_eq!(app.clean_status(), CleanStatus::ShowingOriginal);
+        assert_eq!(app.clean_toggle(), CleanToggle::ShowCleaned);
         assert!(view.update(cx, |app, cx| app.copy_transcript(cx)));
         window.render_frame(cx);
     });
@@ -1108,6 +1110,32 @@ fn the_wand_cleans_the_finished_take_and_undo_restores_it(cx: &mut TestAppContex
         clipboard.copies(),
         vec!["d'une dictée".to_owned(), "d une dict ée".to_owned()]
     );
+    assert_eq!(
+        sink.commands().len(),
+        before,
+        "flipping to the original is local: no second request"
+    );
+
+    // A third press brings the repaired text back, still with no request.
+    press(&mut visual, "btn-clean-transcript");
+    visual.cx.update(|cx| {
+        let app = view.read(cx);
+        assert_eq!(app.displayed_transcript(), "d'une dictée");
+        assert_eq!(app.clean_status(), CleanStatus::Cleaned);
+    });
+    assert_eq!(
+        sink.commands().len(),
+        before,
+        "the pass ran once per take and is never repeated"
+    );
+
+    // Exactly one CleanTranscript left the widget for this take.
+    let requests = sink
+        .commands()
+        .into_iter()
+        .filter(|command| matches!(command, SttCommand::CleanTranscript { .. }))
+        .count();
+    assert_eq!(requests, 1);
     assert!(
         visual.debug_bounds("btn-undo-clean").is_none(),
         "undo is gone once the original is back"
@@ -1125,7 +1153,7 @@ fn a_failed_cleanup_keeps_the_transcript_and_shows_the_error(cx: &mut TestAppCon
     finish_a_live_take(window, &view, &events, cx, "d une dict ée");
 
     cx.update_window(window.into(), |_, _window, cx| {
-        view.update(cx, |app, cx| assert!(app.clean_transcript(cx)));
+        view.update(cx, |app, cx| assert!(app.toggle_clean_transcript(cx)));
     })
     .unwrap();
 

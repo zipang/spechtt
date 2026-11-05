@@ -523,24 +523,39 @@ no stale draft, pending file, finished take, output status or error strip left
 behind.
 
 **Trailing actions read left to right in the order the user is expected to
-reach them.** On the finished take that order is: the cleanup wand, its undo,
-Copy, Save.
+reach them.** On the finished take that order is: the cleanup toggle, Copy,
+Save.
+
+The cleanup is **one** button, not two. Its glyph and label name the action it
+will take next, so a single slot carries the whole gesture:
+
+| Screen shows | Icon | Label | Effect |
+|---|---|---|---|
+| no repair yet | `WandSparkles` | "Clean up text" | runs the pass |
+| a repair running | `WandSparkles` | "Cleaning up…" | disabled |
+| the repaired text | `RotateCcw` | "Show original text" | shows the pre-repair text |
+| the original, with a repair cached | `WandSparkles` | "Show cleaned text" | shows the repaired text again |
 
 | Action | Icon | Label | Enabled when |
 |---|---|---|---|
-| Clean up text | `WandSparkles` | "Clean up text" | the take has text **and** a cleanup model resolves, and no pass is running |
-| Undo cleanup | `RotateCcw` | "Undo cleanup" | only rendered while the screen shows a repaired transcript |
+| Cleanup toggle | `WandSparkles` / `RotateCcw` | see above | the take has text, and either a cleanup model resolves or a repair is already cached |
 | Copy | `Copy` | "Copy" | the take has text |
 | Save | `HardDriveDownload` | "Save" | the take has text |
 
-The wand is a secondary `IconAction` like Copy and Save — same 34 px square,
+The toggle is a secondary `IconAction` like Copy and Save — same 34 px square,
 same `secondary` surface. It carries no accent colour: the repair it starts is
 not the screen's main action, and the filled round button keeps that role. While
-the request is outstanding the wand is dimmed and the muted status line under
-the transcript reads "Cleaning up…"; once the answer lands, the status line reads
-"Cleaned" and the undo appears to the wand's right. Undo is one step, not a
-toggle: it restores the transcript the take had before the repair and then
-disappears.
+the request is outstanding the toggle is dimmed and the muted status line under
+the transcript reads "Cleaning up…"; once the answer lands it reads "Cleaned",
+and a flip back to the original reads "Original restored".
+
+The pass runs **once per take**. Both halves — the original and the repaired
+text — stay cached for the life of the take, so flipping between them is local
+and instantaneous and never calls the model again. The glyph therefore names the
+action rather than the state: the wand means "end up on the repaired text", the
+reverse arrow "go back to the original". A cached repair stays flippable even if
+the cleanup model stops resolving, because the user's two texts are already in
+hand.
 
 A written take replaces the whole trailing zone with Open file: the text is
 already on disk, so there is nothing left to repair or copy.

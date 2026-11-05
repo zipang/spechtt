@@ -768,33 +768,64 @@ impl FinishedTake {
     }
 }
 
+/// The cached result of one repair pass.
+///
+/// Both halves are kept so the single cleanup button can flip between them with
+/// no request: `original` is the pair the take had before the repair, `cleaned`
+/// the text the model returned. A take is repaired at most once, so every later
+/// flip is local and instant.
+#[derive(Debug, Clone)]
+struct CleanSnapshot {
+    original: (SharedString, SharedString),
+    cleaned: String,
+}
+
 /// Cleanup state of the finished take.
 ///
 /// Read through [`SessionController::clean_state`]. It says whether a repair is
-/// possible and whether the screen already shows one; the wand's own
+/// possible and which half of a cached pass the screen shows; the button's own
 /// [`CleanStatus`] adds the in-flight state on top.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CleanState {
     /// No cleanup model resolves: neither a stored id nor a worker default.
     Unavailable,
-    /// A repaired transcript is on screen; undo restores the original.
+    /// A repaired transcript is on screen.
     Cleaned,
-    /// Idle, with a cleanup model available.
+    /// The pre-repair text is on screen and the repaired text is still cached.
+    ShowingOriginal,
+    /// Idle, with a cleanup model available and no cached pass.
     Ready,
 }
 
-/// What the cleanup action should do next.
+/// What the single cleanup button should look like and offer next.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CleanStatus {
     /// No cleanup model resolves, so there is nothing to call.
     Unavailable,
     /// A pass can be started now.
     Ready,
-    /// A request is outstanding: the action is disabled until it answers.
+    /// A request is outstanding: the button is disabled until it answers.
     Running,
-    /// A repaired transcript is on screen: the action is disabled and undo is
-    /// offered instead.
+    /// The repaired text is on screen: the button offers the original.
     Cleaned,
+    /// The original is on screen: the button offers the cached repaired text.
+    ShowingOriginal,
+}
+
+/// What the single cleanup button does next.
+///
+/// `Start` is the only variant that costs a request; the two flips read the
+/// cached [`CleanSnapshot`], so a user can compare both texts for free.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CleanToggle {
+    /// Repair the transcript: the caller sends `CleanTranscript`.
+    Start,
+    /// Show the cached repaired text. No request.
+    ShowCleaned,
+    /// Show the pre-repair text. No request.
+    ShowOriginal,
+    /// Nothing to do: no take, no model, or a request already in flight.
+    Inert,
 }
 
 /// Label of the "no declared language" entry of the Settings picker.
@@ -853,10 +884,10 @@ pub struct SessionController {
     /// id is `clean-<take>-<n>`, so an id issued for an earlier take can never
     /// match a later one even though the counter restarts.
     clean_seq: u64,
-    /// The finished take's committed and live text before the last repair.
-    /// `Some` exactly while the screen shows a repaired transcript, which is
-    /// what both the undo action and [`CleanState::Cleaned`] read.
-    clean_original: Option<(SharedString, SharedString)>,
+    /// The repaired text and the pair it replaced, cached for the life of the
+    /// take. `Some` once a pass has landed, which is what the flips and the
+    /// `Cleaned` / `ShowingOriginal` states read.
+    clean_snapshot: Option<CleanSnapshot>,
     /// Text models the worker offers for the cleanup pass.
     language_models: Option<Vec<LanguageModelInfo>>,
     /// The worker's own default cleanup model (`DEFAULT_LANGUAGE_MODEL`, else
@@ -933,7 +964,7 @@ impl fmt::Debug for SessionController {
             .field("result", &self.result)
             .field("clean_pending", &self.clean_pending)
             .field("clean_seq", &self.clean_seq)
-            .field("clean_original", &self.clean_original)
+            .field("clean_snapshot", &self.clean_snapshot.is_some())
             .field(
                 "language_model_count",
                 &self.languages.as_ref().map(Vec::len),
@@ -990,7 +1021,7 @@ impl SessionController {
             result: None,
             clean_pending: None,
             clean_seq: 0,
-            clean_original: None,
+            clean_snapshot: None,
             language_models: None,
             default_language_model: None,
             languages: None,
@@ -1669,16 +1700,26 @@ impl SessionController {
     /// worth repairing is [`Self::can_clean_transcript`]'s question.
     #[must_use]
     pub fn clean_state(&self) -> CleanState {
-        if self.clean_original.is_some() {
-            CleanState::Cleaned
-        } else if self.cleanup_model().is_some() {
+        if let Some(snapshot) = &self.clean_snapshot {
+            let showing_cleaned = self
+                .result
+                .as_ref()
+                .is_some_and(|result| result.committed.as_ref() == snapshot.cleaned);
+            return if showing_cleaned {
+                CleanState::Cleaned
+            } else {
+                CleanState::ShowingOriginal
+            };
+        }
+        if self.cleanup_model().is_some() {
             CleanState::Ready
         } else {
             CleanState::Unavailable
         }
     }
 
-    /// What the cleanup action should do next, including the in-flight state.
+    /// What the cleanup button should look like and offer, including the
+    /// in-flight state.
     #[must_use]
     pub fn clean_status(&self) -> CleanStatus {
         if self.clean_is_running() {
@@ -1687,7 +1728,25 @@ impl SessionController {
         match self.clean_state() {
             CleanState::Unavailable => CleanStatus::Unavailable,
             CleanState::Cleaned => CleanStatus::Cleaned,
+            CleanState::ShowingOriginal => CleanStatus::ShowingOriginal,
             CleanState::Ready => CleanStatus::Ready,
+        }
+    }
+
+    /// What the single cleanup button does next.
+    ///
+    /// `Start` costs a request; the two flips read the cached pass. A request in
+    /// flight is always `Inert`, so a double click cannot issue two of them.
+    #[must_use]
+    pub fn clean_toggle(&self) -> CleanToggle {
+        if self.clean_is_running() {
+            return CleanToggle::Inert;
+        }
+        match self.clean_state() {
+            CleanState::Cleaned => CleanToggle::ShowOriginal,
+            CleanState::ShowingOriginal => CleanToggle::ShowCleaned,
+            CleanState::Ready => CleanToggle::Start,
+            CleanState::Unavailable => CleanToggle::Inert,
         }
     }
 
@@ -1725,15 +1784,13 @@ impl SessionController {
         self.language_models.as_deref().unwrap_or(&[])
     }
 
-    /// `true` when a repair can be started: a finished non-empty take, a
-    /// resolved model, no request in flight and no repair on screen.
+    /// `true` when the cleanup button is reachable at all.
+    ///
+    /// A cached pass stays flippable even after the model stops resolving, so
+    /// the two halves of a repair can always be compared once it has run.
     #[must_use]
     pub fn can_clean_transcript(&self) -> bool {
-        self.result.is_some()
-            && !self.finished_take_is_empty()
-            && self.cleanup_model().is_some()
-            && !self.clean_is_running()
-            && self.clean_original.is_none()
+        !matches!(self.clean_toggle(), CleanToggle::Inert) && !self.finished_take_is_empty()
     }
 
     /// `true` while a repair request is outstanding.
@@ -1916,7 +1973,7 @@ impl SessionController {
         })
     }
 
-    /// Folds a successful repair: keeps the original pair for undo and makes
+    /// Folds a successful repair: caches both halves and makes
     /// the repaired text the whole displayed take.
     ///
     /// Returns `false` — after settling the request — for an id that is not the
@@ -1935,7 +1992,12 @@ impl SessionController {
         let Some(result) = self.result.as_mut() else {
             return false;
         };
-        self.clean_original = Some((result.committed.clone(), result.live.clone()));
+        // Both halves are cached, so the button can flip between them for the
+        // rest of the take without asking the model again.
+        self.clean_snapshot = Some(CleanSnapshot {
+            original: (result.committed.clone(), result.live.clone()),
+            cleaned: text.to_owned(),
+        });
         result.committed = text.into();
         result.live = SharedString::default();
         self.output_status = Some("Cleaned".into());
@@ -1956,29 +2018,41 @@ impl SessionController {
         true
     }
 
-    /// Restores the text the take had before the last repair.
+    /// Flips the screen between the cached repaired text and its original.
     ///
-    /// Returns `false` when no repaired text is on screen, so the action is
-    /// inert outside [`CleanState::Cleaned`].
-    pub fn undo_clean_transcript(&mut self) -> bool {
-        let Some((committed, live)) = self.clean_original.take() else {
+    /// Local and instant: the pass ran once, and every later click reads
+    /// [`CleanSnapshot`]. Returns `false` — changing nothing — when no pass is
+    /// cached or a request is in flight, i.e. for every [`CleanToggle`] that is
+    /// not a flip.
+    pub fn flip_clean_transcript(&mut self) -> bool {
+        if self.clean_is_running() {
+            return false;
+        }
+        let Some(snapshot) = self.clean_snapshot.clone() else {
             return false;
         };
+        let show_original = self.clean_state() == CleanState::Cleaned;
         let Some(result) = self.result.as_mut() else {
             return false;
         };
-        result.committed = committed;
-        result.live = live;
-        self.output_status = Some("Original restored".into());
+        if show_original {
+            result.committed = snapshot.original.0;
+            result.live = snapshot.original.1;
+            self.output_status = Some("Original restored".into());
+        } else {
+            result.committed = snapshot.cleaned.into();
+            result.live = SharedString::default();
+            self.output_status = Some("Cleaned".into());
+        }
         true
     }
 
     /// Drops every trace of the cleanup of a finished take: no request in
-    /// flight, nothing to undo, and a request counter that restarts.
+    /// flight, nothing cached to flip, and a request counter that restarts.
     fn forget_clean(&mut self) {
         self.clean_pending = None;
         self.clean_seq = 0;
-        self.clean_original = None;
+        self.clean_snapshot = None;
     }
 
     // ----- Backend wiring ----------------------------------------------

@@ -62,8 +62,9 @@ use crate::components::{
     SelectSnapshot,
 };
 use crate::controller::{
-    AppError, CleanStatus, Clock, Dialog, ErrorAction, FinishedTake, HelpTab, SAMPLE_RATE,
-    SessionController, SessionMode, SettingsChange, SettingsDraft, SystemClock, ViewState,
+    AppError, CleanStatus, CleanToggle, Clock, Dialog, ErrorAction, FinishedTake, HelpTab,
+    SAMPLE_RATE, SessionController, SessionMode, SettingsChange, SettingsDraft, SystemClock,
+    ViewState,
 };
 use crate::tokens::color;
 use crate::views;
@@ -460,6 +461,11 @@ impl SpeechTtApp {
     /// Whether a repair pass can be started right now.
     pub fn can_clean_transcript(&self) -> bool {
         self.controller.can_clean_transcript()
+    }
+
+    /// What the cleanup button does next.
+    pub fn clean_toggle(&self) -> CleanToggle {
+        self.controller.clean_toggle()
     }
 
     /// The cleanup model the next pass would call.
@@ -908,15 +914,29 @@ impl SpeechTtApp {
         copied
     }
 
-    /// Repair the finished take through the worker's cleanup pass.
+    /// The footer's single cleanup button: run the pass, or flip a cached one.
     ///
-    /// Asks the controller for a request id, then sends the command with the
-    /// same provider and key resolution `Start` used. Returns `false` — having
-    /// recorded the reason — when no pass can be taken: no model, an empty
-    /// take, a pass already running, or a provider without a key.
-    pub fn clean_transcript(&mut self, cx: &mut Context<Self>) -> bool {
+    /// Only [`CleanToggle::Start`] costs a request. The two flips read the
+    /// controller's cached pass, so a user can compare the repaired and original
+    /// texts as often as they like without calling the model again. Returns
+    /// `false` — having changed nothing — when the button is inert.
+    pub fn toggle_clean_transcript(&mut self, cx: &mut Context<Self>) -> bool {
+        let toggle = self.controller.clean_toggle();
+        let changed = match toggle {
+            CleanToggle::ShowCleaned | CleanToggle::ShowOriginal => {
+                self.controller.flip_clean_transcript()
+            }
+            CleanToggle::Start => self.start_clean_transcript(),
+            CleanToggle::Inert => false,
+        };
+        cx.notify();
+        changed
+    }
+
+    /// Sends one cleanup request. Called only from
+    /// [`Self::toggle_clean_transcript`], which owns the toggle decision.
+    fn start_clean_transcript(&mut self) -> bool {
         let Some(request_id) = self.controller.begin_clean_transcript() else {
-            cx.notify();
             return false;
         };
         let Some(command) = self.controller.clean_transcript_command(&request_id) else {
@@ -925,19 +945,10 @@ impl SpeechTtApp {
             let provider = self.controller.active_provider();
             self.controller
                 .fail_clean_transcript(&request_id, AppError::MissingApiKey { provider });
-            cx.notify();
             return false;
         };
         self.controller.send_command(command);
-        cx.notify();
         true
-    }
-
-    /// Restore the transcript the take had before the last repair.
-    pub fn undo_clean_transcript(&mut self, cx: &mut Context<Self>) -> bool {
-        let undone = self.controller.undo_clean_transcript();
-        cx.notify();
-        undone
     }
 
     /// Put the selected transcript range on the system clipboard.
