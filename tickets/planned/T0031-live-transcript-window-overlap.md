@@ -112,74 +112,89 @@ B would throw away.
 
 ### Measurements
 
-Two real takes, one per model, `SPEECHTT_STT_PARTIALS=1`, French dictation.
+`SPEECHTT_STT_PARTIALS=1`, French dictation, one take per model. Appending several
+launches to one file is the intended workflow: the dump header names provider,
+model and language, and the analyzer groups by it, so two takes that both call
+their session `take-1` stay apart.
 
-**`microsoft/mai-transcribe-2-streaming`** — 11 hypotheses:
-`identical=1 extend=1 slide=7 new=1`, seam overlap up to 4 words,
-`retokenizedPairs=1`. Behaviour: **sliding window**. Each hypothesis is a
-fragment that walks forward, so consecutive hypotheses share 2–4 words.
+**`elevenlabs/scribe-v2-realtime` — measured (24 hypotheses).**
+`identical=1 extend=8 shrink=2 slide=5 new=7`. Behaviour: **cumulative, with
+retroactive rewriting**. Every hypothesis is the whole take so far (9 → 241
+characters), and the first 50–99 % of it is byte-identical to the previous one.
+But the provider periodically **rewrites its own earlier words**: at hypothesis
+19→20 it inserted French guillemets around "streaming" from character 117
+onwards, at 23→24 it removed them again, at 24→25 it put them back. The take then
+died with `Transcription provider stream error`, and `stopped` arrived with an
+**empty** text.
 
-**`elevenlabs/scribe-v2-realtime`** — 24 hypotheses: `extend=8 slide=5
-shrink=2 new=7 identical=1`. Behaviour: **cumulative, with retroactive
-rewriting**. Every hypothesis is the whole take so far (9 → 241 characters), and
-the first 50–99 % of it is byte-identical to the previous one. But the provider
-periodically **rewrites its own earlier words**: at hypothesis 19→20 it inserted
-French guillemets around "streaming" from character 117 onwards, at 23→24 it
-removed them again, at 24→25 it put them back.
+**`microsoft/mai-transcribe-2-streaming` — NOT MEASURED YET.** An earlier draft of
+this section reported `slide=7` for MAI. That was wrong: it came from replaying
+the *rendered live text* of a take pasted into the conversation, not from a dump
+of the provider's hypotheses. Displayed text has already been through the
+reducer, so it cannot describe what the provider emits. The figure is withdrawn
+and the model must be re-taken with `SPEECHTT_STT_PARTIALS=1`.
 
-So the answer to "do all models behave the same?" is **no**, and the divergence
-is not a variation in degree:
+**`google/gemini-3.5-transcribe-live` — NOT MEASURED YET.**
+
+What the measured take already shows is enough to matter:
 
 | Model | What one hypothesis is | What mutates |
 |---|---|---|
-| MAI Transcribe 2 Streaming | one sliding fragment | everything: the window moves |
 | ElevenLabs Scribe v2 Realtime | the whole take so far | words already shown, re-punctuated in place |
 
-Neither ever offers stable mid-take text, which is why the streaming adapter
-sends no `Committed` event for a live take at all.
+That alone breaks the shipped reducer, and a single model cannot answer whether
+the others differ. The decision below therefore rests on one measurement plus one
+structural fact: **the streaming adapter emits no `Committed` for a live take**,
+so no provider can offer stable mid-take text that a growing buffer could build
+on. Confirming that with MAI and Gemini is the next step, and the plan is written
+so that either outcome is covered — B is correct for a cumulative provider and
+merely conservative for a sliding one.
 
-### What the current reducer does with that data
+### What the current reducer does with the measured take
 
 Simulated faithfully against the shipped `TranscriptBuffer` rules:
 
 | Take | Real text | Current reducer shows | Duplication |
 |---|---|---|---|
-| ElevenLabs (24 hypotheses) | 241 chars | **1 755 chars** | **+628 %** |
+| ElevenLabs (24 hypotheses) | 241 chars | ~1 918 chars | **7.96×** |
 
 Twelve of the twenty-three transitions trip `settle_live()`: every retroactive
 re-punctuation (`nouvelle-` → `nouvelle dictée`, guillemets on or off) breaks the
 `text.starts_with(tail)` test, so the whole previous hypothesis is pushed into
-`committed` and then re-shown as the live tail. The first 300 characters of the
-result are the same sentence restated twelve times.
+`committed` and then re-shown as the live tail.
 
-### Decision
+Worse, the measured take shows this is not a provider quirk: adding a full stop
+to words already shown is enough. `Et voici` → `Et voici. Le début` settles,
+because the period breaks the prefix test. A cumulative provider that
+re-punctuates is therefore just as unsafe as a sliding one.
+
+### Decision — provisional, B
 
 **Strategy B — show the current hypothesis, adopt the provider's final text.**
 
-The measurement makes the choice for us:
+Chosen now because the measured take already proves the shipped reducer is wrong,
+and because B is the only strategy whose correctness does not depend on which
+shape a provider uses:
 
-- B is **exactly correct** for a cumulative provider: the hypothesis *is* the
-  whole take, so replacing the tail each time shows a clean growing transcript
-  with zero duplication. ElevenLabs goes from 1 755 characters of smear to the
-  exact 241 the user dictated.
-- B is **safe** for a sliding-window provider: the screen shows the newest
+- For a **cumulative** provider (measured: ElevenLabs) B is *exactly* correct:
+  the hypothesis is the whole take, so replacing the tail shows a clean growing
+  transcript. The measured 7.96× duplication becomes 1×.
+- For a **sliding-window** provider B is *safe*: the screen shows the newest
   fragment instead of an accumulation. Nothing can duplicate because nothing is
   accumulated.
-- A cannot fix what the data shows. A retroactive rewrite of *already displayed*
-  words defeats any seam comparison: there is no overlap to measure between
-  "modèle streaming" and "modèle « streaming »" at word level, and the divergence
-  point moves. The previous attempts failed for exactly this reason, and adding
-  another threshold would only move the failure.
+- **A cannot fix the measured case.** A retroactive rewrite of already-displayed
+  words defeats any seam comparison: there is no joint to measure between
+  `modèle streaming` and `modèle « streaming »`, and the divergence point moves
+  each time. A second threshold would only move the failure.
 
-The cost of B is now precisely known rather than guessed: **with a sliding-window
-model** (MAI) the live area shows roughly the last sentence instead of a growing
-transcript, and the complete text appears on `Stopped`. With a cumulative model
-(ElevenLabs) B costs nothing at all — that is the common case.
+What MAI and Gemini can still change is the **cost**, not the direction: if both
+turn out to slide, the live area shows only the last fragment and the `Stopped`
+text becomes the whole transcript. That cost is acceptable and already how a take
+ends today.
 
-One rule must survive the change: `Stopped` with an empty `fullText` (which is
-what a take that ends in a provider error produces — it happened in the
-ElevenLabs capture) must keep the last hypothesis instead of blanking the take.
-Today `settle_live()` does that; the new reducer must do the equivalent.
+One rule must survive the change: `Stopped` with an empty `full_text` — which is
+what the measured take produced when the provider failed — must keep the last
+hypothesis instead of blanking the take.
 
 ## Scope Boundary
 
@@ -472,13 +487,17 @@ the next change to the reducer has to keep this take readable.
   compact comparison sees, and a single shared word that must stay `new`.
   `analyzeEvents` keeps segments apart, ignores non-hypotheses, and reports
   `duplicatedChars` from the real overlap rather than from a length delta.
-- [x] **T31.2 — Collect.** Two real takes, one per model, with the dump on:
-  `microsoft/mai-transcribe-2-streaming` (sliding window) and
-  `elevenlabs/scribe-v2-realtime` (cumulative with retroactive rewriting). Both
-  reports are in `### Measurements`.
-- [x] **T31.3 — Decide.** Strategy **B**, from the measurements above: both
-  models produce hypotheses that are unstable in different ways, and B is exactly
-  correct for the cumulative one and merely conservative for the sliding one.
+- [ ] **T31.2 — Collect.** One take per model with the dump on, appended to the
+  same file, one report per model from `bun src/stt/trace-analyze.ts`:
+  - [x] `elevenlabs/scribe-v2-realtime` — cumulative with retroactive rewriting,
+    7.96× duplication under the shipped reducer.
+  - [ ] `microsoft/mai-transcribe-2-streaming` — **not measured**; the earlier
+    figure came from replayed rendered text and was withdrawn.
+  - [ ] `google/gemini-3.5-transcribe-live` — not measured.
+- [x] **T31.3 — Decide.** Strategy **B**, provisionally, from the one measured
+  take: B is exactly correct for a cumulative provider and merely conservative for
+  a sliding one, whereas A cannot repair a retroactive rewrite. The remaining two
+  models can change the cost of B, not its direction.
 - [ ] **T31.4 — Implement B.** Rewrite the `Partial` arm as a tail replacement,
   keep the empty-`Stopped` rule, and replay both captures as tests (ElevenLabs
   for retroactive rewriting, MAI for sliding). Update the pre-existing tests that

@@ -48,6 +48,14 @@ export interface PairClassification {
 	readonly retokenized: boolean;
 }
 
+export interface SessionHeader {
+	readonly provider: string;
+	readonly model: string;
+	readonly language?: string;
+	readonly sampleRate?: number;
+	readonly kind: "live" | "file";
+}
+
 export interface TracedEvent {
 	readonly seq: number;
 	readonly type: string;
@@ -55,6 +63,13 @@ export interface TracedEvent {
 	readonly segment?: string;
 	readonly text?: string;
 	readonly chars?: number;
+	/**
+	 * The take this event belongs to, from the dump's session header.
+	 *
+	 * A session id restarts at `take-1` on every launch, so two takes on two
+	 * models look identical without it; the header is what keeps them apart.
+	 */
+	readonly session?: SessionHeader;
 }
 
 /** Shortest seam worth calling an overlap once whitespace is folded away. */
@@ -196,15 +211,47 @@ export function classifyPair(
 	};
 }
 
-/** One parsed dump line, or `null` for anything else. */
-export function parseDumpLine(line: string): TracedEvent | null {
-	const marker = line.indexOf('{"');
-	if (marker < 0) {
+/**
+ * Parses one dump line.
+ *
+ * A `[stt-partials] session …` line yields a [`SessionHeader`]; a record line
+ * yields a [`TracedEvent`] carrying the header that was current when it was
+ * emitted, so a file holding two takes keeps them apart even though both call
+ * their session `take-1`.
+ */
+export function parseDumpLine(line: string): TracedEvent | SessionHeader | null {
+	const start = line.indexOf("[stt-partials]");
+	if (start < 0) {
 		return null;
 	}
+	const body = line.slice(start + "[stt-partials]".length).trim();
+	if (body.startsWith("session ")) {
+		const details = new Map<string, string>();
+		for (const pair of body.slice("session ".length).split(/\s+/u)) {
+			const eq = pair.indexOf("=");
+			if (eq > 0) {
+				details.set(pair.slice(0, eq), pair.slice(eq + 1));
+			}
+		}
+		const provider = details.get("provider");
+		const model = details.get("model");
+		if (provider === undefined || model === undefined) {
+			return null;
+		}
+		const rate = details.get("rate");
+		const language = details.get("language");
+		return {
+			provider,
+			model,
+			language: language === undefined || language === "-" ? undefined : language,
+			sampleRate: rate === undefined ? undefined : Number(rate),
+			kind: details.get("kind") === "file" ? "file" : "live",
+		};
+	}
+
 	let parsed: unknown;
 	try {
-		parsed = JSON.parse(line.slice(marker));
+		parsed = JSON.parse(body);
 	} catch {
 		return null;
 	}
@@ -226,7 +273,41 @@ export function parseDumpLine(line: string): TracedEvent | null {
 	};
 }
 
+/** Whether a parsed line is a session header. */
+export function isSessionHeader(
+	value: TracedEvent | SessionHeader,
+): value is SessionHeader {
+	return "provider" in value && "model" in value && !("seq" in value);
+}
+
+/**
+ * Reads a whole dump, attaching each event to the take that produced it.
+ *
+ * Takes are keyed by header, so appending two launches to one file is the
+ * intended way to compare models.
+ */
+export function parseDump(text: string): TracedEvent[] {
+	const events: TracedEvent[] = [];
+	let current: SessionHeader | undefined;
+	for (const line of text.split("\n")) {
+		const parsed = parseDumpLine(line);
+		if (parsed === null) {
+			continue;
+		}
+		if (isSessionHeader(parsed)) {
+			current = parsed;
+			continue;
+		}
+		events.push({ ...parsed, ...(current === undefined ? {} : { session: current }) });
+	}
+	return events;
+}
+
 export interface StreamReport {
+	/** The take that produced this stream, from the dump's header. */
+	readonly provider: string;
+	readonly model: string;
+	readonly language?: string;
 	readonly sessionId: string;
 	readonly segment: string;
 	/** Number of hypotheses seen, i.e. the pairs plus one. */
@@ -246,6 +327,12 @@ export interface StreamReport {
 	 * re-spaced the same words, which a word-level buffer cannot detect.
 	 */
 	readonly retokenizedPairs: number;
+	/**
+	 * Duplication the shipped reducer would produce, as a multiple of the real
+	 * text: `1` is clean, `7.28` means seven times too much. Derived from the
+	 * transitions, because a settle path re-shows the whole previous window.
+	 */
+	readonly duplicatedFactor: number;
 }
 
 /**
@@ -263,7 +350,15 @@ export function analyzeEvents(events: readonly TracedEvent[]): StreamReport[] {
 		if (event.text === undefined) {
 			continue;
 		}
-		const key = `${event.sessionId ?? "-"}\u0000${event.segment ?? "-"}`;
+		// The header is part of the key: two launches both call their session
+		// `take-1`, and comparing models is the whole point of the dump.
+		const key = [
+			event.session?.provider ?? "-",
+			event.session?.model ?? "-",
+			event.session?.language ?? "-",
+			event.sessionId ?? "-",
+			event.segment ?? "-",
+		].join("\u0000");
 		const list = streams.get(key);
 		if (list === undefined) {
 			streams.set(key, [event]);
@@ -274,7 +369,8 @@ export function analyzeEvents(events: readonly TracedEvent[]): StreamReport[] {
 
 	const reports: StreamReport[] = [];
 	for (const [key, list] of streams) {
-		const [sessionId = "-", segment = "-"] = key.split("\u0000");
+		const [provider = "-", model = "-", language = "-", sessionId = "-", segment = "-"] =
+			key.split("\u0000");
 		const counts: Record<Transition, number> = {
 			identical: 0,
 			extend: 0,
@@ -285,24 +381,34 @@ export function analyzeEvents(events: readonly TracedEvent[]): StreamReport[] {
 		let maxOverlapWords = 0;
 		let duplicatedChars = 0;
 		let retokenizedPairs = 0;
+		// Characters the shipped reducer would show, accumulated the way its
+		// `settle_live()` path does: a pair that is not a revision commits the
+		// whole previous tail and starts the next one.
+		let shownChars = 0;
 		for (let index = 1; index < list.length; index += 1) {
 			const previous = list[index - 1]?.text ?? "";
 			const next = list[index]?.text ?? "";
 			const classified = classifyPair(previous, next);
 			counts[classified.kind] += 1;
 			maxOverlapWords = Math.max(maxOverlapWords, classified.overlapWords);
-			// A slide shows the seam twice: that overlap is exactly the
-			// duplication a naive accumulator would append.
 			duplicatedChars += classified.overlapChars;
 			if (classified.retokenized) {
 				retokenizedPairs += 1;
 			}
+			if (classified.kind !== "extend" && classified.kind !== "identical") {
+				shownChars += previous.trim().length;
+			}
 		}
+		const last = list[list.length - 1]?.text?.trim().length ?? 0;
+		shownChars += last;
 		const dominant = (Object.entries(counts) as [Transition, number][]).reduce(
 			(best, entry) => (entry[1] > best[1] ? entry : best),
 			["identical", -1] as [Transition, number],
 		)[0];
 		reports.push({
+			provider,
+			model,
+			...(language === "-" ? {} : { language }),
 			sessionId,
 			segment,
 			hypotheses: list.length,
@@ -311,6 +417,8 @@ export function analyzeEvents(events: readonly TracedEvent[]): StreamReport[] {
 			maxOverlapWords,
 			duplicatedChars,
 			retokenizedPairs,
+			duplicatedFactor:
+				last === 0 ? 1 : Math.round((shownChars / last) * 100) / 100,
 		});
 	}
 	return reports;
@@ -332,27 +440,92 @@ export function behaviorOf(report: StreamReport): string {
 	}
 }
 
-/** A human-readable report, one block per stream. */
+/**
+ * A human-readable report, one block per take, then one line per stream.
+ *
+ * Grouped by model because the question the dump answers is "do the models
+ * behave the same?", and a reader should not have to correlate segments by hand.
+ */
 export function formatReport(reports: readonly StreamReport[]): string {
 	if (reports.length === 0) {
 		return "no hypotheses found — was SPEECHTT_STT_PARTIALS=1 set?";
 	}
-	return reports
-		.map((report) => {
-			const counts = (
-				Object.entries(report.counts) as [Transition, number][]
-			)
-				.filter(([, count]) => count > 0)
-				.map(([kind, count]) => `${kind}=${count}`)
-				.join(" ");
-			return [
-				`stream session=${report.sessionId} segment=${report.segment}`,
-				`  hypotheses=${report.hypotheses} behaviour=${behaviorOf(report)}`,
-				`  ${counts}`,
-				`  maxOverlapWords=${report.maxOverlapWords} duplicatedChars=${report.duplicatedChars} retokenizedPairs=${report.retokenizedPairs}`,
-			].join("\n");
-		})
-		.join("\n\n");
+
+	const takes = new Map<string, StreamReport[]>();
+	for (const report of reports) {
+		const key = `${report.provider}\u0000${report.model}\u0000${report.language ?? "-"}`;
+		const list = takes.get(key);
+		if (list === undefined) {
+			takes.set(key, [report]);
+		} else {
+			list.push(report);
+		}
+	}
+
+	const blocks: string[] = [];
+	for (const [key, list] of takes) {
+		const [provider = "-", model = "-", language = "-"] = key.split("\u0000");
+		const totals = list.reduce(
+			(sum, report) => {
+				for (const [kind, count] of Object.entries(report.counts)) {
+					sum.counts[kind as Transition] += count;
+				}
+				sum.hypotheses += report.hypotheses;
+				sum.duplicatedFactor = Math.max(sum.duplicatedFactor, report.duplicatedFactor);
+				sum.retokenizedPairs += report.retokenizedPairs;
+				return sum;
+			},
+			{
+				hypotheses: 0,
+				counts: { identical: 0, extend: 0, shrink: 0, slide: 0, new: 0 } as Record<
+					Transition,
+					number
+				>,
+				duplicatedFactor: 1,
+				retokenizedPairs: 0,
+			},
+		);
+		const merged: StreamReport = {
+			provider,
+			model,
+			...(language === "-" ? {} : { language }),
+			sessionId: "-",
+			segment: "-",
+			hypotheses: totals.hypotheses,
+			counts: totals.counts,
+			dominant: (Object.entries(totals.counts) as [Transition, number][]).reduce(
+				(best, entry) => (entry[1] > best[1] ? entry : best),
+				["identical", -1] as [Transition, number],
+			)[0],
+			maxOverlapWords: list.reduce(
+				(max, report) => Math.max(max, report.maxOverlapWords),
+				0,
+			),
+			duplicatedChars: list.reduce(
+				(sum, report) => sum + report.duplicatedChars,
+				0,
+			),
+			retokenizedPairs: totals.retokenizedPairs,
+			duplicatedFactor: totals.duplicatedFactor,
+		};
+
+		const counts = (Object.entries(merged.counts) as [Transition, number][])
+			.filter(([, count]) => count > 0)
+			.map(([kind, count]) => `${kind}=${count}`)
+			.join(" ");
+		const lines = [
+			`${model}${language === "-" ? "" : ` [${language}]`}`,
+			`  hypotheses=${merged.hypotheses} behaviour=${behaviorOf(merged)}`,
+			`  ${counts}`,
+			`  maxOverlapWords=${merged.maxOverlapWords} retokenizedPairs=${merged.retokenizedPairs}`,
+			`  shipped reducer would show ${merged.duplicatedFactor}x the real text`,
+		];
+		if (list.length > 1) {
+			lines.push(`  (${list.length} streams: ${list.map((report) => report.segment).join(", ")})`);
+		}
+		blocks.push(lines.join("\n"));
+	}
+	return blocks.join("\n\n");
 }
 
 if (import.meta.main) {
@@ -361,9 +534,5 @@ if (import.meta.main) {
 		path === undefined
 			? await Bun.stdin.text()
 			: await Bun.file(path).text();
-	const events = text
-		.split("\n")
-		.map(parseDumpLine)
-		.filter((event): event is TracedEvent => event !== null);
-	console.log(formatReport(analyzeEvents(events)));
+	console.log(formatReport(analyzeEvents(parseDump(text))));
 }

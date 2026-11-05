@@ -11,6 +11,8 @@ import {
 	behaviorOf,
 	classifyPair,
 	formatReport,
+	isSessionHeader,
+	parseDump,
 	parseDumpLine,
 	type TracedEvent,
 } from "./trace-analyze";
@@ -220,13 +222,124 @@ describe("analyzeEvents", () => {
 	});
 });
 
+describe("parseDump", () => {
+	const header = (model: string) =>
+		`${PARTIALS_TAG} session kind=live provider=vercel-ai-gateway model=${model} language=fr rate=16000`;
+	const partial = (seq: number, text: string) =>
+		`${PARTIALS_TAG} ${JSON.stringify({ seq, type: "partial", sessionId: "take-1", segment: "seg:0", text, chars: text.length })}`;
+
+	test("attaches every event to the header above it", () => {
+		const events = parseDump(
+			[header("a"), partial(1, "one"), header("b"), partial(2, "two")].join("\n"),
+		);
+
+		expect(events).toHaveLength(2);
+		expect(events[0]?.session?.model).toBe("a");
+		expect(events[1]?.session?.model).toBe("b");
+	});
+
+	// A session id restarts at `take-1` on every launch, so appending two takes
+	// to one file is how a user compares models. Without the header in the key
+	// the two takes would merge into one stream and the comparison would lie.
+	test("keeps two takes apart even though both call their session take-1", () => {
+		const dump = [
+			header("model-a"),
+			partial(1, "Début d'une phrase courte."),
+			partial(2, "Début d'une phrase courte. Et la suite."),
+			header("model-b"),
+			partial(3, "Autre chose totalement différent."),
+			partial(4, "Autre chose totalement différent. Puis encore."),
+		].join("\n");
+
+		const reports = analyzeEvents(parseDump(dump));
+
+		expect(reports).toHaveLength(2);
+		expect(reports.map((report) => report.model)).toEqual(["model-a", "model-b"]);
+		expect(reports.every((report) => report.dominant === "extend")).toBe(true);
+	});
+
+	test("groups the report by model", () => {
+		const dump = [
+			header("model-a"),
+			partial(1, "un deux trois"),
+			partial(2, "un deux trois quatre"),
+			header("model-b"),
+			partial(3, "un deux trois"),
+			partial(4, "un deux trois quatre"),
+		].join("\n");
+
+		const formatted = formatReport(analyzeEvents(parseDump(dump)));
+
+		expect(formatted).toContain("model-a");
+		expect(formatted).toContain("model-b");
+		expect(formatted.match(/behaviour=/g)).toHaveLength(2);
+	});
+
+	test("a purely cumulative take needs no duplication", () => {
+		const dump = [
+			header("model-a"),
+			partial(1, "un deux trois"),
+			partial(2, "un deux trois quatre"),
+			partial(3, "un deux trois quatre cinq"),
+		].join("\n");
+
+		const reports = analyzeEvents(parseDump(dump));
+
+		expect(reports[0]?.dominant).toBe("extend");
+		expect(reports[0]?.duplicatedFactor).toBe(1);
+		expect(formatReport(reports)).toContain("1x the real text");
+	});
+
+	// Adding a full stop to words already shown is enough to defeat the shipped
+	// `starts_with` test, so even a cumulative provider is not safe from it.
+	test("one retroactive full stop already duplicates the whole window", () => {
+		const dump = [
+			header("model-a"),
+			partial(1, "Et voici"),
+			partial(2, "Et voici le début"),
+			partial(3, "Et voici. Le début"),
+		].join("\n");
+
+		const reports = analyzeEvents(parseDump(dump));
+		const factor = reports[0]?.duplicatedFactor ?? 1;
+
+		expect(reports[0]?.counts.slide + (reports[0]?.counts.new ?? 0)).toBeGreaterThan(0);
+		expect(factor).toBeGreaterThan(1);
+	});
+});
+
 describe("parseDumpLine", () => {
 	test("reads a tagged line", () => {
-		const event = parseDumpLine(
+		const parsed = parseDumpLine(
 			`${PARTIALS_TAG} {"seq":3,"type":"partial","sessionId":"s","text":"hi"}`,
 		);
-		expect(event?.seq).toBe(3);
-		expect(event?.text).toBe("hi");
+		expect(parsed).not.toBeNull();
+		expect(isSessionHeader(parsed!)).toBe(false);
+		const event = parsed as TracedEvent;
+		expect(event.seq).toBe(3);
+		expect(event.text).toBe("hi");
+	});
+
+	test("reads a session header", () => {
+		const parsed = parseDumpLine(
+			`${PARTIALS_TAG} session kind=live provider=p model=m language=fr rate=16000`,
+		);
+		expect(parsed).not.toBeNull();
+		expect(isSessionHeader(parsed!)).toBe(true);
+		expect(parsed).toMatchObject({
+			kind: "live",
+			provider: "p",
+			model: "m",
+			language: "fr",
+			sampleRate: 16000,
+		});
+	});
+
+	test("marks an absent language as undefined rather than a dash", () => {
+		const parsed = parseDumpLine(
+			`${PARTIALS_TAG} session kind=file provider=p model=m language=-`,
+		);
+		expect((parsed as { language?: string }).language).toBeUndefined();
 	});
 
 	test("ignores a line with no record", () => {
