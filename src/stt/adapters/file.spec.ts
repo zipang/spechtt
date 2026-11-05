@@ -87,6 +87,10 @@ interface SessionOptions {
 	readonly segmentation?: FileSessionDeps["segmentation"];
 	readonly onTranscribe?: (call: number) => void;
 	readonly onPull?: (signal: AbortSignal, index: number) => void;
+	/** Overrides the session config, e.g. to declare a dictation language. */
+	readonly config?: Partial<SttSessionConfig>;
+	/** Options the caller already wants on every `transcribe` request. */
+	readonly providerOptions?: FileSessionDeps["providerOptions"];
 }
 
 /** Builds a session over fakes and records every transcription call. */
@@ -134,10 +138,15 @@ function setup(options: SessionOptions = {}) {
 		},
 		transcribe,
 		resolveModel: () => "test-model" as never,
+		providerOptions: options.providerOptions,
 		segmentation: options.segmentation,
 	};
 
-	const session = createFileSession(config, emit, deps);
+	const session = createFileSession(
+		{ ...config, ...options.config },
+		emit,
+		deps,
+	);
 	return { session, events, calls, finished, failed, probed: () => probed };
 }
 
@@ -468,5 +477,55 @@ describe("createFileSession", () => {
 		await session.stop();
 
 		expect(events.filter((event) => event.type === "stopped")).toHaveLength(1);
+	});
+
+	test("never sends the language through the gateway package", async () => {
+		const { calls, finished } = setup({
+			texts: ["alpha", "beta"],
+			config: { language: "fr" },
+		});
+
+		await finished;
+
+		expect(calls.length).toBeGreaterThan(0);
+		// `GatewayProviderOptions` has no `language`: the gateway rejects the
+		// request, so a gateway-routed file take carries no provider options.
+		for (const call of calls) {
+			expect("providerOptions" in call).toBe(false);
+		}
+	});
+
+	test("forwards the language for a direct provider", async () => {
+		const { calls, finished } = setup({
+			texts: ["alpha"],
+			config: { provider: "mistral", language: "fr" },
+		});
+
+		await finished;
+
+		expect(calls[0].providerOptions).toEqual({ mistral: { language: "fr" } });
+	});
+
+	test("omits providerOptions when no language is set", async () => {
+		const { calls, finished } = setup({ texts: ["alpha"] });
+
+		await finished;
+
+		expect(calls.length).toBeGreaterThan(0);
+		for (const call of calls) {
+			expect("providerOptions" in call).toBe(false);
+		}
+	});
+
+	test("keeps the caller's provider options untouched by the language", async () => {
+		const { calls, finished } = setup({
+			texts: ["alpha"],
+			config: { language: "de" },
+			providerOptions: { gateway: { order: "desc" } } as never,
+		});
+
+		await finished;
+
+		expect(calls[0].providerOptions).toEqual({ gateway: { order: "desc" } });
 	});
 });

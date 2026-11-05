@@ -22,10 +22,18 @@ import type { AudioSegment, SegmenterOptions } from "../segmentation";
 import { Segmenter } from "../segmentation";
 import type { TranscriptionModel } from "ai";
 import { FileDecodeError } from "../file-input";
+import { describeError, logFailure } from "../diagnostics";
+import { languageProviderOptions } from "../languages";
 import type { OutboundEvent, SttErrorCode } from "../protocol";
 import { mergeTranscript } from "../transcript-merge";
 import { pcm16ToWav } from "./mistral";
-import type { EmitFn, SttSession, SttSessionConfig } from "./types";
+import type {
+	EmitFn,
+	ProviderOptions,
+	SttSession,
+	SttSessionConfig,
+} from "./types";
+import { mergeProviderOptions } from "./types";
 import type { TranscribeFn } from "./mistral";
 
 /**
@@ -51,18 +59,17 @@ export interface FileSessionDeps {
 	probeDuration(path: string, signal: AbortSignal): Promise<number | null>;
 	transcribe: TranscribeFn;
 	resolveModel(config: SttSessionConfig): TranscriptionModel;
+	/**
+	 * Options the caller already wants on every `transcribe` call. The
+	 * dictation language is merged on top, never in place of them.
+	 */
+	providerOptions?: ProviderOptions;
 	/** Overrides [`FILE_SEGMENTATION`] (tests use a much shorter cadence). */
 	segmentation?: Partial<Omit<SegmenterOptions, "sampleRate">>;
 }
 
 function errorMessage(error: unknown): string {
-	if (error instanceof Error && error.message.length > 0) {
-		return error.message;
-	}
-	if (typeof error === "string" && error.length > 0) {
-		return error;
-	}
-	return "File transcription failed";
+	return describeError(error, "File transcription failed");
 }
 
 /** A decode failure keeps its wire code; anything else is `stream_failed`. */
@@ -224,10 +231,17 @@ class FileSession implements SttSession {
 		);
 
 		const wav = pcm16ToWav(segment.pcm16, this.config.sampleRate);
+		// The dictation language is forwarded per segment, exactly as the live
+		// adapters do: a file take is batched, so every request needs it.
+		const providerOptions = mergeProviderOptions(
+			this.deps.providerOptions,
+			languageProviderOptions(this.config.provider, this.config.language),
+		);
 		const result = await this.deps.transcribe({
 			model,
 			audio: wav,
 			abortSignal: this.transcribeController.signal,
+			...(providerOptions === undefined ? {} : { providerOptions }),
 		});
 		if (this.aborted) {
 			return;
@@ -278,11 +292,22 @@ class FileSession implements SttSession {
 			return;
 		}
 		this.errorEmitted = true;
+		const message = errorMessage(error);
+		logFailure(
+			"file",
+			{
+				provider: this.config.provider,
+				model: this.config.model,
+				language: this.config.language,
+			},
+			error,
+			message,
+		);
 		this.emit({
 			type: "error",
 			sessionId: this.sessionId,
 			code: errorCode(error),
-			message: errorMessage(error),
+			message,
 		});
 	}
 }

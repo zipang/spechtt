@@ -1,3 +1,13 @@
+/**
+ * Streaming transcription adapter on the AI SDK `experimental_streamTranscribe`.
+ *
+ * `worker.ts` builds it through `defaultAdapterFactory` for every model whose
+ * capability is `streaming`; base64 PCM16 chunks flow straight from the NDJSON
+ * `audio` command into the SDK stream. `MistralAdapter` reuses
+ * [`defaultModelResolver`] so both adapters resolve a provider model the same
+ * way.
+ */
+
 import { createElevenLabs } from "@ai-sdk/elevenlabs";
 import { createMistral } from "@ai-sdk/mistral";
 import { createOpenAI } from "@ai-sdk/openai";
@@ -15,13 +25,17 @@ import type {
 	PartialEvent,
 } from "../protocol";
 import type { TranscriptionMode } from "../registry";
+import { describeError, logFailure } from "../diagnostics";
+import { languageProviderOptions } from "../languages";
 import { AudioStreamBridge } from "../stream-controller";
 import type {
 	EmitFn,
+	ProviderOptions,
 	SttAdapter,
 	SttSession,
 	SttSessionConfig,
 } from "./types";
+import { mergeProviderOptions } from "./types";
 
 export type StreamTranscribeFn = (
 	options: Parameters<typeof experimental_streamTranscribe>[0],
@@ -34,16 +48,15 @@ export interface VercelAiSdkAdapterOptions {
 	streamTranscribe?: StreamTranscribeFn;
 	/** Injectable for tests; defaults to gateway/provider model instances. */
 	resolveModel?: ModelResolver;
+	/**
+	 * Provider options the adapter sends on every call. The dictation language
+	 * is merged into them rather than replacing them.
+	 */
+	providerOptions?: ProviderOptions;
 }
 
 function errorMessage(error: unknown): string {
-	if (error instanceof Error && error.message.length > 0) {
-		return error.message;
-	}
-	if (typeof error === "string" && error.length > 0) {
-		return error;
-	}
-	return "Transcription stream failed";
+	return describeError(error, "Transcription stream failed");
 }
 
 /**
@@ -199,6 +212,12 @@ class VercelAiSdkSession implements SttSession {
 		private readonly emit: EmitFn,
 		private readonly bridge: AudioStreamBridge,
 		result: StreamTranscriptionResult,
+		/** Provider, model and language a failure diagnostic must name. */
+		private readonly subject: {
+			provider: string;
+			model: string;
+			language: string | undefined;
+		},
 	) {
 		this.done = new Promise<void>((resolve) => {
 			this.resolveDone = resolve;
@@ -248,7 +267,13 @@ class VercelAiSdkSession implements SttSession {
 		});
 	}
 
-	private emitError(message: string): void {
+	/**
+	 * Reports a provider failure.
+	 *
+	 * `cause` is the raw rejection, kept apart from `message` so the diagnostic
+	 * line can carry the full shape while the bridge event stays short.
+	 */
+	private emitError(message: string, cause?: unknown): void {
 		if (this.errorEmitted) {
 			return;
 		}
@@ -261,6 +286,19 @@ class VercelAiSdkSession implements SttSession {
 			}
 		}
 		this.errorEmitted = true;
+		// The bridge message is short and user-facing; the diagnostic keeps the
+		// whole cause, which is the only way to tell an invalid provider option
+		// from an authentication or quota failure.
+		logFailure(
+			"stream",
+			{
+				provider: this.subject.provider,
+				model: this.subject.model,
+				language: this.subject.language,
+			},
+			cause ?? message,
+			message,
+		);
 		const event: OutboundEvent = {
 			type: "error",
 			sessionId: this.sessionId,
@@ -319,7 +357,7 @@ class VercelAiSdkSession implements SttSession {
 						break;
 
 					case "error":
-						this.emitError(errorMessage(part.error));
+						this.emitError(errorMessage(part.error), part.error);
 						break;
 				}
 			}
@@ -346,7 +384,7 @@ class VercelAiSdkSession implements SttSession {
 			if (this.aborted) {
 				return;
 			}
-			this.emitError(errorMessage(error));
+			this.emitError(errorMessage(error), error);
 			this.emitStopped(this.accumulated);
 		} finally {
 			this.resolveDone();
@@ -363,15 +401,21 @@ export class VercelAiSdkAdapter implements SttAdapter {
 
 	private readonly streamTranscribe: StreamTranscribeFn;
 	private readonly resolveModel: ModelResolver;
+	private readonly providerOptions: ProviderOptions | undefined;
 
 	constructor(options: VercelAiSdkAdapterOptions = {}) {
 		this.streamTranscribe =
 			options.streamTranscribe ?? experimental_streamTranscribe;
 		this.resolveModel = options.resolveModel ?? defaultModelResolver;
+		this.providerOptions = options.providerOptions;
 	}
 
 	start(config: SttSessionConfig, emit: EmitFn): SttSession {
 		const bridge = new AudioStreamBridge();
+		const providerOptions = mergeProviderOptions(
+			this.providerOptions,
+			languageProviderOptions(config.provider, config.language),
+		);
 
 		let result: StreamTranscriptionResult;
 		try {
@@ -384,23 +428,38 @@ export class VercelAiSdkAdapter implements SttAdapter {
 					rate: config.sampleRate,
 				},
 				abortSignal: bridge.abortSignal,
+				...(providerOptions === undefined ? {} : { providerOptions }),
 			});
 		} catch (error) {
+			const message = errorMessage(error);
+			// A rejected `streamTranscribe` call is usually a configuration
+			// error — an unsupported provider option, an unknown model — so the
+			// cause must reach the diagnostic, not only the truncated event.
+			logFailure(
+				"stream start",
+				{
+					provider: config.provider,
+					model: config.model,
+					language: config.language,
+					providerOptions: JSON.stringify(providerOptions ?? {}),
+				},
+				error,
+				message,
+			);
 			emit({
 				type: "error",
 				sessionId: config.sessionId,
 				code: "stream_failed",
-				message: errorMessage(error),
+				message,
 			});
 			return new FailedStreamingSession(config.sessionId, emit);
 		}
 
 		emit({ type: "started", sessionId: config.sessionId });
-		return new VercelAiSdkSession(
-			config.sessionId,
-			emit,
-			bridge,
-			result,
-		);
+		return new VercelAiSdkSession(config.sessionId, emit, bridge, result, {
+			provider: config.provider,
+			model: config.model,
+			language: config.language,
+		});
 	}
 }

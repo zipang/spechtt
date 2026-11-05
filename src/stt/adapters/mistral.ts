@@ -1,7 +1,18 @@
+/**
+ * Segmented transcription adapter on the AI SDK batch `transcribe`.
+ *
+ * `worker.ts` builds it through `defaultAdapterFactory` for models that cannot
+ * stream, and `adapters/file.ts` reuses its WAV framing and segmentation for
+ * file takes. PCM16 chunks are cut on silence by [`Segmenter`], WAV-framed by
+ * [`pcm16ToWav`] and transcribed one segment at a time.
+ */
+
 import { createMistral } from "@ai-sdk/mistral";
 import { type TranscriptionModel, transcribe as aiTranscribe } from "ai";
 import type { OutboundEvent } from "../protocol";
 import type { TranscriptionMode } from "../registry";
+import { describeError, logFailure } from "../diagnostics";
+import { languageProviderOptions } from "../languages";
 import {
 	type AudioSegment,
 	type SegmenterOptions,
@@ -11,10 +22,12 @@ import { mergeTranscript } from "../transcript-merge";
 import { defaultModelResolver } from "./vercel-ai-sdk";
 import type {
 	EmitFn,
+	ProviderOptions,
 	SttAdapter,
 	SttSession,
 	SttSessionConfig,
 } from "./types";
+import { mergeProviderOptions } from "./types";
 
 export type TranscribeFn = typeof aiTranscribe;
 
@@ -29,6 +42,11 @@ export interface MistralAdapterOptions {
 	resolveModel?: MistralModelResolver;
 	/** Silence-alignment tuning; defaults come from [`Segmenter`]. */
 	segmentation?: Partial<Omit<SegmenterOptions, "sampleRate">>;
+	/**
+	 * Provider options the adapter sends on every call. The dictation language
+	 * is merged into them rather than replacing them.
+	 */
+	providerOptions?: ProviderOptions;
 }
 
 function writeAscii(target: Uint8Array, offset: number, value: string): void {
@@ -94,13 +112,7 @@ export function pcm16Base64ToWav(
 }
 
 function errorMessage(error: unknown): string {
-	if (error instanceof Error && error.message.length > 0) {
-		return error.message;
-	}
-	if (typeof error === "string" && error.length > 0) {
-		return error;
-	}
-	return "Batch transcription failed";
+	return describeError(error, "Batch transcription failed");
 }
 
 function stripProviderPrefix(provider: string, model: string): string {
@@ -177,6 +189,7 @@ class MistralSession implements SttSession {
 		private readonly transcribe: TranscribeFn,
 		private readonly model: TranscriptionModel,
 		private readonly sampleRate: number,
+		private readonly providerOptions: ProviderOptions | undefined,
 		segmentation: Partial<Omit<SegmenterOptions, "sampleRate">>,
 	) {
 		this.segmenter = new Segmenter({ sampleRate, ...segmentation });
@@ -263,6 +276,9 @@ class MistralSession implements SttSession {
 					model: this.model,
 					audio: wav,
 					abortSignal: this.abortController.signal,
+					...(this.providerOptions === undefined
+						? {}
+						: { providerOptions: this.providerOptions }),
 				});
 				if (this.aborted) {
 					return;
@@ -292,16 +308,18 @@ class MistralSession implements SttSession {
 				if (this.aborted) {
 					return;
 				}
-				this.emitError(errorMessage(error));
+				this.emitError(error);
 			}
 		});
 	}
 
-	private emitError(message: string): void {
+	private emitError(error: unknown): void {
 		if (this.errorEmitted) {
 			return;
 		}
 		this.errorEmitted = true;
+		const message = errorMessage(error);
+		logFailure("batch segment", {}, error, message);
 		const event: OutboundEvent = {
 			type: "error",
 			sessionId: this.sessionId,
@@ -324,11 +342,13 @@ export class MistralAdapter implements SttAdapter {
 	private readonly transcribe: TranscribeFn;
 	private readonly resolveModel: MistralModelResolver;
 	private readonly segmentation: Partial<Omit<SegmenterOptions, "sampleRate">>;
+	private readonly providerOptions: ProviderOptions | undefined;
 
 	constructor(options: MistralAdapterOptions = {}) {
 		this.transcribe = options.transcribe ?? aiTranscribe;
 		this.resolveModel = options.resolveModel ?? defaultSegmentedModel;
 		this.segmentation = options.segmentation ?? {};
+		this.providerOptions = options.providerOptions;
 	}
 
 	start(config: SttSessionConfig, emit: EmitFn): SttSession {
@@ -336,14 +356,30 @@ export class MistralAdapter implements SttAdapter {
 		try {
 			model = this.resolveModel(config);
 		} catch (error) {
+			const message = errorMessage(error);
+			logFailure(
+				"batch start",
+				{
+					provider: config.provider,
+					model: config.model,
+					language: config.language,
+				},
+				error,
+				message,
+			);
 			emit({
 				type: "error",
 				sessionId: config.sessionId,
 				code: "stream_failed",
-				message: errorMessage(error),
+				message,
 			});
 			return new FailedSegmentedSession(config.sessionId, emit);
 		}
+
+		const providerOptions = mergeProviderOptions(
+			this.providerOptions,
+			languageProviderOptions(config.provider, config.language),
+		);
 
 		emit({ type: "started", sessionId: config.sessionId });
 		return new MistralSession(
@@ -352,6 +388,7 @@ export class MistralAdapter implements SttAdapter {
 			this.transcribe,
 			model,
 			config.sampleRate,
+			providerOptions,
 			this.segmentation,
 		);
 	}

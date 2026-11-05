@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { StreamTranscriptionResult, TranscriptionStreamPart } from "ai";
 import { MockTranscriptionModelV4, simulateReadableStream } from "ai/test";
 import type { OutboundEvent } from "../protocol";
-import type { SttSessionConfig } from "./types";
+import { type SttSessionConfig, sessionConfigFromStart } from "./types";
 import {
 	type StreamTranscribeFn,
 	VercelAiSdkAdapter,
@@ -446,5 +446,145 @@ describe("VercelAiSdkAdapter", () => {
 		await session.abort(new Error("stdin closed"));
 
 		expect(events).toEqual([{ type: "started", sessionId: "session-1" }]);
+	});
+});
+
+describe("VercelAiSdkAdapter dictation language", () => {
+	test("never sends the language through the gateway package", async () => {
+		let received: Parameters<StreamTranscribeFn>[0] | undefined;
+		const streamTranscribe: StreamTranscribeFn = (options) => {
+			received = options;
+			return fakeResult();
+		};
+		const { emit } = collect();
+		const adapter = new VercelAiSdkAdapter({
+			streamTranscribe,
+			resolveModel: () => "test-model",
+		});
+
+		// `GatewayProviderOptions` has no `language`: sending it made the gateway
+		// reject the whole stream, so a gateway-routed take must carry nothing.
+		const session = await adapter.start({ ...config, language: "fr" }, emit);
+		await session.stop();
+
+		expect(received !== undefined).toBe(true);
+		expect("providerOptions" in received!).toBe(false);
+	});
+
+	test("forwards the language for a direct provider package", async () => {
+		let received: Parameters<StreamTranscribeFn>[0] | undefined;
+		const streamTranscribe: StreamTranscribeFn = (options) => {
+			received = options;
+			return fakeResult();
+		};
+		const { emit } = collect();
+		const adapter = new VercelAiSdkAdapter({
+			streamTranscribe,
+			resolveModel: () => "test-model",
+		});
+
+		const session = await adapter.start(
+			{ ...config, provider: "openai", language: "fr" },
+			emit,
+		);
+		await session.stop();
+
+		expect(received?.providerOptions).toEqual({
+			openai: { language: "fr" },
+		});
+	});
+
+	test("passes no provider options when no language is set", async () => {
+		let received: Parameters<StreamTranscribeFn>[0] | undefined;
+		const streamTranscribe: StreamTranscribeFn = (options) => {
+			received = options;
+			return fakeResult();
+		};
+		const { emit } = collect();
+		const adapter = new VercelAiSdkAdapter({
+			streamTranscribe,
+			resolveModel: () => "test-model",
+		});
+
+		const session = await adapter.start(config, emit);
+		await session.stop();
+
+		expect(received !== undefined).toBe(true);
+		expect("providerOptions" in received!).toBe(false);
+	});
+
+	test("merges the language into provider options it already had", async () => {
+		let received: Parameters<StreamTranscribeFn>[0] | undefined;
+		const streamTranscribe: StreamTranscribeFn = (options) => {
+			received = options;
+			return fakeResult();
+		};
+		const { emit } = collect();
+		const adapter = new VercelAiSdkAdapter({
+			streamTranscribe,
+			resolveModel: () => "test-model",
+			providerOptions: {
+				gateway: { streaming: { delay: "low" } },
+				openai: { store: false },
+			},
+		});
+
+		const session = await adapter.start({ ...config, language: "fr" }, emit);
+		await session.stop();
+
+		expect(received?.providerOptions).toEqual({
+			gateway: { streaming: { delay: "low" } },
+			openai: { store: false },
+		});
+	});
+
+	test("keeps the existing provider options when no language is set", async () => {
+		let received: Parameters<StreamTranscribeFn>[0] | undefined;
+		const streamTranscribe: StreamTranscribeFn = (options) => {
+			received = options;
+			return fakeResult();
+		};
+		const { emit } = collect();
+		const adapter = new VercelAiSdkAdapter({
+			streamTranscribe,
+			resolveModel: () => "test-model",
+			providerOptions: { gateway: { streaming: { delay: "low" } } },
+		});
+
+		const session = await adapter.start(config, emit);
+		await session.stop();
+
+		expect(received?.providerOptions).toEqual({
+			gateway: { streaming: { delay: "low" } },
+		});
+	});
+});
+
+describe("sessionConfigFromStart", () => {
+	const command = {
+		type: "start" as const,
+		sessionId: "session-1",
+		provider: "vercel-ai-gateway",
+		model: "openai/gpt-transcribe",
+		sampleRate: 16000,
+	};
+
+	test("copies the dictation language", () => {
+		expect(
+			sessionConfigFromStart({ ...command, language: "fr" }, "sk-test"),
+		).toEqual({
+			sessionId: "session-1",
+			provider: "vercel-ai-gateway",
+			model: "openai/gpt-transcribe",
+			sampleRate: 16000,
+			apiKey: "sk-test",
+			language: "fr",
+		});
+	});
+
+	test("omits the language key when the command has none", () => {
+		const config = sessionConfigFromStart(command, "sk-test");
+
+		expect("language" in config).toBe(false);
 	});
 });
