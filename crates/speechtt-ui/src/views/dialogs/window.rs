@@ -1,17 +1,24 @@
 //! Root view of a standalone dialog window.
 //!
-//! The window owns no product state: it renders the controller-backed dialog
-//! and forwards every intent to [`SpeechTtApp`], then closes itself. It uses
-//! the same Header + Body structure as the widget window.
+//! The window holds no product state: it renders the controller-backed dialog
+//! and forwards every intent to [`SpeechTtApp`], then closes itself. Its one
+//! piece of view state is the pair of Settings dropdown states, refreshed from
+//! the app's controller on every frame. It uses the same Header + Body
+//! structure as the widget window.
 
 use gpui_kit::assets::IconName;
 use gpui_kit::base::v_flex;
 use gpui_kit::component::ActiveTheme as _;
+use gpui_kit::component::select::{SearchableVec, SelectEvent};
 use gpui_kit::prelude::*;
-use gpui_kit::{Context, Entity, FocusHandle, IntoElement, KeyDownEvent, Render, Window};
+use gpui_kit::{
+    Context, Entity, FocusHandle, IntoElement, KeyDownEvent, Render, Subscription, Window,
+};
 
 use crate::app::SpeechTtApp;
-use crate::components::{AppHeader, IconButton};
+use crate::components::{
+    AppHeader, IconButton, ModelOption, ProviderOption, SelectFields, SelectSnapshot,
+};
 use crate::controller::{Dialog, HelpTab};
 use crate::views::dialogs::{help, settings, window_title};
 
@@ -19,6 +26,10 @@ pub(crate) struct DialogWindow {
     dialog: Dialog,
     app: Entity<SpeechTtApp>,
     focus: FocusHandle,
+    /// The provider and model dropdowns of the Settings dialog.
+    selects: SelectFields,
+    /// Keeps the select and app subscriptions alive; dropped with the window.
+    _subscriptions: Vec<Subscription>,
 }
 
 impl DialogWindow {
@@ -30,11 +41,47 @@ impl DialogWindow {
     ) -> Self {
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
-        Self { dialog, app, focus }
+
+        let selects = SelectFields::new(window, cx);
+        let provider_subscription = cx.subscribe(
+            selects.provider(),
+            |this, _, event: &SelectEvent<SearchableVec<ProviderOption>>, cx| {
+                if let SelectEvent::Confirm(Some(id)) = event {
+                    let id = id.to_string();
+                    this.app
+                        .update(cx, |app, cx| app.set_settings_provider(&id, cx));
+                }
+            },
+        );
+        let model_subscription = cx.subscribe(
+            selects.model(),
+            |this, _, event: &SelectEvent<SearchableVec<ModelOption>>, cx| {
+                if let SelectEvent::Confirm(Some(id)) = event {
+                    let id = id.to_string();
+                    this.app
+                        .update(cx, |app, cx| app.set_settings_model(&id, cx));
+                }
+            },
+        );
+        // An arriving catalogue changes the menus, so the open dialog repaints.
+        let app_observer = cx.observe(&app, |_, _, cx| cx.notify());
+
+        Self {
+            dialog,
+            app,
+            focus,
+            selects,
+            _subscriptions: vec![provider_subscription, model_subscription, app_observer],
+        }
     }
 
     pub(crate) fn app(&self) -> &Entity<SpeechTtApp> {
         &self.app
+    }
+
+    /// The Settings provider and model dropdown states.
+    pub(crate) fn selects(&self) -> &SelectFields {
+        &self.selects
     }
 
     /// Cancel/Escape/close-button path: discard the draft and close the window.
@@ -46,15 +93,6 @@ impl DialogWindow {
     /// Switches the Help dialog page (Shortcuts / Models).
     pub(crate) fn select_help_tab(&mut self, tab: HelpTab, cx: &mut Context<Self>) {
         self.app.update(cx, |app, cx| app.set_help_tab(tab, cx));
-    }
-
-    pub(crate) fn cycle_provider(&mut self, cx: &mut Context<Self>) {
-        self.app
-            .update(cx, |app, cx| app.cycle_settings_provider(cx));
-    }
-
-    pub(crate) fn cycle_model(&mut self, cx: &mut Context<Self>) {
-        self.app.update(cx, |app, cx| app.cycle_settings_model(cx));
     }
 
     pub(crate) fn toggle_key_reveal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -72,7 +110,19 @@ impl DialogWindow {
 }
 
 impl Render for DialogWindow {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let snapshot = {
+            let app = self.app.read(cx);
+            let controller = app.controller();
+            SelectSnapshot {
+                providers: controller.settings_provider_options(),
+                selected_provider: app.settings_draft().provider.clone(),
+                models: controller.settings_model_options(),
+                selected_model: app.settings_draft().model.clone(),
+            }
+        };
+        self.selects.sync(snapshot, window, cx);
+
         let body = match self.dialog {
             Dialog::Help => help::render(self, cx),
             Dialog::Settings => settings::render(self, cx),

@@ -11,10 +11,11 @@
 //! registered at all.
 
 use gpui_kit::assets::IconName;
-use gpui_kit::test::TestWindowExt;
+use gpui_kit::test::{TestAppContextExt as _, TestWindowExt};
 use gpui_kit::{
     App, AppContext as _, Entity, Modifiers, MouseButton, TestAppContext, VisualTestContext, Window,
 };
+use speechtt_core::protocol::TranscriptionMode;
 use speechtt_core::session::SessionState;
 use speechtt_ui::app::SpeechTtApp;
 use speechtt_ui::components::{
@@ -44,8 +45,8 @@ fn drive_all_screens(view: &Entity<SpeechTtApp>, window: &mut Window, cx: &mut A
 
     // Fill the form so `Continue` is live.
     view.update(cx, |view, cx| {
-        view.cycle_provider(cx);
-        view.cycle_model(cx);
+        view.set_draft_provider("vercel-ai-gateway", cx);
+        view.set_draft_model("openai/gpt-4o-transcribe", cx);
     });
     window.render_frame(cx);
 
@@ -245,8 +246,8 @@ fn saving_from_the_stopped_screen_writes_the_chosen_path(cx: &mut TestAppContext
     cx.update_window(window.into(), |_, window, cx| {
         view.update(cx, |app, cx| {
             app.choose_mode(SessionMode::Live, cx);
-            app.cycle_provider(cx);
-            app.cycle_model(cx);
+            app.set_draft_provider("vercel-ai-gateway", cx);
+            app.set_draft_model("openai/gpt-4o-transcribe", cx);
             app.create_session(cx);
             app.start_recording(cx);
         });
@@ -298,8 +299,8 @@ fn a_long_live_transcript_keeps_growing_and_renders(cx: &mut TestAppContext) {
     cx.update_window(window.into(), |_, window, cx| {
         view.update(cx, |app, cx| {
             app.choose_mode(SessionMode::Live, cx);
-            app.cycle_provider(cx);
-            app.cycle_model(cx);
+            app.set_draft_provider("vercel-ai-gateway", cx);
+            app.set_draft_model("openai/gpt-4o-transcribe", cx);
             app.create_session(cx);
             app.start_recording(cx);
         });
@@ -466,8 +467,8 @@ fn back_returns_to_the_mode_chooser_from_every_screen(cx: &mut TestAppContext) {
         // Mode → live idle: back returns home without starting a take.
         view.update(cx, |view, cx| {
             view.choose_mode(SessionMode::Live, cx);
-            view.cycle_provider(cx);
-            view.cycle_model(cx);
+            view.set_draft_provider("vercel-ai-gateway", cx);
+            view.set_draft_model("openai/gpt-4o-transcribe", cx);
             view.create_session(cx);
         });
         window.render_frame(cx);
@@ -479,8 +480,8 @@ fn back_returns_to_the_mode_chooser_from_every_screen(cx: &mut TestAppContext) {
         // A finished take: back clears it instead of showing it again.
         view.update(cx, |view, cx| {
             view.choose_mode(SessionMode::Live, cx);
-            view.cycle_provider(cx);
-            view.cycle_model(cx);
+            view.set_draft_provider("vercel-ai-gateway", cx);
+            view.set_draft_model("openai/gpt-4o-transcribe", cx);
             view.create_session(cx);
             view.start_recording(cx);
             view.pause_recording(cx);
@@ -606,8 +607,8 @@ fn the_take_screen_renders_the_mic_control_in_every_state(cx: &mut TestAppContex
         // Idle Live screen: configured, so answering the form is not needed.
         view.update(cx, |view, cx| {
             view.choose_mode(SessionMode::Live, cx);
-            view.cycle_provider(cx);
-            view.cycle_model(cx);
+            view.set_draft_provider("vercel-ai-gateway", cx);
+            view.set_draft_model("openai/gpt-4o-transcribe", cx);
             view.create_session(cx);
         });
         window.render_frame(cx);
@@ -641,8 +642,8 @@ fn the_take_screen_ends_on_the_forward_arrow(cx: &mut TestAppContext) {
     cx.update_window(window.into(), |_, window, cx| {
         view.update(cx, |view, cx| {
             view.choose_mode(SessionMode::Live, cx);
-            view.cycle_provider(cx);
-            view.cycle_model(cx);
+            view.set_draft_provider("vercel-ai-gateway", cx);
+            view.set_draft_model("openai/gpt-4o-transcribe", cx);
             view.create_session(cx);
             view.start_recording(cx);
         });
@@ -668,8 +669,8 @@ fn reset_and_cancel_are_reachable_from_the_take_screen(cx: &mut TestAppContext) 
     cx.update_window(window.into(), |_, window, cx| {
         view.update(cx, |view, cx| {
             view.choose_mode(SessionMode::Live, cx);
-            view.cycle_provider(cx);
-            view.cycle_model(cx);
+            view.set_draft_provider("vercel-ai-gateway", cx);
+            view.set_draft_model("openai/gpt-4o-transcribe", cx);
             view.create_session(cx);
             view.start_recording(cx);
         });
@@ -727,8 +728,8 @@ fn the_file_transcription_screen_renders_while_decoding_and_after(cx: &mut TestA
         view.update(cx, |view, cx| {
             view.choose_mode(SessionMode::File, cx);
             assert!(view.accept_picked_file(media.clone(), cx));
-            view.cycle_provider(cx);
-            view.cycle_model(cx);
+            view.set_draft_provider("vercel-ai-gateway", cx);
+            view.set_draft_model("openai/gpt-4o-transcribe", cx);
             view.create_session(cx);
         });
         window.render_frame(cx);
@@ -773,4 +774,106 @@ fn continue_is_inert_until_a_file_take_has_finished(cx: &mut TestAppContext) {
         assert!(!view.read(cx).is_awaiting_continue());
     })
     .unwrap();
+}
+
+// ----- The provider and model dropdowns --------------------------------
+
+#[gpui_kit::test]
+async fn the_setup_form_menus_commit_the_provider_and_model(cx: &mut TestAppContext) {
+    let (window, view) = open_speechtt_window(cx);
+
+    cx.update_window(window.into(), |_, window, cx| {
+        view.update(cx, |app, cx| app.choose_mode(SessionMode::Live, cx));
+        window.render_frame(cx);
+
+        // Open the provider menu, move to the first entry and confirm it the
+        // way a keyboard user does.
+        window.within("field-provider").click("input", cx);
+        window.press("down", cx);
+        window.press("enter", cx);
+    })
+    .unwrap();
+
+    cx.wait_for(
+        window.into(),
+        std::time::Duration::from_millis(500),
+        |_, cx| view.read(cx).draft_provider() == Some("vercel-ai-gateway"),
+    )
+    .await;
+
+    cx.update(|cx| {
+        assert_eq!(
+            view.read(cx).draft_model(),
+            None,
+            "choosing a provider clears the dependent model"
+        );
+    });
+
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.within("field-model").click("input", cx);
+        window.press("down", cx);
+        window.press("enter", cx);
+    })
+    .unwrap();
+
+    cx.wait_for(
+        window.into(),
+        std::time::Duration::from_millis(500),
+        |_, cx| view.read(cx).draft_model() == Some("openai/gpt-4o-transcribe"),
+    )
+    .await;
+
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert_eq!(app.draft_model(), Some("openai/gpt-4o-transcribe"));
+        assert_eq!(
+            app.draft_model_mode(),
+            Some(TranscriptionMode::Segmented),
+            "the menu commits the model the catalogue labels segmented"
+        );
+    });
+}
+
+#[gpui_kit::test]
+async fn the_settings_menus_commit_the_settings_draft(cx: &mut TestAppContext) {
+    let (main, view) = open_speechtt_window(cx);
+
+    cx.update_window(main.into(), |_, window, cx| {
+        view.update(cx, |app, cx| app.open_settings(window, cx));
+        window.render_frame(cx);
+    })
+    .unwrap();
+
+    let dialog = cx
+        .windows()
+        .into_iter()
+        .find(|window| window.window_id() != main.window_id())
+        .expect("Settings opened its own window");
+
+    cx.update_window(dialog, |_, window, cx| {
+        window.render_frame(cx);
+        window.within("field-settings-provider").click("input", cx);
+        window.press("down", cx);
+        window.press("enter", cx);
+    })
+    .unwrap();
+
+    cx.wait_for(dialog, std::time::Duration::from_millis(500), |_, cx| {
+        view.read(cx).settings_draft().provider.as_deref() == Some("vercel-ai-gateway")
+    })
+    .await;
+
+    cx.update_window(dialog, |_, window, cx| {
+        window.render_frame(cx);
+        window.within("field-settings-model").click("input", cx);
+        window.press("down", cx);
+        window.press("enter", cx);
+    })
+    .unwrap();
+
+    cx.wait_for(dialog, std::time::Duration::from_millis(500), |_, cx| {
+        view.read(cx).settings_draft().model.as_deref() == Some("openai/gpt-4o-transcribe")
+    })
+    .await;
 }

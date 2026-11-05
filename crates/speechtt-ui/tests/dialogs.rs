@@ -223,8 +223,8 @@ fn dialogs_render_and_save_through_the_app(cx: &mut gpui_kit::TestAppContext) {
         assert_eq!(view.read(cx).active_dialog(), Some(Dialog::Settings));
 
         view.update(cx, |app, cx| {
-            app.cycle_settings_provider(cx);
-            app.cycle_settings_model(cx);
+            app.set_settings_provider("vercel-ai-gateway", cx);
+            app.set_settings_model("openai/gpt-4o-transcribe", cx);
             app.set_settings_api_key_value("sk-app-test", window, cx);
         });
         window.render_frame(cx);

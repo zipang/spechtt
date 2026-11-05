@@ -11,29 +11,43 @@
 
 use gpui_kit::assets::IconName;
 use gpui_kit::base::{h_flex, v_flex};
-use gpui_kit::component::button::Button;
-use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::scroll::ScrollableElement as _;
-use gpui_kit::component::{Disableable as _, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, Context};
 
 use crate::app::SpeechTtApp;
-use crate::components::{IconAction, InfoNote, ScreenFooter, SettingRow, TranscriptionModeBadge};
+use crate::components::{
+    IconAction, InfoNote, ModelSelect, ProviderSelect, ScreenFooter, SettingRow,
+    TranscriptionModeBadge,
+};
 use crate::controller::SessionMode;
 use crate::layout::ScreenShell;
 
 pub(crate) fn render(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyElement {
-    let (provider_label, model_label, model_mode, has_provider, file_mode, can_create) = {
+    let (
+        catalogue_loaded,
+        provider_placeholder,
+        model_placeholder,
+        model_mode,
+        has_provider,
+        file_mode,
+        can_create,
+    ) = {
         let controller = app.controller();
+        let catalogue_loaded = controller.catalogue_loaded();
         let has_provider = controller.has_provider();
         (
-            controller.provider_label().unwrap_or("Choose provider"),
-            controller.model_label().unwrap_or(if has_provider {
+            catalogue_loaded,
+            if catalogue_loaded {
+                "Choose provider"
+            } else {
+                "Loading providers…"
+            },
+            if has_provider {
                 "Choose model"
             } else {
                 "Choose provider first"
-            }),
+            },
             controller.draft_model_mode(),
             has_provider,
             controller.mode() == SessionMode::File,
@@ -41,19 +55,12 @@ pub(crate) fn render(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyEle
         )
     };
 
-    let provider_select = Button::new("field-provider")
-        .secondary()
-        .small()
-        .label(provider_label)
-        .dropdown_caret(true)
-        .on_click(cx.listener(|this, _event, _window, cx| this.cycle_provider(cx)));
-    let model_select = Button::new("field-model")
-        .secondary()
-        .small()
-        .label(model_label)
-        .dropdown_caret(true)
-        .disabled(!has_provider)
-        .on_click(cx.listener(|this, _event, _window, cx| this.cycle_model(cx)));
+    let provider_select = ProviderSelect::new("field-provider", app.draft_selects().provider())
+        .placeholder(provider_placeholder)
+        .disabled(!catalogue_loaded);
+    let model_select = ModelSelect::new("field-model", app.draft_selects().model())
+        .placeholder(model_placeholder)
+        .disabled(!has_provider);
 
     let model_control = {
         let mut row = h_flex().gap_2().items_center().child(model_select);

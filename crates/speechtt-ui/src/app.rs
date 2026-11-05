@@ -29,6 +29,7 @@ use gpui_kit::base::{TextSelection, h_flex, v_flex};
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::{InputEvent, InputState};
+use gpui_kit::component::select::{SearchableVec, SelectEvent};
 use gpui_kit::component::{Sizable as _, button::Button};
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
@@ -52,10 +53,14 @@ use speechtt_core::hotkeys::{
 use speechtt_core::output::clipboard::{ClipboardSink, SystemClipboard};
 use speechtt_core::output::file::{FileOpener, SystemOpener, suggested_transcript_name};
 use speechtt_core::output::paste::{PasteSink, SystemPaste};
+use speechtt_core::protocol::TranscriptionMode;
 use speechtt_core::session::{SessionField, SessionState};
 use speechtt_core::settings::{JsonFileStore, Settings, SettingsStore, WindowLayout};
 
-use crate::components::{AppHeader, IconButton, Label, Ripple, RippleRing};
+use crate::components::{
+    AppHeader, IconButton, Label, ModelOption, ProviderOption, Ripple, RippleRing, SelectFields,
+    SelectSnapshot,
+};
 use crate::controller::{
     AppError, Clock, Dialog, ErrorAction, FinishedTake, HelpTab, SAMPLE_RATE, SessionController,
     SessionMode, SettingsChange, SettingsDraft, SystemClock, ViewState,
@@ -139,6 +144,8 @@ pub struct SpeechTtApp {
     ripple_seq: u64,
     settings_api_key: Entity<InputState>,
     settings_key_revealed: bool,
+    /// The provider and model dropdowns of the Session setup form.
+    draft_selects: SelectFields,
     /// The open dialog window, if any. Dialogs are separate floating windows.
     dialog_window: Option<(Dialog, AnyWindowHandle)>,
     /// Mirrors the dialog window id for the window-closed observer, which runs
@@ -250,6 +257,24 @@ impl SpeechTtApp {
                 }
             });
 
+        let draft_selects = SelectFields::new(window, cx);
+        let provider_subscription = cx.subscribe(
+            draft_selects.provider(),
+            |this, _, event: &SelectEvent<SearchableVec<ProviderOption>>, cx| {
+                if let SelectEvent::Confirm(Some(id)) = event {
+                    this.set_draft_provider(id.as_ref(), cx);
+                }
+            },
+        );
+        let model_subscription = cx.subscribe(
+            draft_selects.model(),
+            |this, _, event: &SelectEvent<SearchableVec<ModelOption>>, cx| {
+                if let SelectEvent::Confirm(Some(id)) = event {
+                    this.set_draft_model(id.as_ref(), cx);
+                }
+            },
+        );
+
         // An OS-level close (window manager X button) must clear the dialog
         // state just like the in-window Cancel button does. Our own closes
         // clear the tracked id first, so this observer never re-enters the
@@ -283,10 +308,16 @@ impl SpeechTtApp {
             ripple_seq: 0,
             settings_api_key,
             settings_key_revealed: false,
+            draft_selects,
             dialog_window: None,
             dialog_window_id,
             pending_settings: None,
-            _subscriptions: vec![settings_subscription, window_closed],
+            _subscriptions: vec![
+                settings_subscription,
+                provider_subscription,
+                model_subscription,
+                window_closed,
+            ],
             _event_task: None,
             _clock_task: None,
             _audio_task: None,
@@ -516,6 +547,26 @@ impl SpeechTtApp {
         &self.controller
     }
 
+    /// The provider and model dropdowns of the Session setup form.
+    pub(crate) fn draft_selects(&self) -> &SelectFields {
+        &self.draft_selects
+    }
+
+    /// Catalogue id of the provider chosen for the next take.
+    pub fn draft_provider(&self) -> Option<&str> {
+        self.controller.draft_provider()
+    }
+
+    /// Catalogue id of the model chosen for the next take.
+    pub fn draft_model(&self) -> Option<&str> {
+        self.controller.draft_model()
+    }
+
+    /// Mode of the model chosen for the next take.
+    pub fn draft_model_mode(&self) -> Option<TranscriptionMode> {
+        self.controller.draft_model_mode()
+    }
+
     /// Scroll position of the live caption well, passed to
     /// [`crate::components::CaptionWell::follow`] by the take screen.
     pub(crate) fn caption_scroll(&self) -> &ScrollHandle {
@@ -570,14 +621,22 @@ impl SpeechTtApp {
         cx.notify();
     }
 
-    pub fn cycle_provider(&mut self, cx: &mut Context<Self>) {
-        self.controller.cycle_provider();
+    /// Commits the dropdown's provider choice into the setup draft.
+    pub fn set_draft_provider(&mut self, provider: &str, cx: &mut Context<Self>) -> bool {
+        if !self.controller.set_draft_provider(provider) {
+            return false;
+        }
         cx.notify();
+        true
     }
 
-    pub fn cycle_model(&mut self, cx: &mut Context<Self>) {
-        self.controller.cycle_model();
+    /// Commits the dropdown's model choice into the setup draft.
+    pub fn set_draft_model(&mut self, model: &str, cx: &mut Context<Self>) -> bool {
+        if !self.controller.set_draft_model(model) {
+            return false;
+        }
         cx.notify();
+        true
     }
 
     pub fn create_session(&mut self, cx: &mut Context<Self>) {
@@ -1052,14 +1111,22 @@ impl SpeechTtApp {
         }
     }
 
-    pub fn cycle_settings_provider(&mut self, cx: &mut Context<Self>) {
-        self.controller.cycle_settings_provider();
+    /// Commits the Settings dropdown's provider choice into the draft.
+    pub fn set_settings_provider(&mut self, provider: &str, cx: &mut Context<Self>) -> bool {
+        if !self.controller.set_settings_provider(provider) {
+            return false;
+        }
         cx.notify();
+        true
     }
 
-    pub fn cycle_settings_model(&mut self, cx: &mut Context<Self>) {
-        self.controller.cycle_settings_model();
+    /// Commits the Settings dropdown's model choice into the draft.
+    pub fn set_settings_model(&mut self, model: &str, cx: &mut Context<Self>) -> bool {
+        if !self.controller.set_settings_model(model) {
+            return false;
+        }
         cx.notify();
+        true
     }
 
     /// Mirrors a typed key into both the controller and the masked input.
@@ -1365,6 +1432,18 @@ impl gpui_kit::Render for SpeechTtApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl gpui_kit::IntoElement {
+        // The setup form is the only screen that shows these menus, so the
+        // catalogue snapshot is rebuilt only while it is on screen.
+        if self.view_state() == ViewState::Form {
+            let snapshot = SelectSnapshot {
+                providers: self.controller.draft_provider_options(),
+                selected_provider: self.controller.draft_provider().map(str::to_string),
+                models: self.controller.draft_model_options(),
+                selected_model: self.controller.draft_model().map(str::to_string),
+            };
+            self.draft_selects.sync(snapshot, window, cx);
+        }
+
         // The root declares the application's key context and owns the copy
         // command, so a `secondary-c` keystroke is resolved against the widget
         // rather than against the window root's generic selection binding. The

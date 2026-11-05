@@ -13,8 +13,8 @@ use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, Context, IntoElement};
 
 use crate::components::{
-    ActionButton, AppFooter, Body, InfoNote, Label, SettingRow, StatusBadge, StatusDot,
-    TranscriptionModeBadge,
+    ActionButton, AppFooter, Body, InfoNote, Label, ModelSelect, ProviderSelect, SettingRow,
+    StatusBadge, StatusDot, TranscriptionModeBadge,
 };
 use crate::tokens::color;
 use crate::views::dialogs::{DialogShell, DialogWindow};
@@ -23,8 +23,6 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
     let (
         has_provider,
         catalogue_loaded,
-        provider_label,
-        model_label,
         model_mode,
         connected,
         valid,
@@ -40,20 +38,6 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
         let controller = app.controller();
         let has_provider = app.settings_draft().provider.is_some();
         let catalogue_loaded = controller.catalogue_loaded();
-        let provider_label = controller
-            .settings_provider_label()
-            .unwrap_or(if catalogue_loaded {
-                "Choose provider"
-            } else {
-                "Loading providers…"
-            });
-        let model_label = controller
-            .settings_model_label()
-            .unwrap_or(if has_provider {
-                "Choose model"
-            } else {
-                "Choose provider first"
-            });
         let unavailable = app
             .settings_draft()
             .provider
@@ -63,8 +47,6 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
         (
             has_provider,
             catalogue_loaded,
-            provider_label,
-            model_label,
             controller.settings_model_mode(),
             controller.settings_connected(),
             controller.settings_draft_valid(),
@@ -81,26 +63,21 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
         )
     };
 
-    let mut provider_select = Button::new("field-settings-provider")
-        .secondary()
-        .small()
-        .label(provider_label)
-        .dropdown_caret(true)
-        .disabled(!catalogue_loaded)
-        .on_click(cx.listener(|this, _event, _window, cx| this.cycle_provider(cx)));
-    if !catalogue_loaded {
-        provider_select = provider_select.disabled(true);
-    }
-    let mut model_select = Button::new("field-settings-model")
-        .secondary()
-        .small()
-        .label(model_label)
-        .dropdown_caret(true)
-        .disabled(!has_provider)
-        .on_click(cx.listener(|this, _event, _window, cx| this.cycle_model(cx)));
-    if !has_provider {
-        model_select = model_select.disabled(true);
-    }
+    let provider_select =
+        ProviderSelect::new("field-settings-provider", dialog.selects().provider())
+            .placeholder(if catalogue_loaded {
+                "Choose provider"
+            } else {
+                "Loading providers…"
+            })
+            .disabled(!catalogue_loaded);
+    let model_select = ModelSelect::new("field-settings-model", dialog.selects().model())
+        .placeholder(if has_provider {
+            "Choose model"
+        } else {
+            "Choose provider first"
+        })
+        .disabled(!has_provider);
 
     let model_control = {
         let mut row = h_flex().gap_2().items_center().child(model_select);

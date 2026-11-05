@@ -19,6 +19,7 @@ mod icon_action;
 mod icon_button;
 mod info_note;
 mod key_cap;
+mod model_select;
 mod progress_bar;
 mod ripple;
 mod round_button;
@@ -44,6 +45,9 @@ pub use icon_action::IconAction;
 pub use icon_button::IconButton;
 pub use info_note::InfoNote;
 pub use key_cap::KeyCap;
+pub use model_select::{
+    ModelOption, ModelSelect, ProviderOption, ProviderSelect, SelectFields, SelectSnapshot,
+};
 pub use progress_bar::{
     PROGRESS_BARS, ProgressBar, bar_height, progress_fraction, progress_readout, revealed_bars,
 };

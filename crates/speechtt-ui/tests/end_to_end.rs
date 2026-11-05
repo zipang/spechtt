@@ -1125,8 +1125,8 @@ fn the_app_constructs_from_fakes_and_persists_settings(cx: &mut gpui_kit::TestAp
         view.update(cx, |app, cx| app.open_settings(window, cx));
         window.render_frame(cx);
         view.update(cx, |app, cx| {
-            app.cycle_settings_provider(cx);
-            app.cycle_settings_model(cx);
+            app.set_settings_provider("vercel-ai-gateway", cx);
+            app.set_settings_model("openai/gpt-4o-transcribe", cx);
             app.set_settings_api_key_value("sk-app-round-trip", window, cx);
             assert!(app.save_settings(cx));
         });
@@ -1167,8 +1167,8 @@ fn the_shared_test_window_does_not_write_the_real_settings_file(cx: &mut gpui_ki
     cx.update_window(window.into(), |_, window, cx| {
         view.update(cx, |app, cx| app.open_settings(window, cx));
         view.update(cx, |app, cx| {
-            app.cycle_settings_provider(cx);
-            app.cycle_settings_model(cx);
+            app.set_settings_provider("vercel-ai-gateway", cx);
+            app.set_settings_model("openai/gpt-4o-transcribe", cx);
             app.set_settings_api_key_value("sk-hermetic", window, cx);
             assert!(app.save_settings(cx));
         });
@@ -1297,8 +1297,8 @@ fn a_mixed_case_settings_key_is_saved_byte_for_byte(cx: &mut gpui_kit::TestAppCo
     cx.update_window(window.into(), |_, window, cx| {
         view.update(cx, |app, cx| {
             app.open_settings(window, cx);
-            app.cycle_settings_provider(cx);
-            app.cycle_settings_model(cx);
+            app.set_settings_provider("vercel-ai-gateway", cx);
+            app.set_settings_model("openai/gpt-4o-transcribe", cx);
             app.set_settings_api_key_value(MIXED_CASE_KEY, window, cx);
 
             assert!(
@@ -1362,8 +1362,8 @@ fn a_pasted_mixed_case_key_reaches_the_store_unchanged(cx: &mut gpui_kit::TestAp
     cx.update_window(window.into(), |_, window, cx| {
         view.update(cx, |app, cx| {
             app.open_settings(window, cx);
-            app.cycle_settings_provider(cx);
-            app.cycle_settings_model(cx);
+            app.set_settings_provider("vercel-ai-gateway", cx);
+            app.set_settings_model("openai/gpt-4o-transcribe", cx);
         });
         // A paste is a whole-value input update, the same path
         // `set_settings_api_key_value` drives through `InputState::set_value`.
@@ -1550,8 +1550,8 @@ fn ready_app_for_files(
             // (picker -> form -> take).
             app.choose_mode(SessionMode::File, cx);
             assert_eq!(app.view_state(), ViewState::Mode);
-            app.cycle_provider(cx);
-            app.cycle_model(cx);
+            app.set_draft_provider("vercel-ai-gateway", cx);
+            app.set_draft_model("openai/gpt-4o-transcribe", cx);
             app.create_session(cx);
             assert_eq!(app.view_state(), ViewState::Form);
         });

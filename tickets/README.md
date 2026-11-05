@@ -110,21 +110,15 @@ Decisions, deviations, verification output.
 | [T0024](done/T0024-media-only-file-picker.md) | Accept only media files for file transcription | Rust core + UI |
 | [T0025](done/T0025-file-transcription-view.md) | Dedicated transcription screen for file takes | Rust UI (controller + views + components + design system) |
 | [T0027](done/T0027-selectable-transcript-text.md) | Selectable, copyable transcript text | Rust UI (text + caption well + design) |
+| [T0028](done/T0028-real-dropdown-transcription-selects.md) | Real dropdown menus for the transcription provider and model | Rust UI (components + views + controller + design) |
 
 ### In Progress
 
-| Ticket | Title | Track |
-|---|---|---|
-| [T0026](done/T0026-live-transcript-scroll-and-stable-buffer.md) | Live transcript: append-only buffer and a scrolling caption well | Rust core + Rust UI + Bun worker |
+_(none)_
 
 ### Review
 
 _(none)_
-
-`T0026` is validated and closed after the user's field validation: the
-duplicated-live-text root cause, the scroll follow and the CTO review findings
-are fixed, and every gate is green (Rust 451 tests, Bun 221, design contract
-valid).
 
 ### Planned
 

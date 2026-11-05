@@ -689,6 +689,19 @@ impl fmt::Debug for SettingsChange {
     }
 }
 
+/// One entry offered by a provider or model dropdown.
+///
+/// Built from the capability catalogue so the menus never carry a hardcoded
+/// list: `id` is the value a selection commits, `label` is what the row shows,
+/// and `mode` is the catalogue mode for model entries (`None` for providers).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SelectOption {
+    pub id: String,
+    pub label: String,
+    /// `None` for provider entries; the catalogue mode for model entries.
+    pub mode: Option<TranscriptionMode>,
+}
+
 /// Form values not yet committed to the machine.
 ///
 /// Provider and model are catalogue ids (capabilities when available, else
@@ -1080,6 +1093,18 @@ impl SessionController {
         self.draft.model.is_some()
     }
 
+    /// Catalogue id of the provider chosen for the next take.
+    #[must_use]
+    pub fn draft_provider(&self) -> Option<&str> {
+        self.draft.provider.as_deref()
+    }
+
+    /// Catalogue id of the model chosen for the next take.
+    #[must_use]
+    pub fn draft_model(&self) -> Option<&str> {
+        self.draft.model.as_deref()
+    }
+
     pub fn provider_label(&self) -> Option<&str> {
         self.provider_label_for(self.draft.provider.as_deref()?)
     }
@@ -1151,6 +1176,43 @@ impl SessionController {
             .unwrap_or_default()
     }
 
+    fn capability_provider_options(&self) -> Vec<SelectOption> {
+        self.capabilities
+            .as_ref()
+            .map_or_else(Vec::new, |providers| {
+                providers
+                    .iter()
+                    .map(|option| SelectOption {
+                        id: option.id.clone(),
+                        label: option.label.clone(),
+                        mode: None,
+                    })
+                    .collect()
+            })
+    }
+
+    /// Census of a provider's models as dropdown options.
+    ///
+    /// With `all_models = false` only [`TranscriptionMode::Segmented`] models
+    /// are listed, which is the file-take rule.
+    fn capability_model_options(&self, provider: &str, all_models: bool) -> Vec<SelectOption> {
+        self.capabilities
+            .as_ref()
+            .and_then(|providers| providers.iter().find(|option| option.id == provider))
+            .map_or_else(Vec::new, |option| {
+                option
+                    .models
+                    .iter()
+                    .filter(|model| all_models || model.mode == TranscriptionMode::Segmented)
+                    .map(|model| SelectOption {
+                        id: model.id.clone(),
+                        label: model.label.clone(),
+                        mode: Some(model.mode),
+                    })
+                    .collect()
+            })
+    }
+
     // ----- Dialogs -----------------------------------------------------
 
     /// The overlay currently open, if any.
@@ -1203,6 +1265,46 @@ impl SessionController {
             self.draft.provider.as_deref()?,
             self.draft.model.as_deref()?,
         )
+    }
+
+    /// Every provider in the capability catalogue, in catalogue order.
+    ///
+    /// Empty before the handshake arrives, so the Session setup provider menu
+    /// has nothing to show rather than a stale list.
+    #[must_use]
+    pub fn draft_provider_options(&self) -> Vec<SelectOption> {
+        self.capability_provider_options()
+    }
+
+    /// The models the setup form may offer for the chosen provider.
+    ///
+    /// A file take is decoded in batches, so file mode lists only
+    /// [`TranscriptionMode::Segmented`] models; live mode lists every model.
+    /// Empty when no provider is chosen.
+    #[must_use]
+    pub fn draft_model_options(&self) -> Vec<SelectOption> {
+        let Some(provider) = self.draft.provider.as_deref() else {
+            return Vec::new();
+        };
+        self.capability_model_options(provider, self.mode != SessionMode::File)
+    }
+
+    /// Every provider in the capability catalogue, for the Settings menu.
+    #[must_use]
+    pub fn settings_provider_options(&self) -> Vec<SelectOption> {
+        self.capability_provider_options()
+    }
+
+    /// Every model the Settings provider offers.
+    ///
+    /// The Settings dialog is not bound to a take mode, so it lists the whole
+    /// provider catalogue. Empty until a provider is chosen.
+    #[must_use]
+    pub fn settings_model_options(&self) -> Vec<SelectOption> {
+        let Some(provider) = self.settings_draft.provider.as_deref() else {
+            return Vec::new();
+        };
+        self.capability_model_options(provider, true)
     }
 
     /// Mode of the model selected in the Settings dialog.
@@ -1872,6 +1974,43 @@ impl SessionController {
         self.app_error = None;
         self.output_status = None;
         self.written_path = None;
+    }
+
+    /// Selects the draft provider by catalogue id.
+    ///
+    /// Returns `true` when `provider` exists in the catalogue and was applied.
+    /// Choosing a different provider clears the draft model, because a model
+    /// belongs to its provider. Re-selecting the current provider keeps it.
+    pub fn set_draft_provider(&mut self, provider: &str) -> bool {
+        if !self.provider_exists(provider) {
+            return false;
+        }
+        if self.draft.provider.as_deref() != Some(provider) {
+            self.draft.provider = Some(provider.to_string());
+            self.draft.model = None;
+        }
+        true
+    }
+
+    /// Selects the draft model by catalogue id.
+    ///
+    /// Returns `true` when `model` belongs to the draft provider and, in file
+    /// mode, is a [`TranscriptionMode::Segmented`] model. Streaming models are
+    /// rejected for file takes because the worker only batches files.
+    pub fn set_draft_model(&mut self, model: &str) -> bool {
+        let Some(provider) = self.draft.provider.clone() else {
+            return false;
+        };
+        if !self.model_exists(&provider, model) {
+            return false;
+        }
+        if self.mode == SessionMode::File
+            && self.model_mode(&provider, model) != Some(TranscriptionMode::Segmented)
+        {
+            return false;
+        }
+        self.draft.model = Some(model.to_string());
+        true
     }
 
     pub fn cycle_provider(&mut self) {
@@ -3023,6 +3162,203 @@ mod tests {
             controller.settings_api_key_env(),
             Some("AI_GATEWAY_API_KEY")
         );
+    }
+
+    fn live_form() -> SessionController {
+        let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
+        assert!(!controller.choose_mode(SessionMode::Live));
+        controller
+    }
+
+    fn file_form() -> SessionController {
+        let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
+        assert!(!controller.choose_mode(SessionMode::File));
+        controller
+            .set_pending_file(PathBuf::from("/tmp/interview.mp4"))
+            .expect("a media file opens the form");
+        controller
+    }
+
+    #[test]
+    fn provider_options_preserve_catalogue_order_and_labels() {
+        let controller = live_form();
+        let options = controller.draft_provider_options();
+
+        assert_eq!(options.len(), 1);
+        assert_eq!(options[0].id, "vercel-ai-gateway");
+        assert_eq!(options[0].label, "Vercel AI Gateway");
+        assert_eq!(options[0].mode, None, "providers have no model mode");
+    }
+
+    #[test]
+    fn provider_options_are_empty_before_the_catalogue_arrives() {
+        let controller = SessionController::new();
+        assert!(controller.draft_provider_options().is_empty());
+        assert!(controller.settings_provider_options().is_empty());
+    }
+
+    #[test]
+    fn live_model_options_offer_every_model_with_its_mode() {
+        let mut controller = live_form();
+        assert!(controller.set_draft_provider("vercel-ai-gateway"));
+
+        let options = controller.draft_model_options();
+        let ids: Vec<_> = options.iter().map(|option| option.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            [
+                "openai/gpt-4o-transcribe",
+                "openai/gpt-realtime-whisper",
+                "fish-audio/transcribe-1",
+            ]
+        );
+        assert_eq!(options[0].mode, Some(TranscriptionMode::Segmented));
+        assert_eq!(options[1].mode, Some(TranscriptionMode::Streaming));
+    }
+
+    #[test]
+    fn file_model_options_offer_only_batch_models() {
+        let mut controller = file_form();
+        assert!(controller.set_draft_provider("vercel-ai-gateway"));
+
+        let options = controller.draft_model_options();
+        let ids: Vec<_> = options.iter().map(|option| option.id.as_str()).collect();
+        assert_eq!(ids, ["openai/gpt-4o-transcribe", "fish-audio/transcribe-1"]);
+        assert!(
+            options
+                .iter()
+                .all(|option| option.mode == Some(TranscriptionMode::Segmented))
+        );
+    }
+
+    #[test]
+    fn model_options_are_empty_without_a_provider() {
+        let controller = live_form();
+        assert!(controller.draft_model_options().is_empty());
+    }
+
+    #[test]
+    fn settings_options_follow_the_settings_draft() {
+        let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
+        controller.open_settings();
+
+        let providers = controller.settings_provider_options();
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers[0].id, "vercel-ai-gateway");
+        assert!(controller.settings_model_options().is_empty());
+
+        assert!(controller.set_settings_provider("vercel-ai-gateway"));
+        let models = controller.settings_model_options();
+        let ids: Vec<_> = models.iter().map(|option| option.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            [
+                "openai/gpt-4o-transcribe",
+                "openai/gpt-realtime-whisper",
+                "fish-audio/transcribe-1",
+            ],
+            "the settings dialog always offers every model"
+        );
+        assert_eq!(models[1].mode, Some(TranscriptionMode::Streaming));
+    }
+
+    #[test]
+    fn selecting_a_provider_clears_the_draft_model() {
+        let mut controller = live_form();
+        assert!(controller.set_draft_provider("vercel-ai-gateway"));
+        assert!(controller.set_draft_model("openai/gpt-4o-transcribe"));
+        assert_eq!(controller.draft_model(), Some("openai/gpt-4o-transcribe"));
+
+        assert!(controller.set_draft_provider("vercel-ai-gateway"));
+        assert_eq!(
+            controller.draft_model(),
+            Some("openai/gpt-4o-transcribe"),
+            "re-selecting the same provider keeps its model"
+        );
+
+        assert!(
+            !controller.set_draft_provider("mistral"),
+            "unknown providers are rejected"
+        );
+        assert_eq!(controller.draft_provider(), Some("vercel-ai-gateway"));
+        assert_eq!(controller.draft_model(), Some("openai/gpt-4o-transcribe"));
+    }
+
+    #[test]
+    fn changing_the_provider_clears_the_draft_model() {
+        let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
+        controller.set_capabilities(vec![
+            ProviderCapability {
+                id: "first".to_string(),
+                label: "First".to_string(),
+                available: true,
+                key_env_vars: Vec::new(),
+                models: vec![ModelCapabilityInfo {
+                    id: "first/model".to_string(),
+                    label: "First Model".to_string(),
+                    mode: TranscriptionMode::Segmented,
+                    description: None,
+                    pricing: BTreeMap::new(),
+                }],
+            },
+            ProviderCapability {
+                id: "second".to_string(),
+                label: "Second".to_string(),
+                available: true,
+                key_env_vars: Vec::new(),
+                models: Vec::new(),
+            },
+        ]);
+        assert!(!controller.choose_mode(SessionMode::Live));
+
+        assert!(controller.set_draft_provider("first"));
+        assert!(controller.set_draft_model("first/model"));
+
+        assert!(controller.set_draft_provider("second"));
+        assert_eq!(controller.draft_model(), None);
+    }
+
+    #[test]
+    fn set_draft_model_rejects_unknown_models() {
+        let mut controller = live_form();
+        assert!(controller.set_draft_provider("vercel-ai-gateway"));
+
+        assert!(!controller.set_draft_model("not-a-model"));
+        assert_eq!(controller.draft_model(), None);
+    }
+
+    #[test]
+    fn set_draft_model_rejects_streaming_models_for_files() {
+        let mut controller = file_form();
+        assert!(controller.set_draft_provider("vercel-ai-gateway"));
+
+        assert!(!controller.set_draft_model("openai/gpt-realtime-whisper"));
+        assert_eq!(controller.draft_model(), None);
+        assert!(controller.set_draft_model("openai/gpt-4o-transcribe"));
+        assert_eq!(controller.draft_model(), Some("openai/gpt-4o-transcribe"));
+    }
+
+    #[test]
+    fn set_draft_model_accepts_streaming_models_in_live_mode() {
+        let mut controller = live_form();
+        assert!(controller.set_draft_provider("vercel-ai-gateway"));
+
+        assert!(controller.set_draft_model("openai/gpt-realtime-whisper"));
+        assert_eq!(
+            controller.draft_model_mode(),
+            Some(TranscriptionMode::Streaming)
+        );
+    }
+
+    #[test]
+    fn set_draft_model_requires_a_provider() {
+        let mut controller = live_form();
+        assert!(!controller.set_draft_model("openai/gpt-4o-transcribe"));
+        assert_eq!(controller.draft_model(), None);
     }
 
     #[test]
