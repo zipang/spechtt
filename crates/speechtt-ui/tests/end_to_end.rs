@@ -298,7 +298,8 @@ fn duplex_controller() -> (SessionController, RecordingSink) {
 fn settings_with_key() -> Settings {
     let mut settings = Settings {
         provider: "vercel-ai-gateway".into(),
-        model: "openai/gpt-realtime-whisper".into(),
+        model_streaming: "openai/gpt-realtime-whisper".into(),
+        model_batch: "openai/gpt-4o-transcribe".into(),
         auto_paste: false,
         ..Settings::default()
     };
@@ -312,7 +313,8 @@ const MIXED_CASE_KEY: &str = "vck_AbCdEfGhIjKlMnOpQrStUvWxYzH0123456789";
 fn settings_with_mixed_case_key() -> Settings {
     let mut settings = Settings {
         provider: "vercel-ai-gateway".into(),
-        model: "openai/gpt-realtime-whisper".into(),
+        model_streaming: "openai/gpt-realtime-whisper".into(),
+        model_batch: "openai/gpt-4o-transcribe".into(),
         auto_paste: false,
         ..Settings::default()
     };
@@ -668,6 +670,57 @@ fn auto_paste_runs_only_when_enabled() {
         vec!["audio capture".to_owned()]
     );
     assert_eq!(*paste.pastes.lock().expect("paste lock"), 1);
+}
+
+#[test]
+fn the_auto_paste_request_waits_for_the_final_transcript() {
+    let (mut controller, sink) = duplex_controller();
+    controller.apply_settings(settings_with_auto_paste());
+    finish_with_transcript(&mut controller, &sink);
+
+    assert!(
+        !controller.take_auto_paste_request(),
+        "the take is still waiting for the worker's final text"
+    );
+
+    controller.handle_stt_event(SttEvent::Stopped {
+        session_id: "take-1".into(),
+        full_text: "the final text".into(),
+    });
+
+    assert!(controller.take_auto_paste_request());
+    assert!(
+        !controller.take_auto_paste_request(),
+        "the gesture runs once per finished take"
+    );
+}
+
+#[test]
+fn a_take_without_auto_paste_never_requests_it() {
+    let (mut controller, sink) = duplex_controller();
+    controller.apply_settings(settings_with_key());
+    finish_with_transcript(&mut controller, &sink);
+
+    assert!(!controller.auto_paste_is_pending());
+
+    controller.handle_stt_event(SttEvent::Stopped {
+        session_id: "take-1".into(),
+        full_text: "the final text".into(),
+    });
+    assert!(!controller.take_auto_paste_request());
+}
+
+#[test]
+fn a_new_take_drops_a_pending_auto_paste() {
+    let (mut controller, sink) = duplex_controller();
+    controller.apply_settings(settings_with_auto_paste());
+    finish_with_transcript(&mut controller, &sink);
+
+    assert!(controller.auto_paste_is_pending());
+
+    controller.new_take();
+    assert!(!controller.auto_paste_is_pending());
+    assert!(!controller.take_auto_paste_request());
 }
 
 #[test]
@@ -1183,6 +1236,89 @@ fn the_app_constructs_from_fakes_and_persists_settings(cx: &mut gpui_kit::TestAp
         assert!(app.settings_connected(), "the stored key shows CONNECTED");
     })
     .unwrap();
+}
+
+#[gpui_kit::test]
+fn the_automatic_paste_copies_the_final_transcript(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        speechtt_ui::theme::apply(cx);
+    });
+
+    let (sender, events) = speechtt_core::async_channel::unbounded();
+    let copies = Arc::new(Mutex::new(Vec::new()));
+    let pastes = Arc::new(Mutex::new(0_usize));
+    let services = AppServices {
+        audio: Box::new(SilentAudio),
+        analyzer: SpectrumAnalyzer::new(SAMPLE_RATE),
+        sink: Box::new(RecordingSink::default()),
+        events,
+        settings: Box::new(MemoryStore::new(settings_with_auto_paste())),
+        clipboard: Box::new(RecordingClipboard {
+            copies: copies.clone(),
+        }),
+        paste: Box::new(RecordingPaste {
+            pastes: pastes.clone(),
+        }),
+        opener: Box::new(RecordingOpener::default()),
+        listener: Box::new(RecordingListener::default()),
+        clock: Box::new(ManualClock::new()),
+    };
+    let (window, view) = common::open_window(cx, None, |window, cx| {
+        cx.new(|cx| SpeechTtApp::with_services(services, window, cx))
+    });
+    cx.update(|cx| view.update(cx, |app, cx| app.apply_capabilities(catalogue(), cx)));
+
+    cx.update_window(window.into(), |_, window, cx| {
+        view.update(cx, |app, cx| {
+            app.choose_mode(SessionMode::Live, cx);
+            app.start_recording(cx);
+        });
+        window.render_frame(cx);
+    })
+    .unwrap();
+
+    // The pre-final text: what the live take holds when `Stop` is pressed.
+    sender
+        .send_blocking(Ok(SttEvent::Committed {
+            session_id: "take-1".into(),
+            text: "rough live".into(),
+            segment: None,
+        }))
+        .expect("send committed");
+    cx.run_until_parked();
+
+    cx.update_window(window.into(), |_, window, cx| {
+        view.update(cx, |app, cx| app.finish_take(cx));
+        window.render_frame(cx);
+    })
+    .unwrap();
+
+    assert!(
+        copies.lock().expect("clipboard lock").is_empty(),
+        "nothing may be copied before the worker's final transcript"
+    );
+    assert_eq!(*pastes.lock().expect("paste lock"), 0);
+
+    // The worker answers `Stop` with the authoritative final text.
+    sender
+        .send_blocking(Ok(SttEvent::Stopped {
+            session_id: "take-1".into(),
+            full_text: "Rough live text, cleaned by the final flush.".into(),
+        }))
+        .expect("send stopped");
+    cx.run_until_parked();
+
+    assert_eq!(
+        *copies.lock().expect("clipboard lock"),
+        vec!["Rough live text, cleaned by the final flush.".to_string()],
+        "the clipboard must hold the text the screen ends up showing"
+    );
+    assert_eq!(*pastes.lock().expect("paste lock"), 1);
+
+    // The gesture runs once per finished take.
+    cx.update(|cx| view.update(cx, |app, _| app.view_state()));
+    assert_eq!(copies.lock().expect("clipboard lock").len(), 1);
 }
 
 #[gpui_kit::test]

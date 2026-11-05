@@ -770,11 +770,24 @@ impl SpeechTtApp {
         self.stop_audio_capture();
 
         // Nothing is written automatically: Save is an explicit action for both
-        // modes, so the user names the transcript.
+        // modes, so the user names the transcript. The automatic copy/paste is
+        // deferred to the worker's `Stopped` event, which carries the final
+        // text; see [`Self::flush_auto_paste`].
+        cx.notify();
+    }
+
+    /// Runs the automatic copy/paste once the final transcript has landed.
+    ///
+    /// The finished take is refined in place by the worker's `Stopped` event,
+    /// so pasting when `Stop` is sent would copy the pre-final text while the
+    /// screen ends up showing something else.
+    fn flush_auto_paste(&mut self) {
+        if !self.controller.take_auto_paste_request() {
+            return;
+        }
         let _ = self
             .controller
             .auto_paste_after_finish(&mut *self.clipboard, &mut *self.paste);
-        cx.notify();
     }
 
     /// Whether a capture thread is running (test surface for device release).
@@ -1261,6 +1274,9 @@ impl SpeechTtApp {
                         Ok(event) => this.controller.handle_stt_event(event),
                         Err(error) => this.controller.report_error(AppError::from_backend(&error)),
                     }
+                    // A `Stopped` event refines the finished take, so the
+                    // automatic copy/paste of a stopped take runs here.
+                    this.flush_auto_paste();
                     cx.notify();
                 });
                 if updated.is_err() {
@@ -1270,6 +1286,9 @@ impl SpeechTtApp {
             // A closed stream means the worker exited (or never started).
             // Surfacing it keeps a dead backend actionable instead of silent.
             let _ = this.update(cx, |this, cx| {
+                // A dead worker will never send the final `Stopped`: the take
+                // that asked for a copy/paste still gets the text there is.
+                this.flush_auto_paste();
                 this.controller.report_error(AppError::BackendUnavailable);
                 cx.notify();
             });

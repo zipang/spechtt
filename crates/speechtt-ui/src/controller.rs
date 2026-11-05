@@ -798,6 +798,13 @@ pub struct SessionController {
     output_status: Option<SharedString>,
     /// Path produced by the last successful save/open action.
     written_path: Option<PathBuf>,
+    /// A finished take asked for the automatic copy/paste gesture and is still
+    /// waiting for it.
+    pending_auto_paste: bool,
+    /// `Stop` was sent and the matching `Stopped` has not arrived yet. The
+    /// transcript is still going to be refined, so the pending copy/paste must
+    /// wait.
+    final_transcript_pending: bool,
     active_dialog: Option<Dialog>,
     /// Page shown by the Help dialog.
     help_tab: HelpTab,
@@ -832,6 +839,8 @@ impl fmt::Debug for SessionController {
             .field("app_error", &self.app_error)
             .field("output_status", &self.output_status)
             .field("written_path", &self.written_path)
+            .field("pending_auto_paste", &self.pending_auto_paste)
+            .field("final_transcript_pending", &self.final_transcript_pending)
             .field("finished_file_stem", &self.finished_file_stem)
             .field("file_display_name", &self.file_display_name)
             .field("file_take_stopped_early", &self.file_take_stopped_early)
@@ -887,6 +896,8 @@ impl SessionController {
             app_error: None,
             output_status: None,
             written_path: None,
+            pending_auto_paste: false,
+            final_transcript_pending: false,
             active_dialog: None,
             help_tab: HelpTab::default(),
             settings_draft: SettingsDraft::default(),
@@ -1604,6 +1615,12 @@ impl SessionController {
         }
 
         self.transcript.apply(&event);
+
+        if let SttEvent::Stopped { session_id, .. } = &event
+            && self.accepts_session(Some(session_id))
+        {
+            self.final_transcript_pending = false;
+        }
 
         if matches!(event, SttEvent::Stopped { .. }) {
             // A live take that is already finished keeps refining in place; a
@@ -2424,6 +2441,11 @@ impl SessionController {
         self.file_take = false;
         self.progress = None;
         self.send_command(SttCommand::Stop);
+        // The worker answers `Stop` with a `Stopped` event whose text is the
+        // authoritative final transcript, so the automatic copy/paste waits for
+        // it instead of pasting a version the next event is about to replace.
+        self.final_transcript_pending = true;
+        self.pending_auto_paste = self.auto_paste_enabled();
 
         let (committed, live) = self.finished_transcript();
         self.result = Some(FinishedTake {
@@ -2543,6 +2565,8 @@ impl SessionController {
         self.app_error = None;
         self.output_status = None;
         self.written_path = None;
+        self.pending_auto_paste = false;
+        self.final_transcript_pending = false;
     }
 
     /// Leave the result screen and start over from the mode chooser.
@@ -2565,6 +2589,8 @@ impl SessionController {
         self.app_error = None;
         self.output_status = None;
         self.written_path = None;
+        self.pending_auto_paste = false;
+        self.final_transcript_pending = false;
     }
 
     /// Apply a hotkey action through the same guards as its button.
@@ -2720,6 +2746,26 @@ impl SessionController {
             },
             Err(error) => Err(error),
         })
+    }
+
+    /// Takes the automatic copy/paste request of a finished take.
+    ///
+    /// Returns `true` exactly once per take that asked for the gesture, and
+    /// only after the worker's final `Stopped` event has landed: the finished
+    /// transcript is refined in place by that event, so copying earlier would
+    /// paste text the screen is about to replace.
+    pub fn take_auto_paste_request(&mut self) -> bool {
+        if !self.pending_auto_paste || self.final_transcript_pending {
+            return false;
+        }
+        self.pending_auto_paste = false;
+        true
+    }
+
+    /// Whether a finished take is still waiting for its automatic copy/paste.
+    #[must_use]
+    pub fn auto_paste_is_pending(&self) -> bool {
+        self.pending_auto_paste
     }
 
     /// Whether the persisted settings ask for automatic paste.
