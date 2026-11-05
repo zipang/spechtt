@@ -681,3 +681,25 @@ that had encoded the old "a new segment replaces the hypothesis" rule.
 The same take also proved the boundary word (`transcription.`) lives only in the
 provider's final text, so the live display is one word short until `stopped`
 lands. Recorded above rather than papered over.
+
+## Validation
+
+Closed after two field dictations. The user's report: *"tout n'est pas forcément
+stable lors de la dictée mais globalement le contenu est préservé."*
+
+That is the contract this ticket set out to satisfy. Live text can still shift as
+a provider re-punctuates its own window or opens a new utterance, and one word at
+a segment boundary can be missing until `stopped` lands — but no words are lost
+and nothing is duplicated, which is what made the earlier attempts unusable.
+
+### Known behaviour, accepted
+
+- **Sliding-window models** (MAI Transcribe 2 Streaming) show only the current
+  fragment in the preview; the full take appears from the delta channel and is
+  finalised by `stopped`.
+- **A segment boundary** can be missing its junction word until the take ends,
+  because the provider never emits it on either channel.
+- **A provider that continued an open preview with a delta** would reverse the
+  channel order and display `capture audio`; no measured provider does it, and
+  the guard was left out because every variant tried broke a real capture. The
+  dump is the instrument that would reveal such a provider.
