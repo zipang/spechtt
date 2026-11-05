@@ -110,14 +110,76 @@ can only ever approximate what the provider is doing. A is justified only if a
 provider commits settled text mid-take (a `Committed` event with no overlap) that
 B would throw away.
 
-### Measured so far (one model, from a real take)
+### Measurements
 
-`microsoft/mai-transcribe-2-streaming`, replaying the capture in this ticket:
-11 hypotheses, `identical=1 extend=1 slide=7 new=1`, seam overlap up to 4 words,
-1 pair whose seam only matched after folding whitespace away. That is a sliding
-window, and it is what the reducer's `settle_live()` path turns into the smear.
-Still needed: a second model (`openai/gpt-realtime-whisper` accumulates
-differently) to know whether A and B must coexist.
+Two real takes, one per model, `SPEECHTT_STT_PARTIALS=1`, French dictation.
+
+**`microsoft/mai-transcribe-2-streaming`** — 11 hypotheses:
+`identical=1 extend=1 slide=7 new=1`, seam overlap up to 4 words,
+`retokenizedPairs=1`. Behaviour: **sliding window**. Each hypothesis is a
+fragment that walks forward, so consecutive hypotheses share 2–4 words.
+
+**`elevenlabs/scribe-v2-realtime`** — 24 hypotheses: `extend=8 slide=5
+shrink=2 new=7 identical=1`. Behaviour: **cumulative, with retroactive
+rewriting**. Every hypothesis is the whole take so far (9 → 241 characters), and
+the first 50–99 % of it is byte-identical to the previous one. But the provider
+periodically **rewrites its own earlier words**: at hypothesis 19→20 it inserted
+French guillemets around "streaming" from character 117 onwards, at 23→24 it
+removed them again, at 24→25 it put them back.
+
+So the answer to "do all models behave the same?" is **no**, and the divergence
+is not a variation in degree:
+
+| Model | What one hypothesis is | What mutates |
+|---|---|---|
+| MAI Transcribe 2 Streaming | one sliding fragment | everything: the window moves |
+| ElevenLabs Scribe v2 Realtime | the whole take so far | words already shown, re-punctuated in place |
+
+Neither ever offers stable mid-take text, which is why the streaming adapter
+sends no `Committed` event for a live take at all.
+
+### What the current reducer does with that data
+
+Simulated faithfully against the shipped `TranscriptBuffer` rules:
+
+| Take | Real text | Current reducer shows | Duplication |
+|---|---|---|---|
+| ElevenLabs (24 hypotheses) | 241 chars | **1 755 chars** | **+628 %** |
+
+Twelve of the twenty-three transitions trip `settle_live()`: every retroactive
+re-punctuation (`nouvelle-` → `nouvelle dictée`, guillemets on or off) breaks the
+`text.starts_with(tail)` test, so the whole previous hypothesis is pushed into
+`committed` and then re-shown as the live tail. The first 300 characters of the
+result are the same sentence restated twelve times.
+
+### Decision
+
+**Strategy B — show the current hypothesis, adopt the provider's final text.**
+
+The measurement makes the choice for us:
+
+- B is **exactly correct** for a cumulative provider: the hypothesis *is* the
+  whole take, so replacing the tail each time shows a clean growing transcript
+  with zero duplication. ElevenLabs goes from 1 755 characters of smear to the
+  exact 241 the user dictated.
+- B is **safe** for a sliding-window provider: the screen shows the newest
+  fragment instead of an accumulation. Nothing can duplicate because nothing is
+  accumulated.
+- A cannot fix what the data shows. A retroactive rewrite of *already displayed*
+  words defeats any seam comparison: there is no overlap to measure between
+  "modèle streaming" and "modèle « streaming »" at word level, and the divergence
+  point moves. The previous attempts failed for exactly this reason, and adding
+  another threshold would only move the failure.
+
+The cost of B is now precisely known rather than guessed: **with a sliding-window
+model** (MAI) the live area shows roughly the last sentence instead of a growing
+transcript, and the complete text appears on `Stopped`. With a cumulative model
+(ElevenLabs) B costs nothing at all — that is the common case.
+
+One rule must survive the change: `Stopped` with an empty `fullText` (which is
+what a take that ends in a provider error produces — it happened in the
+ElevenLabs capture) must keep the last hypothesis instead of blanking the take.
+Today `settle_live()` does that; the new reducer must do the equivalent.
 
 ## Scope Boundary
 
@@ -221,7 +283,71 @@ SPEECHTT_STT_PARTIALS=1 cargo run -p speechtt-ui 2> dump.log
 bun src/stt/trace-analyze.ts dump.log
 ```
 
-## Contract — Strategy A, kept as a specification if it is chosen
+## Contract — Strategy B (the chosen one)
+
+### 1. One rule for a live hypothesis
+
+```rust
+/// Folds one `Partial` into the buffer.
+///
+/// A streaming provider sends its whole hypothesis, not a delta: it may grow,
+/// shrink, re-punctuate its own earlier words, or walk a window forward. Every
+/// one of those is the same thing to the reducer — the current best text for
+/// what is being said right now — so the tail is **replaced**, never settled.
+fn apply_partial(&mut self, text: &str, segment: Option<&str>);
+```
+
+`apply` keeps its shape for `Delta`, `Committed` and `Stopped`; only the
+`Partial` arm changes:
+
+- `Partial` → `self.live = text.trim()`, `self.live_segment = segment`. No
+  comparison with the previous tail, no `settle_live()`. An identical re-send is
+  a no-op (the text is already there), which also keeps repaints cheap.
+- `Committed` → unchanged: a final does settle and commit, because a provider
+  that names an utterance has closed it.
+- `Stopped` with non-empty `full_text` → unchanged: it replaces everything.
+- `Stopped` with an **empty** `full_text` → keep the last hypothesis: it becomes
+  the committed text. This is the path a take that ends in a provider error
+  takes, and blanking the take there would throw away the only text there is.
+- `Delta` → unchanged. No live provider in the catalogue emits deltas, and the
+  incremental append is the correct reading of one when it appears.
+
+### 2. What the two halves of `TranscriptBuffer` now mean
+
+- `live` is the provider's current hypothesis: the only text that changes while
+  speaking.
+- `committed` is text a provider **explicitly closed** with a `Committed` event,
+  plus the final text. For a live take it stays empty until the last hypothesis
+  is adopted, because the streaming adapter never closes an utterance mid-take.
+
+`full_text()` keeps joining them, so Copy, Save and the automatic paste are
+untouched.
+
+### 3. Tests
+
+- The ElevenLabs capture replays with **zero duplication**: after every
+  hypothesis the live text equals that hypothesis, and the final text equals the
+  last one.
+- A retroactive rewrite (guillemets inserted at character 117) replaces the tail
+  in place: the text before and after the rewrite differs only where the provider
+  re-punctuated, and nothing is repeated.
+- The MAI capture replays without a smear: the live text is always exactly one
+  window, never a concatenation of windows.
+- `Stopped` with empty text keeps the last hypothesis.
+- `Stopped` with text replaces everything.
+- A `Committed` event still commits and clears the tail, so a provider that does
+  close utterances mid-take is unaffected.
+- Every pre-existing `transcript.rs` test that encodes the old settle behaviour
+  is **rewritten to the new contract**, not deleted: the invariants that still
+  hold (`committed` never shrinks, no word dropped on `Committed`, whitespace
+  never doubles) keep their assertions.
+
+## Contract — Strategy A, kept as a specification if it is ever chosen
+
+**Not selected.** Recorded only so the analysis is not repeated from scratch if a
+future provider forces it.
+
+
 
 Everything below describes the overlap-aware reducer. It is **not** a commitment:
 it is written out so that choosing A after the measurements costs an
@@ -336,31 +462,28 @@ the next change to the reducer has to keep this take readable.
 
 ## TDD Tasks
 
-- [ ] **T31.0 — Instrument.** `trace.ts` + spec: off unless the variable is
+- [x] **T31.0 — Instrument.** `trace.ts` + spec: off unless the variable is
   exactly `1`, one line per event, JSON-safe newlines, only transcript-bearing
   types, header naming provider/model/language. `worker.ts` wraps `emit` once.
   The dump must not change behaviour when disabled (pinned by a test that runs
   the loop with the flag off and asserts no extra `stderr`).
-- [ ] **T31.1 — Classify.** `trace-analyze.ts` + spec: `classifyPair` covers
+- [x] **T31.1 — Classify.** `trace-analyze.ts` + spec: `classifyPair` covers
   extend, shrink, identical, a two-word slide, a re-spaced seam that only the
   compact comparison sees, and a single shared word that must stay `new`.
   `analyzeEvents` keeps segments apart, ignores non-hypotheses, and reports
   `duplicatedChars` from the real overlap rather than from a length delta.
-- [ ] **T31.2 — Collect.** Two real takes, one per model, with the dump on:
-  a windowing model and an accumulating one. Attach both reports to this ticket
-  under `## Measurements`, with the hypothesis counts and the dominant
-  behaviour per stream.
-- [ ] **T31.3 — Decide.** Write the choice (A, B, or "no change") into this
-  ticket with the measurement that justifies it, and only then implement:
-  - **B** — `TranscriptBuffer` gains a window mode: a `Partial` replaces the live
-    tail without settling, `Committed` still commits, and `Stopped` adopts
-    `fullText`. The regression fixture replays the capture and asserts the live
-    text is never a smear (no two-word run repeated back to back) and that the
-    final text is exact.
-  - **A** — the compact-key contract this ticket used to describe, unchanged.
-  - **No change** — close the ticket with the measurement showing every offered
-    model already extends cumulatively.
-- [ ] **T31.4 — Docs and gates.** Module headers per `AGENTS.md` §3, then
+- [x] **T31.2 — Collect.** Two real takes, one per model, with the dump on:
+  `microsoft/mai-transcribe-2-streaming` (sliding window) and
+  `elevenlabs/scribe-v2-realtime` (cumulative with retroactive rewriting). Both
+  reports are in `### Measurements`.
+- [x] **T31.3 — Decide.** Strategy **B**, from the measurements above: both
+  models produce hypotheses that are unstable in different ways, and B is exactly
+  correct for the cumulative one and merely conservative for the sliding one.
+- [ ] **T31.4 — Implement B.** Rewrite the `Partial` arm as a tail replacement,
+  keep the empty-`Stopped` rule, and replay both captures as tests (ElevenLabs
+  for retroactive rewriting, MAI for sliding). Update the pre-existing tests that
+  encoded the settle behaviour to the new contract.
+- [ ] **T31.5 — Docs and gates.** Module headers per `AGENTS.md` §3, then
   `cargo fmt -- --check`, `cargo clippy --all-targets -- -D warnings`,
   `cargo test`, `bun test`, `bun check src/stt`, `bun run design:validate`.
 
