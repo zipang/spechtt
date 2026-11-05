@@ -1,0 +1,57 @@
+# model=elevenlabs/scribe-v2-realtime
+# authoritative=Un nouveau ticket à créer pour améliorer les informations sur la vue « recording », c'est-à-dire la vue de « live recording ». Dès le départ, on devrait voir, euh, le compteur des secondes transcrit, c'est-à-dire, euh, zéro minute et zéro seconde. Et à gauche de ce petit compteur, on devrait aussi voir le modèle choisi pour la transcription. Et certainement, euh, mettre un menu « drop down » pour changer de modèle très rapidement sur cet écran, cette vue, donc, « recording ».
+# Two segments: the first ends at "pour la", the second opens at "Et certainement".
+# The word "transcription." exists only in the stopped text.
+partial	seg-0	Een,
+partial	seg-0	Un nouveau t-
+partial	seg-0	Un nouveau ticket à créer.
+partial	seg-0	Un nouveau ticket à créer pour-
+partial	seg-0	Un nouveau ticket à créer pour améliorer-
+partial	seg-0	Un nouveau ticket à créer pour améliorer les informations-
+partial	seg-0	Un nouveau ticket à créer pour améliorer les informations sur
+partial	seg-0	Un nouveau ticket à créer pour améliorer les informations sur la vue
+partial	seg-0	Un nouveau ticket à créer pour améliorer les informations sur la vue « recording ».
+partial	seg-0	Un nouveau ticket à créer pour améliorer les informations sur la vue « recording ». C'est-à-dire ?
+partial	seg-0	Un nouveau ticket à créer pour améliorer les informations sur la vue « recording », c'est-à-dire la vue
+partial	seg-0	Un nouveau ticket à créer pour améliorer les informations sur la vue « recording », c'est-à-dire la vue de
+partial	seg-0	Un nouveau ticket à créer pour améliorer les informations sur la vue « recording », c'est-à-dire la vue de « live » «
+partial	seg-0	Un nouveau ticket à créer pour améliorer les informations sur la vue « recording », c'est-à-dire la vue de « live recording ».
+partial	seg-0	Un nouveau ticket à créer pour améliorer les informations sur la vue « recording », c'est-à-dire la vue de « live recording ».
+partial	seg-0	Un nouveau ticket à créer pour améliorer les informations sur la vue « recording », c'est-à-dire la vue de « live recording ». Dès le départ,
+partial	seg-0	Un nouveau ticket à créer pour améliorer les informations sur la vue « recording », c'est-à-dire la vue de « live recording ». Dès le départ, on devrait voir
+partial	seg-0	Un nouveau ticket à créer pour améliorer les informations sur la vue « recording », c'est-à-dire la vue de « live recording ». Dès le départ, on devrait voir, e
+partial	seg-0	Un nouveau ticket à créer pour améliorer les informations sur la vue « recording », c'est-à-dire la vue de « live recording ». Dès le départ, on devrait voir, euh, le
+partial	seg-0	Un nouveau ticket à créer pour améliorer les informations sur la vue « recording », c'est-à-dire la vue de « live recording ». Dès le départ, on devrait voir, euh, le compteur
+partial	seg-0	Un nouveau ticket à créer pour améliorer les informations sur la vue « recording », c'est-à-dire la vue de « live recording ». Dès le départ, on devrait voir, euh, le compteur des secondes
+partial	seg-0	Un nouveau ticket à créer pour améliorer les informations sur la vue « recording », c'est-à-dire la vue de « live recording ». Dès le départ, on devrait voir, euh, le compteur des secondes transcrits.
+partial	seg-0	Un nouveau ticket à créer pour améliorer les informations sur la vue « recording », c'est-à-dire la vue de « live recording ». Dès le départ, on devrait voir, euh, le compteur des secondes transcrit, c'est-à-dire, e
+partial	seg-0	Un nouveau ticket à créer pour améliorer les informations sur la vue « recording », c'est-à-dire la vue de « live recording ». Dès le départ, on devrait voir, euh, le compteur des secondes transcrit, c'est-à-dire, euh, zéro minute
+partial	seg-0	Un nouveau ticket à créer pour améliorer les informations sur la vue « recording », c'est-à-dire la vue de « live recording ». Dès le départ, on devrait voir, euh, le compteur des secondes transcrit, c'est-à-dire, euh, zéro minute et zéro seconde.
+partial	seg-0	Un nouveau ticket à créer pour améliorer les informations sur la vue « recording », c'est-à-dire la vue de « live recording ». Dès le départ, on devrait voir, euh, le compteur des secondes transcrit, c'est-à-dire, euh, zéro minute et zéro seconde.
+partial	seg-0	Un nouveau ticket à créer pour améliorer les informations sur la vue « recording », c'est-à-dire la vue de « live recording ». Dès le départ, on devrait voir, euh, le compteur des secondes transcrit, c'est-à-dire, euh, zéro minute et zéro seconde. Et à
+partial	seg-0	Un nouveau ticket à créer pour améliorer les informations sur la vue « recording », c'est-à-dire la vue de « live recording ». Dès le départ, on devrait voir, euh, le compteur des secondes transcrit, c'est-à-dire, euh, zéro minute et zéro seconde. Et à gauche de ce
+partial	seg-0	Un nouveau ticket à créer pour améliorer les informations sur la vue « recording », c'est-à-dire la vue de « live recording ». Dès le départ, on devrait voir, euh, le compteur des secondes transcrit, c'est-à-dire, euh, zéro minute et zéro seconde. Et à gauche de ce petit compteur,
+partial	seg-0	Un nouveau ticket à créer pour améliorer les informations sur la vue « recording », c'est-à-dire la vue de « live recording ». Dès le départ, on devrait voir, euh, le compteur des secondes transcrit, c'est-à-dire, euh, zéro minute et zéro seconde. Et à gauche de ce petit compteur, euh-
+partial	seg-0	Un nouveau ticket à créer pour améliorer les informations sur la vue « recording », c'est-à-dire la vue de « live recording ». Dès le départ, on devrait voir, euh, le compteur des secondes transcrit, c'est-à-dire, euh, zéro minute et zéro seconde. Et à gauche de ce petit compteur, on devrait
+partial	seg-0	Un nouveau ticket à créer pour améliorer les informations sur la vue « recording », c'est-à-dire la vue de « live recording ». Dès le départ, on devrait voir, euh, le compteur des secondes transcrit, c'est-à-dire, euh, zéro minute et zéro seconde. Et à gauche de ce petit compteur, on devrait aussi voir
+partial	seg-0	Un nouveau ticket à créer pour améliorer les informations sur la vue « recording », c'est-à-dire la vue de « live recording ». Dès le départ, on devrait voir, euh, le compteur des secondes transcrit, c'est-à-dire, euh, zéro minute et zéro seconde. Et à gauche de ce petit compteur, on devrait aussi voir le modèle
+partial	seg-0	Un nouveau ticket à créer pour améliorer les informations sur la vue « recording », c'est-à-dire la vue de « live recording ». Dès le départ, on devrait voir, euh, le compteur des secondes transcrit, c'est-à-dire, euh, zéro minute et zéro seconde. Et à gauche de ce petit compteur, on devrait aussi voir le modèle choisi pour la
+partial	seg-1	Et
+partial	seg-1	Et
+partial	seg-1	Et certainement
+partial	seg-1	Et certainement, euh,
+partial	seg-1	Et certainement, euh, mettre
+partial	seg-1	Et certainement, euh, mettre...
+partial	seg-1	Et certainement, euh, mettre un menu
+partial	seg-1	Et certainement, euh, mettre un menu « drop
+partial	seg-1	Et certainement, euh, mettre un menu « drop down » pour
+partial	seg-1	Et certainement, euh, mettre un menu « drop down » pour changer de mod
+partial	seg-1	Et certainement, euh, mettre un menu « drop down » pour changer de modèle, euh.
+partial	seg-1	Et certainement, euh, mettre un menu « drop down » pour changer de modèle très rapidement.
+partial	seg-1	Et certainement, euh, mettre un menu « drop down » pour changer de modèle très rapidement sur
+partial	seg-1	Et certainement, euh, mettre un menu « drop down » pour changer de modèle très rapidement sur cet écran,
+partial	seg-1	Et certainement, euh, mettre un menu « drop down » pour changer de modèle très rapidement sur cet écran, cette vue, donc
+partial	seg-1	Et certainement, euh, mettre un menu « drop down » pour changer de modèle très rapidement sur cet écran, cette vue, donc, « recording ».
+partial	seg-1	Et certainement, euh, mettre un menu « drop down » pour changer de modèle très rapidement sur cet écran, cette vue, donc, « recording ».
+partial	seg-1	Et certainement, euh, mettre un menu « drop down » pour changer de modèle très rapidement sur cet écran, cette vue, donc, « recording ».
+stopped	seg-1	Un nouveau ticket à créer pour améliorer les informations sur la vue « recording », c'est-à-dire la vue de « live recording ». Dès le départ, on devrait voir, euh, le compteur des secondes transcrit, c'est-à-dire, euh, zéro minute et zéro seconde. Et à gauche de ce petit compteur, on devrait aussi voir le modèle choisi pour la transcription. Et certainement, euh, mettre un menu « drop down » pour changer de modèle très rapidement sur cet écran, cette vue, donc, « recording ».

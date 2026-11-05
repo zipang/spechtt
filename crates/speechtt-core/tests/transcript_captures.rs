@@ -43,6 +43,9 @@ const ELEVENLABS: &str = include_str!("fixtures/elevenlabs-scribe-v2-realtime.ts
 const MAI: &str = include_str!("fixtures/mai-transcribe-2-streaming.tsv");
 /// Cumulative partials and one delta that carries the whole take again.
 const GEMINI: &str = include_str!("fixtures/gemini-3.5-transcribe-live.tsv");
+/// Two utterance identities in one take: the first ends mid-sentence and the
+/// second opens a new one.
+const ELEVENLABS_TWO_SEGMENTS: &str = include_str!("fixtures/elevenlabs-two-segments.tsv");
 
 /// The transcript-bearing event types a capture records.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,35 +70,37 @@ impl Kind {
     }
 }
 
-/// One recorded event: its type and the provider's own text, untrimmed.
+/// One recorded event: its type, the utterance it belongs to when the provider
+/// names one, and its own text, untrimmed.
 #[derive(Debug, Clone)]
 struct Recorded {
     kind: Kind,
+    /// The provider's utterance identity, when the capture recorded one.
+    ///
+    /// A provider that names utterances can open a second one inside a single
+    /// take, and the text of the first still has to reach the screen.
+    segment: Option<String>,
     text: String,
 }
 
 impl Recorded {
     /// The wire event this line stands for, replayed under one session.
-    ///
-    /// No fixture carries a segment: each take is one continuous utterance, so
-    /// the reducer has to rebuild it from the event order alone and must not
-    /// depend on an utterance identity arriving.
     fn event(&self) -> SttEvent {
         match self.kind {
             Kind::Partial => SttEvent::Partial {
                 session_id: SESSION.to_owned(),
                 text: self.text.clone(),
-                segment: None,
+                segment: self.segment.clone(),
             },
             Kind::Delta => SttEvent::Delta {
                 session_id: SESSION.to_owned(),
                 delta: self.text.clone(),
-                segment: None,
+                segment: self.segment.clone(),
             },
             Kind::Committed => SttEvent::Committed {
                 session_id: SESSION.to_owned(),
                 text: self.text.clone(),
-                segment: None,
+                segment: self.segment.clone(),
             },
             Kind::Stopped => SttEvent::Stopped {
                 session_id: SESSION.to_owned(),
@@ -114,7 +119,8 @@ struct Capture {
 }
 
 /// Parses one dump: the `model` and `authoritative` headers, then every
-/// `<type>\t<text>` line.
+/// `<type>\t<segment>\t<text>` line, or `<type>\t<text>` when the provider names
+/// no utterance.
 ///
 /// Text is kept byte for byte. A delta's leading space, and a delta that stops in
 /// the middle of a word, are the provider's own; trimming or re-spacing them
@@ -136,14 +142,21 @@ fn capture(source: &str) -> Capture {
         if line.starts_with('#') || line.trim().is_empty() {
             continue;
         }
-        let Some((name, text)) = line.split_once('\t') else {
+        let Some((name, rest)) = line.split_once('\t') else {
             panic!("capture line carries no type/text separator: {line:?}");
         };
         let Some(kind) = Kind::parse(name) else {
             panic!("capture line carries an unknown event type: {line:?}");
         };
+        // Three fields name the utterance, two carry only the text. A `stopped`
+        // closes the whole take, so it never carries one.
+        let (segment, text) = match rest.split_once('\t') {
+            Some((segment, text)) if !segment.is_empty() => (Some(segment.to_owned()), text),
+            _ => (None, rest),
+        };
         events.push(Recorded {
             kind,
+            segment,
             text: text.to_owned(),
         });
     }
@@ -454,5 +467,59 @@ fn mai_mid_word_deltas_join_into_one_word() {
     assert!(
         whole_word,
         "{model} never held the whole word in its committed text"
+    );
+}
+
+/// A provider that names utterances can open a second one inside a single take.
+///
+/// ElevenLabs Scribe v2 Realtime did exactly that: the first utterance ends at
+/// `…le modèle choisi pour la` and the second opens at `Et certainement`. A
+/// preview that is replaced unconditionally on every partial throws the first
+/// utterance away, so the screen would collapse from 328 characters back to `Et`
+/// in the middle of a dictation — the reader loses the whole take and watches it
+/// start again.
+///
+/// The word at the boundary (`transcription.`) exists only in the provider's
+/// final text: neither utterance ever carries it. The display is therefore allowed
+/// to be one word short until `stopped` lands, and the test asserts the take never
+/// shrinks and never collapses.
+#[test]
+fn elevenlabs_keeps_the_first_utterance_when_a_second_one_opens() {
+    let capture = capture(ELEVENLABS_TWO_SEGMENTS);
+    let frames = replay(&capture);
+
+    let model = capture.model.as_str();
+    assert_stays_within_the_take(&capture, &frames);
+    assert_ends_on_the_take(&capture, &frames);
+
+    // The first utterance's own text must survive into the committed half.
+    let first_utterance = "le modèle choisi pour la";
+    let mut seen_first = false;
+    let mut previous_length = 0;
+    for frame in &frames {
+        let kind = frame.kind;
+        let text = frame.text.as_str();
+        let displayed = frame.displayed.as_str();
+        assert!(
+            displayed.chars().count() >= previous_length,
+            "{model} collapsed from {previous_length} to {} characters after {kind:?} {text:?}: {displayed:?}",
+            displayed.chars().count()
+        );
+        previous_length = displayed.chars().count();
+        seen_first |= displayed.contains(first_utterance);
+    }
+    assert!(
+        seen_first,
+        "{model} never showed the first utterance's text"
+    );
+
+    // The second utterance is appended, not substituted for the first.
+    let displayed = frames
+        .last()
+        .map(|frame| frame.displayed.clone())
+        .unwrap_or_default();
+    assert!(
+        displayed.contains(first_utterance) && displayed.contains("Et certainement"),
+        "{model} lost one of its two utterances: {displayed:?}"
     );
 }

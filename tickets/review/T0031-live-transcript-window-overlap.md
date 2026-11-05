@@ -364,7 +364,30 @@ take therefore stores the **displayed** text in its committed half and leaves
 This is not cosmetic: with the old join, a take whose preview restated its
 committed text was copied and saved twice over.
 
-### 4. Known limitation, and how to catch it
+### 4. A named utterance that changes is a boundary
+
+A provider can open a **second utterance inside one take**. ElevenLabs Scribe v2
+Realtime did exactly that: segment `…242:0` ran for 34 partials and ended at
+`…le modèle choisi pour la`, then segment `…242:1` opened at `Et certainement`.
+
+Replacing the preview unconditionally threw the first utterance away: the screen
+collapsed from 328 characters to `Et` in the middle of the dictation, and the
+reader lost the take and watched it start again. A preview whose segment differs
+from the one being shown is therefore **settled** into the committed text through
+`seam_join` before the new utterance takes the preview. A preview with no
+identity, or the same identity, still just replaces.
+
+The captured take then reads as one continuous transcript, and the regression
+test asserts the display never shrinks and never loses either utterance.
+
+**The boundary word is lost, and cannot be recovered from the previews.** The
+first utterance ends at `pour la` and the second opens at `Et certainement`; the
+word `transcription.` exists only in the provider's `stopped` text. The live
+display is therefore one word short at that boundary until the take ends, where
+the authoritative text corrects it. That is a property of the provider's stream,
+not of the reducer, and the test states it rather than hiding it.
+
+### 5. Known limitation, and how to catch it
 
 The channel split assumes the preview is **at or after** the committed text, which
 is what all three measured providers do. A provider that sends a delta
@@ -382,7 +405,7 @@ If such a provider appears, the dump is the instrument that will show it: its
 that extends an open preview. The fix then has data to rest on, and the six UI
 tests that used the old order are the place to start.
 
-### 5. Tests
+### 6. Tests
 
 - The **ElevenLabs capture** replays with zero duplication: no frame exceeds 241
   characters, no two-word run repeats at any frame, and the final text is the last
@@ -634,7 +657,7 @@ instrument that would reveal such a provider.
 |---|---|
 | `cargo fmt -- --check` | clean |
 | `cargo clippy --all-targets -- -D warnings` | clean |
-| `cargo test` | **570 passed, 0 failed** |
+| `cargo test` | **583 passed, 0 failed** |
 | `bun test` | 348 passed, 0 failed |
 | `bun check src/stt` | 32 files, no type errors |
 | `bun run design:validate` | 66 tokens, 0 errors |
@@ -644,3 +667,17 @@ instrument that would reveal such a provider.
 A real dictation on the model of their choice, watching the live area: it must
 read as one sentence with no stutter, and the finished screen must show the same
 text that was on screen. No GUI run or screenshot was taken autonomously.
+
+## Second round — the segment boundary
+
+Found by replaying a real ElevenLabs Scribe v2 Realtime take that opened two
+utterances. The first reducer discarded the preview on **every** partial, so a
+segment change wiped the screen: `collapsed from 328 to 2 characters after
+Partial "Et"`. Fixed by settling the preview at a segment boundary, pinned by
+`elevenlabs_keeps_the_first_utterance_when_a_second_one_opens` over a new
+`fixtures/elevenlabs-two-segments.tsv` capture, and by three rewritten unit tests
+that had encoded the old "a new segment replaces the hypothesis" rule.
+
+The same take also proved the boundary word (`transcription.`) lives only in the
+provider's final text, so the live display is one word short until `stopped`
+lands. Recorded above rather than papered over.

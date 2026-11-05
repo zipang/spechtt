@@ -161,9 +161,25 @@ impl TranscriptBuffer {
     /// right now. It may grow, shrink, re-punctuate a word it already showed,
     /// slide forward, or be replaced wholesale after a language switch, and each
     /// of those replaces the previous preview rather than being compared with
-    /// it. The preview is never folded into the committed text: the provider's
-    /// committed text arrives on the `Delta` channel.
+    /// it. The preview is only folded into the committed text when the provider
+    /// **opens another utterance**, below: the rest of the committed text arrives
+    /// on the `Delta` channel.
+    ///
+    /// A named utterance that differs from the preview's own is a boundary, not a
+    /// revision. The preview it replaces is real speech the reader is already
+    /// following, so it joins the committed text through [`Self::seam_join`]
+    /// before the new utterance takes the preview. Without that, a provider that
+    /// closes a sentence and starts the next inside one take would wipe the
+    /// screen back to its first word.
     fn apply_partial(&mut self, text: &str, segment: Option<&str>) {
+        let opens_another_utterance = match (self.live_segment.as_deref(), segment) {
+            (Some(current), Some(next)) => current != next,
+            _ => false,
+        };
+        if opens_another_utterance && !self.live.trim().is_empty() {
+            self.committed = Self::seam_join(&self.committed, &self.live);
+            self.live.clear();
+        }
         self.live = text.trim().to_string();
         self.live_segment = segment.map(str::to_string);
     }
@@ -920,15 +936,18 @@ mod tests {
     /// words of the closed utterance arrive on the delta channel or in the
     /// authoritative final, never by promoting a preview.
     #[test]
-    fn a_new_segment_replaces_the_previous_hypothesis() {
+    fn a_new_segment_keeps_the_previous_hypothesis() {
         let mut buffer = TranscriptBuffer::default();
 
         buffer.apply(&segment_partial("take-1", "seg-1", "hello"));
         assert_eq!(buffer.live(), "hello");
 
+        // A provider that names utterances can open a second one inside a take.
+        // The first is real speech the reader is following, so it is kept.
         buffer.apply(&segment_partial("take-1", "seg-2", "world"));
-        assert_eq!(buffer.committed(), "");
+        assert_eq!(buffer.committed(), "hello");
         assert_eq!(buffer.live(), "world");
+        assert_eq!(buffer.full_text(), "hello world");
     }
 
     /// A provider re-punctuating its window may resend a shorter draft of it.
@@ -989,13 +1008,16 @@ mod tests {
 
         buffer.apply(&segment_partial("take-1", "seg-1", "hello"));
         buffer.apply(&segment_partial("take-1", "seg-2", "   "));
-        assert_eq!(buffer.committed(), "");
+        // The boundary keeps the first utterance; a blank preview adds nothing
+        // to it and never leaves a stray separator behind.
+        assert_eq!(buffer.committed(), "hello");
         assert_eq!(buffer.live(), "");
-        assert_eq!(buffer.full_text(), "");
+        assert_eq!(buffer.full_text(), "hello");
 
+        // A blank final adds nothing to what the take already holds.
         buffer.apply(&segment_committed("take-1", "seg-2", "  "));
-        assert_eq!(buffer.committed(), "");
-        assert_eq!(buffer.full_text(), "");
+        assert_eq!(buffer.committed(), "hello");
+        assert_eq!(buffer.full_text(), "hello");
 
         // A whitespace-only delta is not committed as a stray separator.
         let mut take = TranscriptBuffer::default();
@@ -1097,13 +1119,15 @@ mod tests {
     // ----- Invariants ---------------------------------------------------
 
     #[test]
-    fn the_same_hypothesis_under_a_new_segment_is_not_settled_twice() {
+    fn the_same_hypothesis_under_a_new_segment_is_shown_once() {
         let mut buffer = TranscriptBuffer::default();
 
         buffer.apply(&segment_partial("take-1", "seg-0", "Dans le cas"));
         buffer.apply(&segment_partial("take-1", "seg-1", "Dans le cas"));
 
-        assert_eq!(buffer.committed(), "");
+        // The boundary settles the first utterance; the seam then drops the run
+        // the preview restates, so the reader sees it once.
+        assert_eq!(buffer.committed(), "Dans le cas");
         assert_eq!(buffer.live(), "Dans le cas");
         assert_eq!(buffer.full_text(), "Dans le cas");
     }
