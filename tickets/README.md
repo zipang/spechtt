@@ -126,3 +126,4 @@ _(none)_
 | Ticket | Title | Track | Depends on |
 |---|---|---|---|
 | [T0016](planned/T0016-dependency-bootstrap-script.md) | Dependency bootstrap for Bun and ffmpeg | Tooling (TypeScript/Bun) | — |
+| [T0030](planned/T0030-clean-transcript-with-language-model.md) | Clean the transcript with a language model | Cross-cutting (core + Bun worker + UI) | — |
