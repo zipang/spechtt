@@ -125,6 +125,8 @@ is `invalid_protocol`).
 export const FALLBACK_LANGUAGE_MODEL = "openai/gpt-4.1-mini";
 /** Environment variable naming the default cleanup model. */
 export const LANGUAGE_MODEL_ENV = "DEFAULT_LANGUAGE_MODEL";
+/** Low enough that the pass repairs rather than improvises. */
+export const CLEANUP_TEMPERATURE = 0.1;
 
 export interface CleanRequest {
   readonly provider: string;
@@ -135,7 +137,11 @@ export interface CleanRequest {
 
 export interface CleanDeps {
   /** Injected for tests; production passes the AI SDK `generateText`. */
-  generate(args: { model: string; prompt: string }): Promise<{ text: string }>;
+  generate(args: {
+    model: string;
+    prompt: string;
+    temperature: number;
+  }): Promise<{ text: string }>;
 }
 
 /** Repairs typos and fragment joins. Never returns an empty string: when the
@@ -205,11 +211,18 @@ Production deps call the documented AI SDK API — the only authority for it:
 ```ts
 // https://ai-sdk.dev/docs/reference/ai-sdk-core/generate-text.md
 import { generateText } from "ai";
-const { text } = await generateText({ model, prompt });
+
+const { text } = await generateText({
+  model,
+  prompt,
+  temperature: CLEANUP_TEMPERATURE, // exported constant, 0.1
+});
 ```
 
 `model` is the gateway id string, exactly as the transcription path already
-passes model ids to the AI SDK.
+passes model ids to the AI SDK. The injected `generate` seam takes the same two
+values plus the temperature the production call uses, so a test can assert it
+was passed without depending on the AI SDK itself.
 
 ### 3. Worker: routing and capability discovery
 
