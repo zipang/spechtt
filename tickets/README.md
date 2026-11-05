@@ -114,6 +114,7 @@ Decisions, deviations, verification output.
 | [T0029](done/T0029-default-model-per-mode.md) | One default model per transcription mode | Rust core + Rust UI + design |
 | [T0030](done/T0030-clean-transcript-with-language-model.md) | Clean the transcript with a language model, in a chosen language | Cross-cutting (core + Bun worker + UI) |
 | [T0033](done/T0033-single-cleanup-toggle.md) | One cleanup button that toggles between the repaired and original text | Rust UI (controller + view + design) |
+| [T0034](done/T0034-live-take-header-model-and-timer.md) | Show the model and the timer on the live take screen from the start | Rust UI (components + view + controller + design) |
 
 ### In Progress
 
@@ -124,7 +125,7 @@ _(none)_
 | Ticket | Title | Track |
 |---|---|---|
 | [T0031](review/T0031-live-transcript-window-overlap.md) | Split the partial and delta channels in the live transcript | Rust core (transcript) |
-| [T0034](review/T0034-live-take-header-model-and-timer.md) | Show the model and the timer on the live take screen from the start | Rust UI (components + view + controller) |
+
 
 ### Planned
 
