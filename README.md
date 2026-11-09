@@ -7,7 +7,7 @@ with a stateless Bun worker doing the speech-to-text behind a local pipe.
 
 ## Demo
 
-[![Demo video](./demo-launcher-vignette.png)](https://github.com/user-attachments/assets/6368304a-95e1-4701-9b4a-b19ce5365059)
+[![Demo video](demo-launcher-vignette.png)](https://github.com/user-attachments/assets/6368304a-95e1-4701-9b4a-b19ce5365059)
 
 ## What it does
 
@@ -162,6 +162,7 @@ speechtt/
 ├── color-variants.css               # Derived muted/active variants for brand & action colours
 ├── reset.css                        # Base reset over the theme variables
 ├── skills-lock.json                 # Pinned versions of the installed agent skills
+├── demo-launcher-vignette.png       # Poster frame for the demo video above
 │
 ├── crates/
 │   ├── speechtt-core/               # Framework-free domain logic (no GPUI dependency)

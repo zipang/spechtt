@@ -65,14 +65,18 @@ May create or modify:
 - `README.md` — **rewritten** as a welcome document: demo, what it does,
   requirements, getting started, first run, shortcuts, project layout,
   development gates, documentation map (see §5).
+- `demo-launcher-vignette.png` — **new**: the committed poster frame (753×495) the
+  README's `## Demo` section wraps in a link to the video.
 - `.gitignore` — **append-only**: one `recording.mp4` entry, so the demo video
   cannot be committed by accident. Touched outside the original scope on the
-  CEO's decision that the demo is a GitHub attachment, not a repository file.
+  CEO's decision that the video is a GitHub attachment, not a repository file.
 
-The demo is **not** a repository file: it is uploaded as a GitHub attachment
-when the README is edited on the web, and the README's `## Demo` section holds an
-HTML comment until that URL is pasted in. `recording.mp4` therefore sits in
-`.gitignore`, no `docs/` tree exists, and `git status` never lists the video.
+The video is **not** a repository file: the CEO uploads it in GitHub's README
+editor and supplies the resulting `user-attachments` URL, and `recording.mp4`
+therefore sits in `.gitignore`, never appears in `git status`, and no `docs/`
+tree exists for it. The poster frame **is** a repository file:
+`demo-launcher-vignette.png` is committed at the root and is what the README
+shows, linked to that URL.
 
 Do **not** touch: anything under `src/`, `crates/`, `tests/`, `DESIGN.md`,
 `design-tokens.css`, `.agents/`, or the T0015 ticket. No new npm dependency,
@@ -237,7 +241,7 @@ sections, in order:
 | Section | Content | Source of truth it must agree with |
 |---|---|---|
 | Title + one-line pitch | What SpeechTT is, in two sentences. | `PRODUCT.md` §1 |
-| Demo | The section holds an HTML comment placeholder until the CEO pastes the attachment URL produced by uploading the video in GitHub's README editor; GitHub renders an `user-attachments` URL as an inline player, which a relative `<video>` is not. | the attachment URL the CEO supplies |
+| Demo | A linked poster: the committed `demo-launcher-vignette.png` wrapped in a Markdown link to the GitHub attachment URL, so GitHub shows a clickable thumbnail that opens the player. GitHub renders an `user-attachments` URL as a player, which a relative `<video>` is not. | the committed PNG plus the attachment URL the CEO supplied |
 | What it does | Five bullets: live dictation, file transcription, gateway models, window-scoped shortcuts, single process. | `PRODUCT.md` §2–§3 |
 | Requirements | The runtime table: platform, Rust, `bun`, `ffmpeg`+`ffprobe`, gateway key. `ffmpeg` is marked file-mode-only. | `src/stt/file-input.ts`, `crates/speechtt-core/src/backend.rs` (`WORKER_SCRIPT`), `AGENTS.md` §4 |
 | Getting started | Three steps: Linux system packages (the `apt` line, credited and linked to <https://gpui-kit.com/docs/installation.md>), the `./scripts/setup.sh` bootstrap, then `bun install` + `bun run ui` **from the repository root**. | this ticket's scripts; `package.json` |
@@ -266,11 +270,14 @@ Rules:
 - **The tree is checked, not remembered.** Build the tree from `ls`/`find`
   output at the time of writing, and verify each listed path exists before the
   ticket is staged.
-- **The demo is not committed.** The video lives as a GitHub attachment that the
-  CEO uploads while editing the README on the web, and the committed section is
-  an HTML comment until that URL is pasted in. Because it is not a repository
-  file, `recording.mp4` is listed in `.gitignore`, it never appears in
-  `git status`, and no `docs/` tree exists for a single media file.
+- **The video is an attachment; the poster is committed.** The video lives as a
+  GitHub attachment that the CEO uploads while editing the README on the web, so
+  its local file `recording.mp4` is listed in `.gitignore`, never appears in
+  `git status`, and no `docs/` tree exists for a single media file — a 104 KB
+  video is not repository content. The `## Demo` section shows the committed
+  poster `demo-launcher-vignette.png`, linked to that attachment URL: GitHub
+  renders an `user-attachments` URL as a player, which a relative `<video>` is
+  not.
 
 ## TDD Tasks
 
@@ -292,12 +299,12 @@ Rules:
   exits 1 and prints the manual fallback. Drive `runCli(deps, argv)` with fakes.
 - [x] **T16.6 — Bootstraps**: `setup.sh`, `setup.ps1`, the `package.json`
   script.
-- [x] **T16.7 — README**: link the demo through the GitHub attachment URL the
-  CEO supplies, leaving an HTML comment placeholder until then, and git-ignore
-  the local `recording.mp4`; rewrite `README.md` per §5, building the tree from
-  live `ls`/`find` output and verifying every listed path. Cross-check the
-  requirements table, the shortcut table and the gate commands against their
-  sources of truth.
+- [x] **T16.7 — README**: lead the demo with the committed poster
+  `demo-launcher-vignette.png`, linked to the GitHub attachment URL the CEO
+  supplies, and git-ignore the local `recording.mp4`; rewrite `README.md` per §5,
+  building the tree from live `ls`/`find` output and verifying every listed path.
+  Cross-check the requirements table, the shortcut table and the gate commands
+  against their sources of truth.
 - [x] **T16.8 — Gates**: `bun test`, `bun check scripts/setup.ts` (or the repo
   type-check scope), plus a manual matrix run: `sh scripts/setup.sh --check` on
   this Arch machine (ffmpeg present ⇒ exit 0), `--dry-run` with a fake `PATH`
@@ -327,10 +334,11 @@ Rules:
    repository: it states the requirements, installs them, builds, runs, and
    explains the first run. Every path it lists exists, the shortcut table
    matches `shortcuts.rs`, the requirements match the code, and it names exactly
-   one provider. The demo is linked through the GitHub attachment URL the CEO
-   supplies, nothing in the README references a repository file, `git status`
-   never shows the video because `recording.mp4` is git-ignored, and no `docs/`
-   directory exists.
+   one provider. The demo leads with the committed poster
+   `demo-launcher-vignette.png`, linked to the GitHub attachment URL the CEO
+   supplies; the video itself is never in the repository, `git status` never
+   shows it because `recording.mp4` is git-ignored, and no `docs/` directory
+   exists.
 9. All gates green: `bun test`, type-check clean, zero warnings.
 
 ## Implementation Notes
@@ -346,7 +354,8 @@ Rules:
 | `package.json` | appended `"setup": "bun run scripts/setup.ts"`; nothing else touched. |
 | `README.md` | rewritten as the welcome document (§5 section order). |
 | `.gitignore` | appended one `recording.mp4` entry (outside the original scope, at the CEO's direction). |
-| `recording.mp4` | **not committed** — the demo is a GitHub attachment, and the local copy is `.gitignore`d. |
+| `recording.mp4` | **not committed** — the video is a GitHub attachment, and the local copy is `.gitignore`d. |
+| `demo-launcher-vignette.png` | **new, committed** — the poster frame the demo section links to the attachment URL. |
 
 ### Shape of `scripts/setup.ts`
 
@@ -595,12 +604,19 @@ All three were restored afterwards (75 pass, 0 fail).
   row for row (Space, Enter, Ctrl+S/Cmd+S, F1, F2) and notes that `bind_app_keys`
   adds `Ctrl`/`Cmd`+`C` and that the Help tab is generated from the same table.
 - No licence claim; the local-model fallback sentence is not repeated.
-- The `## Demo` section is a single HTML comment, so the committed README renders
-  the heading and nothing else: no broken relative `<video>`, no dangling link.
-- The demo is a GitHub attachment, not a repository file: the CEO uploads the
-  video in GitHub's README editor, which yields an
-  `https://github.com/user-attachments/assets/<uuid>` URL that GitHub renders as an
-  inline player. Replacing the comment with that URL is the CEO's step.
+- The `## Demo` section is a linked poster: an image reference to the committed
+  `demo-launcher-vignette.png` wrapped in a link to the GitHub attachment URL.
+  GitHub shows the PNG as a clickable thumbnail that opens the player, so the
+  section needs neither a relative `<video>` (which GitHub does not render
+  reliably) nor a bare link.
+- The video is a GitHub attachment, not a repository file: the CEO uploads it in
+  GitHub's README editor, which yields an
+  `https://github.com/user-attachments/assets/<uuid>` URL, and that URL is what the
+  poster links to. The poster is what a reader clicks.
+- Because the video is not a repository file, `recording.mp4` is listed in
+  `.gitignore` and never appears in `git status`, and no `docs/` tree exists for a
+  single media file. The poster `demo-launcher-vignette.png` **is** committed at
+  the repository root and appears in the tree.
 - Because the video is not a repository file, `recording.mp4` is listed in
   `.gitignore` and never appears in `git status`, and no `docs/` tree exists for
   a single media file. The local file stays on disk for the upload.
