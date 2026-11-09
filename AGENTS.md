@@ -363,6 +363,30 @@ See `tickets/README.md` for the full board, wave plan, and conventions. Summary:
 - A ticket in `review/` is **not** done until validated (or autonomously closed
   under delegated trust — see CTO contract).
 
+### Working-tree hygiene between tickets
+
+The working tree is the only copy of uncommitted work, so nothing is worth
+rewriting it for.
+
+- **A file is committed before a new ticket modifies it.** Check
+  `git status --short` for every file a ticket is about to touch. If one carries
+  another ticket's uncommitted changes, commit that work **first, in the state it
+  is in** — a ticket in `review/` counts, and a work-in-progress commit is fine.
+  Only then start the new ticket.
+- **Never rewrite a file to manufacture a commit boundary.** Splitting two
+  entangled tickets by restoring, editing or regenerating the shared file risks
+  the only copy of the work for a purely cosmetic gain in history. An imperfect
+  commit costs nothing; a lost working tree costs the work.
+- **When two tickets already share a file, commit them together.** Name both IDs
+  in the subject (`(T0036, T0037)`) and say in the body which change belongs to
+  which ticket, so the history still reads.
+- **Ask before any destructive git operation** on uncommitted work — `restore`,
+  `checkout -- <path>`, `stash`, `reset`, `clean`. State what would be lost and
+  offer a single combined commit as the alternative.
+
+The CTO enforces this before dispatching a ticket: a dirty file that belongs to
+another ticket is a reason to stop and ask the CEO/PM, not to edit around it.
+
 ---
 
 ## 9. Secret Safety (Non-Negotiable)
