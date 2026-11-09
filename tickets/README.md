@@ -118,6 +118,7 @@ Decisions, deviations, verification output.
 | [T0031](done/T0031-live-transcript-window-overlap.md) | Split the partial and delta channels in the live transcript | Rust core (transcript) + Bun worker (diagnosis) |
 | [T0035](done/T0035-window-scoped-keyboard-shortcuts.md) | Window- and state-scoped keyboard shortcuts, and a Help tab generated from them | Cross-cutting (core + UI + docs) |
 | [T0036](done/T0036-gpui-kit-0-9-migration.md) | Migrate the UI to gpui-kit 0.9.1 | Rust UI (framework bump) |
+| [T0037](done/T0037-launch-smoke-gate.md) | A gate that launches the built binary | Rust UI (test infrastructure) |
 
 ### In Progress
 
@@ -125,9 +126,7 @@ _(none)_
 
 ### Review
 
-| Ticket | Title | Track |
-|---|---|---|
-| [T0037](review/T0037-launch-smoke-gate.md) | A gate that launches the built binary | Rust UI (test infrastructure) |
+_(none)_
 
 
 ### Planned

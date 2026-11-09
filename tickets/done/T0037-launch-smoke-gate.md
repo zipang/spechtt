@@ -463,3 +463,17 @@ error: unresolved link to `gpui::Hsla`
 error: public documentation for `restored_window_bounds` links to private item `MIN_VISIBLE_EDGE`
 error: could not document `speechtt-ui`
 ```
+
+### Validation
+
+Validated by the CEO/PM on 2026-11-09, after the visual pass and after the
+gate was made headless:
+
+- `cargo test` runs the whole suite without opening a window on the desktop;
+  the spawned widget carries the sandboxed `HOME`/`XDG_CONFIG_HOME` and neither
+  `DISPLAY` nor `WAYLAND_DISPLAY`.
+- The suite leaves no `speechtt-ui` process and no `/tmp/speechtt-launch-*`
+  directory behind.
+- Gates at close: `cargo fmt`, `cargo clippy -D warnings`, **614** Rust tests,
+  **348** Bun tests, `bun check src/stt`, `bun run design:validate` — all green,
+  zero warnings.
