@@ -51,9 +51,16 @@ logic, or any `tickets/done/**`.
 
 `crates/speechtt-ui/tests/launch.rs` spawns the built binary through Cargo's
 `env!("CARGO_BIN_EXE_speechtt-ui")` and judges it by **liveness**, not by exit
-status:
+status. The child runs **headless**: `DISPLAY` and `WAYLAND_DISPLAY` are removed
+from its environment, so `gpui` starts the application with no display
+connection and `cargo test` opens no window on the developer's desktop.
+`Application::with_windowing` is the documented basis ("On Linux, the default
+environment is the process's own, and the app starts headless if that names no
+allowed display server"):
+<https://docs.rs/gpui-kit/0.9.1/gpui_kit/struct.Application.html>
 
-1. Spawn with `stdin` null, `stdout` and `stderr` piped.
+1. Spawn with `stdin` null, `stdout` and `stderr` piped, and the two display
+   variables removed.
 2. Poll the child every 100 ms up to a bounded window (start at 10 s; justify
    whatever you land on).
 3. **Fail** if the child exits inside the window, with the captured `stderr` in
@@ -72,6 +79,18 @@ which resolves under the user's config directory. The test must point the child 
 a throwaway directory (`$HOME` and `$XDG_CONFIG_HOME`) so it never reads or writes
 the real one. Nothing else about the child's environment is inherited specially.
 
+The gate asserts **the redirection, not the absence of another process's writes**:
+the property is "the command this file builds spawns the child with `HOME` and
+`XDG_CONFIG_HOME` pointing into a temporary directory that exists and lives under
+`env::temp_dir()`, and with `DISPLAY`/`WAYLAND_DISPLAY` removed". It is true or
+false regardless of what else is running on the machine, and it still catches the
+regression it exists for — a dropped or mistyped `.env(..)`/`.env_remove(..)`.
+Observing the user's real settings file instead would be a side-effect
+observation: a second running instance legitimately saves it
+(`SpeechTtApp::flush_pending_window_layout` auto-saves 600 ms after a window move
+or resize; the Settings dialog saves on user action), so the gate would fail for
+a reason outside its subject.
+
 ### C. Signal, not just a timeout (preferred if clean)
 
 A pure timeout cannot distinguish "still initialising" from "running". If a small,
@@ -82,13 +101,19 @@ This is a *diagnostic*, must not leak secrets or paths, and must not change what
 the widget does. If no clean signal is possible without touching behaviour, say so
 in the notes and ship the liveness window alone.
 
-### D. When there is no display
+### D. Displayless machines
 
-The suite must not fail on a machine with no display server (`gpui` opens a real
-window). Detect the absence of both `DISPLAY` and `WAYLAND_DISPLAY` and **skip
-with an explicit `eprintln!` reason**, never a silent pass and never an
-`#[ignore]` that hides the gate by default. Record in the notes which machine
-state runs it and which skips it.
+There is **no skip and no `#[ignore]`**. The gate spawns the child without
+`DISPLAY` and `WAYLAND_DISPLAY`, so it runs the real event loop with the
+documented headless windowing mode and needs no display server, no Xvfb, no audio
+server and no user configuration. It therefore runs on every machine, a headless
+CI box included, and its verdict does not depend on whether the developer has a
+graphical session.
+
+Running it headless is also the reason it opens no window: `cargo test` must
+never flash the widget on someone's desktop. The gate asserts the two
+`env_remove` calls on the command it builds, so a regression that reintroduces a
+display connection fails deterministically.
 
 ## TDD Tasks
 
@@ -99,7 +124,8 @@ state runs it and which skips it.
 - [x] **T2 — Liveness loop, hermeticity, cleanup.** §A and §B, including the
       exit-0 case and the kill-on-every-path requirement.
 - [x] **T3 — Optional launch signal.** §C, only if it is clean.
-- [x] **T4 — Display-less behaviour.** §D.
+- [x] **T4 — Display-less behaviour.** §D — the gate runs headless on every
+      machine, with no skip.
 - [x] **T5 — Documentation.** `AGENTS.md` §5 names the gate and its display
       requirement; §6 gets a rule if one follows.
 - [x] **T6 — Gates.** All six green; the new test counted.
@@ -110,8 +136,8 @@ state runs it and which skips it.
   passes when it launches — demonstrated, not asserted.
 - The test never reads or writes the user's real config directory, and kills its
   child on every path.
-- A machine with no `DISPLAY` and no `WAYLAND_DISPLAY` skips with a visible
-  reason; it never reports a silent success.
+- The gate runs headless on every machine and CI: it opens no window and needs no
+  display server, and it is never skipped or `#[ignore]`d.
 - All six gates green with zero warnings and no test weakened, skipped or
   `#[ignore]`d; `AGENTS.md` names the gate.
 
@@ -119,31 +145,36 @@ state runs it and which skips it.
 
 ### Shape of the gate
 
-`crates/speechtt-ui/tests/launch.rs`, three tests, all run by plain `cargo test`:
+`crates/speechtt-ui/tests/launch.rs`, four tests, all run by plain `cargo test`:
 
-1. `the_built_binary_reaches_a_running_window` — the launch itself. Spawns
-   `env!("CARGO_BIN_EXE_speechtt-ui")` with `stdin` null, `stdout`/`stderr`
-   piped, `HOME`/`XDG_CONFIG_HOME` pointed at a fresh temp dir. Waits for the
+1. `the_built_binary_reaches_a_running_window` — the launch itself. Spawns the
+   binary through `widget_command`, which sets `stdin` null, `stdout`/`stderr`
+   piped, `HOME`/`XDG_CONFIG_HOME` at a fresh temp dir, and removes
+   `DISPLAY`/`WAYLAND_DISPLAY` so the child runs headless. Waits for the
    positive signal (below) and then requires the process to stay alive for a
    settle window. An exit at any point fails, and status 0 gets its own message.
 2. `the_launch_signal_is_one_path_free_line` — pins the handshake: one physical
    line, `[speechtt] ` prefixed, no `/`, no `\`, and none of the inherited
-   `HOME`/`XDG_CONFIG_HOME`/`DISPLAY` values echoed into it.
+   `HOME`/`XDG_CONFIG_HOME` values echoed into it.
 3. `an_exit_inside_the_window_fails_the_launch` — pins the verdict wording for
    exit 0 versus a non-zero exit, so the "clean exit means no window" judgement
    cannot silently regress into "an exit is fine".
+4. `the_child_resolves_its_settings_inside_the_sandbox` — pins the redirection
+   itself: `HOME` and `XDG_CONFIG_HOME` on the built command are exactly the
+   sandbox's, the config root is under `env::temp_dir()`, and both directories
+   exist. Deterministic and display-free (see below).
 
 ### Timeouts, and why
 
 - `LAUNCH_TIMEOUT = 20 s` — the backstop for the signal, not the assertion. A
-  debug binary cold-loads the GPU backend, fonts and the theme; 10 s was the
+  debug binary cold-loads the fonts, the theme and the worker process; 10 s was the
   starting point but a cold CI runner is well within an order of magnitude of it,
   and a false red on a slow machine would push someone to weaken the gate. 20 s
   costs nothing on a healthy run, which reaches the signal in well under a
   second.
-- `SETTLE_WINDOW = 3 s` — the window must survive a first-frame render. That is
-  the failure mode that lands *after* `open_window` returns, and it is invisible
-  to the signal alone.
+- `SETTLE_WINDOW = 3 s` — the window must survive the first frame's layout. That
+  is the failure mode that lands *after* `open_window` returns, and it is
+  invisible to the signal alone.
 - `POLL_INTERVAL = 100 ms` — the sampling rate for the child's status and its
   captured stderr, per §A.
 
@@ -161,30 +192,112 @@ restating it, so the gate cannot drift from the binary it launches, and
 The signal alone is not treated as success: a panic in the first frame happens
 *after* it, which is exactly why the settle window exists.
 
-### §D behaviour, and which machines run it
+### §D behaviour: headless, no skip
 
-With neither `DISPLAY` nor `WAYLAND_DISPLAY` set and non-empty, the launch test
-prints
-`[launch] skipped: neither DISPLAY nor WAYLAND_DISPLAY is set, so gpui has no display server to open the widget's window on; this gate needs a graphical session to run`
-and returns — a visible reason, never a silent pass, never `#[ignore]`. The two
-signal tests still run, because they need no display.
+There is no skip branch and no `#[ignore]`. `widget_command` removes `DISPLAY`
+and `WAYLAND_DISPLAY` from the child's environment, and `gpui` then starts the
+application in its documented headless windowing mode:
+`Application::with_windowing` — "On Linux, the default environment is the
+process's own, and the app starts headless if that names no allowed display
+server" (<https://docs.rs/gpui-kit/0.9.1/gpui_kit/struct.Application.html>);
+`WindowingRequest::Headless` — "No display server. Windows lay out and handle
+input but draw nothing"
+(<https://docs.rs/gpui-kit/0.9.1/gpui_kit/enum.WindowingRequest.html>).
 
-- **Runs it**: the CEO's session (`DISPLAY=:0.0` here — see the gate output
-  below, which printed `[launch] running the built widget with DISPLAY set`).
-- **Skips it**: a headless box with both variables unset. Verified: with
-  `env -u DISPLAY -u WAYLAND_DISPLAY cargo test -p speechtt-ui --test launch`
-  the suite reports `3 passed`, and the skip line above is printed.
+The gate therefore runs on every machine, CI included, with no graphical
+session and no Xvfb, and `cargo test` never opens a window on the developer's
+desktop. Verified two ways:
+
+- `env -u DISPLAY -u WAYLAND_DISPLAY cargo test -p speechtt-ui --test launch` —
+  the same environment a CI box has — reports `4 passed`, including the launch
+  test itself.
+- While the gate ran with the CEO session's `DISPLAY=:0.0` present, the spawned
+  `target/debug/speechtt-ui` process (`pid=318115`) had **zero**
+  `DISPLAY`/`WAYLAND_DISPLAY` entries in `/proc/<pid>/environ`, read live. The
+  other processes that matched the pgrep pattern and did carry `DISPLAY` were the
+  shell and `cargo` running the test, not the child.
+
+`the_child_resolves_its_settings_inside_the_sandbox` pins the two `env_remove`
+calls, so a change that lets the child reach a display server fails
+deterministically.
 
 ### Hermeticity
 
 The child's `HOME` and `XDG_CONFIG_HOME` are created under `env::temp_dir()` by
 a `Sandbox` guard whose `Drop` removes the tree. `JsonFileStore::default_path()`
 resolves through `XDG_CONFIG_HOME` first, so the persisted window layout the
-child reads and writes stays inside the sandbox. The test additionally snapshots
-the *real* settings file's metadata (size + mtime, never its contents) before the
-spawn and asserts it is unchanged after — a leakage of the user's config fails
-the test rather than passing quietly. Verified after the full run: no
+child reads and writes stays inside the sandbox. `widget_command` is the single
+place that builds the spawn, and `the_child_resolves_its_settings_inside_the_sandbox`
+asserts both overrides resolve to the sandbox's own `home`/`config`, that
+`config` starts with `env::temp_dir()`, that both directories exist, and that
+both display variables are removed — a deterministic property of the command,
+with no dependence on any other process. Verified after the full run: no
 `/tmp/speechtt-launch-*` directory remains.
+
+### Corrections recorded during review
+
+**1 — the gate must not perturb the desktop.** The first version spawned the
+binary windowed, so a real window flashed on the user's screen on every
+`cargo test`. The child now runs headless through the two `env_remove` calls
+above; the handshake, settle window, exit-status judgement, kill/reap and
+timeout are unchanged, and a re-run Red check proves the gate still fails on a
+startup panic.
+
+**2 — the settings-file side-effect assertion is gone.** The first version
+additionally snapshotted the **real** settings file's metadata before the spawn
+and asserted it unchanged afterwards. That is an external side-effect
+observation, not a property of the code under test, and it fails whenever
+another `speechtt-ui` instance writes that file — which one legitimately does.
+`SpeechTtApp::flush_pending_window_layout` (`crates/speechtt-ui/src/app.rs:1804`)
+auto-saves 600 ms after any window move or resize, and the Settings dialog saves
+on user action (`app.rs:1570`), so dragging the widget during the gate window
+produced a false red. A gate that fails for a reason outside its subject is worse
+than no gate.
+
+Replaced by `widget_command(sandbox) -> Command` (the one builder for the spawn)
+plus `the_child_resolves_its_settings_inside_the_sandbox`, which pins the
+redirection and the display removal. `file_state` and the `JsonFileStore`/`Path`
+imports it needed are deleted.
+
+- **Red check (correction 1, headless):** with `secondary-c` restored in
+  `shortcuts.rs`, the headless gate fails with the child's own panic text in
+  0.20 s:
+  ```
+  test the_built_binary_reaches_a_running_window ... FAILED
+
+  thread 'the_built_binary_reaches_a_running_window' panicked at crates/speechtt-ui/tests/launch.rs:110:9:
+  the widget exited (exit status: 101) before reporting that its window is open: a panic while starting up looks like this
+  --- widget stderr ---
+
+  thread 'main' (316747) panicked at .../gpui-pre-0.3.12/src/keymap/binding.rs:47:10:
+  called `Result::unwrap()` on an `Err` value: InvalidKeystrokeError { keystroke: "secondary-c" }
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+  ```
+  Reverted → `4 passed; 0 failed`, `3.31s`.
+- **Red check (correction 2, redirection):** with
+  `.env("XDG_CONFIG_HOME", sandbox.config())` temporarily removed from
+  `widget_command`, only the deterministic test fails:
+  ```
+  test the_child_resolves_its_settings_inside_the_sandbox ... FAILED
+
+  thread 'the_child_resolves_its_settings_inside_the_sandbox' panicked at crates/speechtt-ui/tests/launch.rs:142:9:
+  assertion `left == right` failed: the child must be spawned with XDG_CONFIG_HOME pointing into its throwaway settings root, got None instead of "/tmp/speechtt-launch-304402-1794235480636484726/config"
+    left: None
+   right: Some("/tmp/speechtt-launch-304402-1794235480636484726/config")
+
+  test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.82s
+  ```
+  Reverted → `4 passed; 0 failed`.
+- **Racy failure is gone**: two concurrent `cargo test -p speechtt-ui --test launch`
+  runs both passed — `A: 4 passed … 4.22s`, `B: 4 passed … 4.22s` — and a real
+  `target/debug/speechtt-ui` (PID 290232) was running the whole time, which is the
+  exact condition that used to produce the false red.
+- Rust test count: **614** (610 before the ticket; `launch.rs` reports
+  `running 4 tests`, and the deterministic test replaced no test because
+  `file_state` was a helper).
+
 
 ### Cleanup on every path
 
@@ -215,49 +328,55 @@ it is alive but never reached its first window
 ```
 
 **Startup panic reintroduced** — `shortcuts.rs`'s copy key set back to
-`"secondary-c"` for Linux, the exact defect the ticket cites:
+`"secondary-c"` for Linux, the exact defect the ticket cites. Run again after the
+headless correction, so this is the current gate's behaviour:
 
 ```
-running 2 tests
+running 4 tests
+test an_exit_inside_the_window_fails_the_launch ... ok
 test the_launch_signal_is_one_path_free_line ... ok
+test the_child_resolves_its_settings_inside_the_sandbox ... ok
 test the_built_binary_reaches_a_running_window ... FAILED
 
 ---- the_built_binary_reaches_a_running_window stdout ----
-[launch] running the built widget with DISPLAY set
 
-thread 'the_built_binary_reaches_a_running_window' panicked at crates/speechtt-ui/tests/launch.rs:122:9:
+thread 'the_built_binary_reaches_a_running_window' (316744) panicked at crates/speechtt-ui/tests/launch.rs:110:9:
 the widget exited (exit status: 101) before reporting that its window is open: a panic while starting up looks like this
 --- widget stderr ---
 
-thread 'main' (227795) panicked at .../gpui-pre-0.3.12/src/keymap/binding.rs:47:10:
+thread 'main' (316747) panicked at .../gpui-pre-0.3.12/src/keymap/binding.rs:47:10:
 called `Result::unwrap()` on an `Err` value: InvalidKeystrokeError { keystroke: "secondary-c" }
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 
-test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
 ```
 
-The failure carries the child's own panic text, and it takes 0.10 s instead of
+The failure carries the child's own panic text, and it takes 0.20 s instead of
 waiting out the timeout, because the exit is detected rather than inferred.
 
-**Reverted** — `shortcuts.rs` restored (`"ctrl-c"` on Linux), test green again:
+**Reverted** — `shortcuts.rs` restored (`"ctrl-c"` on Linux), gate green again:
 
 ```
-running 2 tests
+running 4 tests
+test the_child_resolves_its_settings_inside_the_sandbox ... ok
+test an_exit_inside_the_window_fails_the_launch ... ok
 test the_launch_signal_is_one_path_free_line ... ok
 test the_built_binary_reaches_a_running_window ... ok
 
-test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.75s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.31s
 ```
 
 ### Documentation (T5)
 
-- `AGENTS.md` §5 (Rust) names the **launch gate**: what it launches, the signal
-  it waits for, the settle requirement, and that it is the only gate needing a
-  graphical session plus its skip behaviour.
+- `AGENTS.md` §5 (Rust) names the **launch gate**: it runs the built binary
+  headless (both display variables removed, so no window), the signal it waits
+  for, the settle requirement, and that it needs no display server, audio server
+  or user configuration, so it runs on every machine and in CI.
 - `AGENTS.md` §6 (Do) gains the rule that startup keeps the launch handshake:
   `run()` writes `diagnostics::log_launched()` once `open_window` returned, a
-  window opened by another route keeps it, and a display-less machine skips
-  with a printed reason rather than `#[ignore]`.
+  window opened by another route keeps it, and the gate must never open a window
+  on the developer's desktop — it removes `DISPLAY`/`WAYLAND_DISPLAY` and is
+  never `#[ignore]`d or made conditional on a display server.
 - `diagnostics.rs`'s module header and `lib.rs::run`'s doc name the new
   responsibility and its caller (§3: present tense, no history, no ticket IDs).
 
@@ -277,8 +396,9 @@ FMT=0
 CLIPPY=0
 ```
 
-`cargo test` — **613 passed, 0 failed, 0 ignored**, up from 610: the launch file
-contributes 3 new tests (its line is `running 3 tests … 3 passed; 3.61s`).
+`cargo test` — **614 passed, 0 failed, 0 ignored**, up from 610: the launch file
+contributes 4 tests (its line is `running 4 tests … 4 passed; 3.31s`, headless,
+no window).
 
 ```
 running 229 tests	test result: ok. 229 passed; 0 failed; 0 ignored
@@ -291,7 +411,7 @@ running   3 tests	test result: ok.   3 passed; 0 failed; 0 ignored
 running  12 tests	test result: ok.  12 passed; 0 failed; 0 ignored
 running  37 tests	test result: ok.  37 passed; 0 failed; 0 ignored
 running  14 tests	test result: ok.  14 passed; 0 failed; 0 ignored
-running   3 tests	test result: ok.   3 passed; 0 failed; 0 ignored   (launch.rs)
+running   4 tests	test result: ok.   4 passed; 0 failed; 0 ignored   (launch.rs)
 running  96 tests	test result: ok.  96 passed; 0 failed; 0 ignored
 running  23 tests	test result: ok.  23 passed; 0 failed; 0 ignored
 running   5 tests	test result: ok.   5 passed; 0 failed; 0 ignored
@@ -300,7 +420,7 @@ running  35 tests	test result: ok.  35 passed; 0 failed; 0 ignored
 running   0 tests	test result: ok.   0 passed; 0 failed; 0 ignored
 running   0 tests	test result: ok.   0 passed; 0 failed; 0 ignored
 
-totals: passed=613 failed=0 ignored=0
+totals: passed=614 failed=0 ignored=0
 ```
 
 `bun test`:

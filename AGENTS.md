@@ -215,12 +215,12 @@ it: the code, the tests and the ticket already hold the truth.
   itself, and that the UI test fixture calls the seam instead of copying it.
 - `cargo test` also includes the **launch gate**
   (`crates/speechtt-ui/tests/launch.rs`), which runs the built `speechtt-ui`
-  binary in a throwaway `$HOME`/`$XDG_CONFIG_HOME`, waits for the
+  binary **headless** — `DISPLAY` and `WAYLAND_DISPLAY` removed, so `gpui` opens
+  no window — in a throwaway `$HOME`/`$XDG_CONFIG_HOME`, waits for the
   `[speechtt] startup status=window-open` line `run()` writes once its window is
   open, and fails if the widget exits before that line or within the settle
-  window after it. This is the only gate that needs a graphical session: with
-  neither `DISPLAY` nor `WAYLAND_DISPLAY` set it prints a skip reason and
-  returns, so run the suite from a session before staging a UI ticket.
+  window after it. It needs no display server, no audio server and no user
+  configuration, so it runs on every machine and in CI.
 
 ### TypeScript / Bun
 - `bun test`
@@ -263,10 +263,11 @@ All gates must be green with **zero warnings**. Do not weaken, skip, or
   closure is parsed for the first time on the user's machine.
 - **Startup keeps the launch handshake.** `run()` writes
   `diagnostics::log_launched()` once `open_window` has returned, and
-  `tests/launch.rs` launches the built binary and fails when it exits before or
-  just after that line. A change that opens the window by another route keeps the
-  handshake, and a machine without a display skips the gate with a printed reason
-  rather than `#[ignore]`-ing it.
+  `tests/launch.rs` launches the built binary headless and fails when it exits
+  before or just after that line. A change that opens the window by another route
+  keeps the handshake. That gate must never open a window on the developer's
+  desktop: it removes `DISPLAY` and `WAYLAND_DISPLAY` so `gpui` starts headless,
+  and it is never `#[ignore]`d or made conditional on a display server.
 - Treat shared registration files (`Cargo.toml`, `lib.rs`) as **append-only**
   across parallel tickets — never rewrite or delete sibling lines.
 - Use `SecretString` (Rust) / `apiKey` (TS) for credentials; persist settings

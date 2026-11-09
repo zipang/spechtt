@@ -1,11 +1,20 @@
-//! Launch gate: the compiled widget binary must open its window and keep running.
+//! Launch gate: the compiled widget binary reaches its first window and keeps
+//! running.
 //!
 //! `tests/startup.rs` runs the startup seam on a headless context, which parses
 //! every registration the application performs — but it never executes
 //! `gpui_kit::application().run`'s event loop, so a panic inside that closure
-//! below the seam, a failed window creation and a GPU surface failure are all
-//! invisible to it. This file closes that gap by starting
+//! below the seam, a failed window creation and a runtime failure while the loop
+//! runs are all invisible to it. This file closes that gap by starting
 //! `CARGO_BIN_EXE_speechtt-ui`, the real binary a user launches.
+//!
+//! The child runs **headless**: [`widget_command`] removes `DISPLAY` and
+//! `WAYLAND_DISPLAY`, and `gpui-kit` then starts the application with no display
+//! connection, so `cargo test` opens no window on the developer's desktop.
+//! `Application::with_windowing` documents the behaviour this relies on:
+//! "Defaults to windowed. On Linux, the default environment is the process's own,
+//! and the app starts headless if that names no allowed display server."
+//! <https://docs.rs/gpui-kit/0.9.1/gpui_kit/struct.Application.html>
 //!
 //! The binary is judged by **liveness plus one positive signal**:
 //!
@@ -13,43 +22,54 @@
 //!    open. This test waits for that line, so the verdict distinguishes "still
 //!    initialising" from "running" instead of inferring it from a timeout.
 //! 2. It must still be alive [`SETTLE_WINDOW`] after that line, because a panic
-//!    on the first frame happens after `open_window` returns.
+//!    in the first frame's layout happens after `open_window` returns.
 //! 3. It must not exit at all — least of all with status 0, since the widget
 //!    holds no quit path at startup. An exit is always a failure, with the
 //!    child's `stderr` attached.
 //!
-//! The child runs in a throwaway `HOME` and `XDG_CONFIG_HOME` so it never reads
-//! or writes the user's persisted settings, and it is killed and reaped on
-//! every path, including a failing one, so no widget process outlives the test.
+//! The child is spawned with its settings root redirected — `HOME` and
+//! `XDG_CONFIG_HOME` point into a throwaway directory — so the persisted window
+//! layout it reads and writes lands there and not in the user's config
+//! directory. [`the_child_resolves_its_settings_inside_the_sandbox`] asserts
+//! that redirection, which is a fact about the command this file builds. It does
+//! not observe the user's real settings file: another running instance
+//! legitimately saves it, so watching it would make the gate fail for a reason
+//! outside its subject. The child is killed and reaped on every path, including
+//! a failing one, so no widget process outlives the test.
 //!
-//! A machine with no display server cannot open a `gpui` window: the test then
-//! prints why it skipped instead of passing silently or hiding behind
-//! `#[ignore]`.
+//! No machine state skips this file: it needs no display server, no audio server
+//! and no user configuration, so it runs on every developer machine and in CI.
 //!
 //! Run by `cargo test` (AGENTS.md §5).
 
 use std::env;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{self, BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
-use speechtt_core::settings::JsonFileStore;
+/// The two variables that make `gpui` connect to a display server.
+///
+/// [`widget_command`] removes both, which is what starts the child headless;
+/// [`the_child_resolves_its_settings_inside_the_sandbox`] pins their removal.
+const DISPLAY_VARIABLES: [&str; 2] = ["DISPLAY", "WAYLAND_DISPLAY"];
 
 /// How long the binary may take to report that its window is open.
 ///
-/// Generous on purpose: a debug binary cold-loads the GPU backend and the
-/// fonts, and a slow CI runner must not be mistaken for a dead widget. The
-/// window is a backstop for the positive signal, not the assertion itself.
+/// Generous on purpose: a debug binary cold-loads the fonts, the theme and the
+/// worker process, and a slow CI runner must not be mistaken for a dead widget.
+/// The window is a backstop for the positive signal, not the assertion itself.
 const LAUNCH_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// How long the binary must stay alive after reporting its window.
 ///
 /// Covers the failure modes that land after `open_window` returns: a panic in
-/// the first frame's render, a GPU surface that dies while presenting it.
+/// the first frame's layout, and a runtime that gives up while the event loop
+/// runs.
 const SETTLE_WINDOW: Duration = Duration::from_secs(3);
 
 /// How often the child's status and `stderr` are sampled.
@@ -57,34 +77,14 @@ const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// The widget reaches its first window and stays up.
 ///
-/// Hermetic apart from the display server it needs: the child's settings
-/// directory is a temporary directory this test creates and removes, and the
-/// user's real settings file is checked to be untouched afterwards.
+/// Runs headless, so it needs no display server and opens no window: the child
+/// runs in the throwaway settings root [`widget_command`] builds, and this test
+/// removes that root afterwards.
 #[test]
 fn the_built_binary_reaches_a_running_window() {
-    let Some(variable) = display_server() else {
-        eprintln!(
-            "[launch] skipped: neither DISPLAY nor WAYLAND_DISPLAY is set, so gpui has no \
-             display server to open the widget's window on; this gate needs a graphical \
-             session to run"
-        );
-        return;
-    };
-    eprintln!("[launch] running the built widget with {variable} set");
-
     let sandbox = Sandbox::create();
-    // The user's own store, resolved in this process's environment. Only its
-    // metadata is read, never its contents, and only to prove the child did not
-    // write it.
-    let real_settings = JsonFileStore::default_path();
-    let real_settings_before = file_state(&real_settings);
 
-    let mut child = Command::new(env!("CARGO_BIN_EXE_speechtt-ui"))
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .env("HOME", sandbox.home())
-        .env("XDG_CONFIG_HOME", sandbox.config())
+    let mut child = widget_command(&sandbox)
         .spawn()
         .expect("the built widget binary must be runnable");
 
@@ -105,22 +105,76 @@ fn the_built_binary_reaches_a_running_window() {
     }
 
     let stderr = captured.lock().expect("captured stderr lock").stderr();
-    let real_settings_after = file_state(&real_settings);
-
-    assert_eq!(
-        real_settings_before,
-        real_settings_after,
-        "the widget must not write the user's real settings file at {}",
-        real_settings.display()
-    );
-    assert!(
-        sandbox.root.starts_with(env::temp_dir()),
-        "the widget's settings must live in a temporary directory, got {}",
-        sandbox.root.display()
-    );
 
     if let Err(reason) = verdict {
         panic!("{reason}\n--- widget stderr ---\n{stderr}");
+    }
+}
+
+/// The command this gate spawns redirects the child's settings and detaches it
+/// from every display server.
+///
+/// Two documented facts make that the whole isolation: `JsonFileStore::default_path()`
+/// reads `XDG_CONFIG_HOME` and falls back to `$HOME/.config`, so pinning both
+/// overrides keeps the child's reads and writes in the sandbox; and `gpui` starts
+/// headless when the environment names no allowed display server, so removing
+/// `DISPLAY` and `WAYLAND_DISPLAY` opens no window on the desktop.
+///
+/// The check is a property of the command — true or false regardless of what any
+/// other process on the machine is doing, and needing no display server itself —
+/// so a dropped or mistyped `.env(..)` or `.env_remove(..)` fails it
+/// deterministically.
+#[test]
+fn the_child_resolves_its_settings_inside_the_sandbox() {
+    let sandbox = Sandbox::create();
+    let command = widget_command(&sandbox);
+    let env: Vec<(OsString, Option<OsString>)> = command
+        .get_envs()
+        .map(|(key, value)| (key.to_owned(), value.map(OsStr::to_owned)))
+        .collect();
+
+    // `None` means the variable is not touched, `Some(None)` that it is removed,
+    // `Some(Some(..))` that it is set — so a lookup answers all three.
+    let found = |name: &str| {
+        env.iter()
+            .find(|(key, _)| key == name)
+            .map(|(_, value)| value.clone())
+    };
+
+    for (name, expected) in [
+        ("HOME", sandbox.home()),
+        ("XDG_CONFIG_HOME", sandbox.config()),
+    ] {
+        let resolved = found(name).flatten().map(PathBuf::from);
+        assert_eq!(
+            resolved.as_deref(),
+            Some(expected.as_path()),
+            "the child must be spawned with {name} pointing into its throwaway settings \
+             root, got {resolved:?} instead of {expected:?}"
+        );
+    }
+
+    for name in DISPLAY_VARIABLES {
+        let removed = matches!(found(name), Some(None));
+        assert!(
+            removed,
+            "the child must be spawned with {name} removed, so `gpui` starts headless and \
+             opens no window on the desktop; found {:?}",
+            found(name).flatten()
+        );
+    }
+
+    assert!(
+        sandbox.config().starts_with(env::temp_dir()),
+        "the child's settings root must be temporary, got {}",
+        sandbox.config().display()
+    );
+    for directory in [sandbox.home(), sandbox.config()] {
+        assert!(
+            directory.is_dir(),
+            "{} must exist before the child starts, or it reads no settings at all",
+            directory.display()
+        );
     }
 }
 
@@ -128,8 +182,8 @@ fn the_built_binary_reaches_a_running_window() {
 /// names no path and no environment value.
 ///
 /// It is the handshake this gate waits for, and a diagnostic a user may see in
-/// a terminal, so it stays a fixed token: the throwaway directory and the
-/// display server must not leak into it.
+/// a terminal, so it stays a fixed token: the throwaway settings root must not
+/// leak into it.
 #[test]
 fn the_launch_signal_is_one_path_free_line() {
     let line = speechtt_ui::diagnostics::launched_line();
@@ -143,7 +197,7 @@ fn the_launch_signal_is_one_path_free_line() {
         !line.contains('/') && !line.contains('\\'),
         "the signal must name no path, got {line:?}"
     );
-    for inherited in ["HOME", "XDG_CONFIG_HOME", "DISPLAY"] {
+    for inherited in ["HOME", "XDG_CONFIG_HOME"] {
         let value = env::var_os(inherited).map(|value| value.to_string_lossy().into_owned());
         if let Some(value) = value.filter(|value| !value.is_empty()) {
             assert!(
@@ -169,16 +223,6 @@ fn an_exit_inside_the_window_fails_the_launch() {
     let crashed = exited(ExitStatus::from_raw(1 << 8), "before its window");
     assert!(crashed.contains("exit status: 1"), "{crashed}");
     assert!(!crashed.contains("status 0"), "{crashed}");
-}
-
-/// Which display-server variable lets `gpui` open a window, if any.
-///
-/// Both are read from this process's environment because the child inherits
-/// them: the gate runs in a graphical session and skips elsewhere.
-fn display_server() -> Option<&'static str> {
-    ["WAYLAND_DISPLAY", "DISPLAY"]
-        .into_iter()
-        .find(|name| env::var_os(name).is_some_and(|value| !value.is_empty()))
 }
 
 /// Judges a spawned widget by its liveness and its launch signal.
@@ -294,6 +338,33 @@ fn drain_stdout(child: &mut Child) -> Option<thread::JoinHandle<()>> {
     }))
 }
 
+/// The command that launches the built widget inside `sandbox`, headless.
+///
+/// One place builds it so the gate's spawn and
+/// [`the_child_resolves_its_settings_inside_the_sandbox`] cannot drift: the
+/// redirection and the display detachment are asserted on this command rather
+/// than inferred from a running process.
+///
+/// `stdin` is null and both output channels are piped, because the gate judges
+/// the child by its `stderr` and must never block on a full pipe. `HOME` and
+/// `XDG_CONFIG_HOME` carry the throwaway settings root. `DISPLAY` and
+/// `WAYLAND_DISPLAY` are removed, which is what makes `gpui` start headless — the
+/// gate must not flash a window on the desktop. Everything else is inherited: the
+/// text system, the worker and the rest of the runtime read their own variables.
+fn widget_command(sandbox: &Sandbox) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_speechtt-ui"));
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("HOME", sandbox.home())
+        .env("XDG_CONFIG_HOME", sandbox.config());
+    for variable in DISPLAY_VARIABLES {
+        command.env_remove(variable);
+    }
+    command
+}
+
 /// A throwaway settings root for the child process.
 ///
 /// The widget resolves its store through `XDG_CONFIG_HOME`, falling back to
@@ -334,13 +405,4 @@ impl Drop for Sandbox {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.root);
     }
-}
-
-/// Size and modification time of `path`, or `None` when it does not exist.
-///
-/// Metadata only: the gate proves the user's settings file is not written
-/// without reading what it holds.
-fn file_state(path: &Path) -> Option<(u64, Option<SystemTime>)> {
-    let metadata = fs::metadata(path).ok()?;
-    Some((metadata.len(), metadata.modified().ok()))
 }
