@@ -11,3 +11,6 @@ node_modules/
 .env
 .env.*
 !.env.example
+
+# Demo recording — uploaded to the README as a GitHub attachment, never committed
+recording.mp4

@@ -8,6 +8,7 @@
     "fmt": "bun fmt",
     "lint": "bun lint",
     "test": "bun test",
+    "setup": "bun run scripts/setup.ts",
     "stt:worker": "bun run src/stt/worker.ts",
     "design:validate": "bun scripts/validate-design.ts",
     "design:contrast": "bun scripts/sync-contrast.ts",

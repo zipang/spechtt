@@ -126,12 +126,13 @@ _(none)_
 
 ### Review
 
-_(none)_
+| Ticket | Title | Track |
+|---|---|---|
+| [T0016](review/T0016-dependency-bootstrap-script.md) | Dependency bootstrap for Bun and ffmpeg, and a welcome README | Tooling (TypeScript/Bun) + docs |
 
 
 ### Planned
 
 | Ticket | Title | Track | Depends on |
 |---|---|---|---|
-| [T0016](planned/T0016-dependency-bootstrap-script.md) | Dependency bootstrap for Bun and ffmpeg | Tooling (TypeScript/Bun) | — |
 | [T0032](planned/T0032-language-reach-honesty.md) | Say honestly what the dictation language can reach | Cross-cutting (worker → core → UI) | T0030 |
