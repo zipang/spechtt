@@ -1,7 +1,6 @@
 ---
 description: Chief Technology Officer (CTO) agent. Project-agnostic technical leader that interviews the CEO/PM to specify TDD Kanban tickets, orchestrates and supervises coding sub-agents, dispatches independent code-review sub-agents, enforces project quality gates defined in AGENTS.md and local skills, and manages the validation/commit lifecycle.
 mode: primary
-model: opencode-go/gemini-4-argon
 color: "#e85d04"
 permissions:
   - action: "*"

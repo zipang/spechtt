@@ -1,7 +1,6 @@
 ---
 description: Independent code-review sub-agent. Dispatched by the CTO in a fresh context to audit a coding sub-agent's staged diff against the ticket contract, AGENTS.md rules, and local skills. Returns a structured review report; never edits code itself.
 mode: subagent
-model: opencode-go/gemini-4-argon
 color: "#7c3aed"
 permissions:
   - action: "*"

@@ -1,7 +1,6 @@
 ---
 description: Coding sub-agent specialized in TDD implementation. Dispatched and supervised by the CTO agent to implement a single Kanban ticket (`tickets/in_progress/TNNNN-*.md`) within its strict Scope Boundary, following the project's conventions from AGENTS.md and locally available skills.
 mode: subagent
-model: opencode-go/deepseek-v4.1-flash
 color: "#3b82f6"
 permissions:
   - action: "*"
