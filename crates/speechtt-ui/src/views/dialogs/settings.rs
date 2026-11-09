@@ -198,12 +198,6 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
         api_key = api_key.child(stored);
     }
 
-    let note = InfoNote::new(if unavailable {
-        "This provider is not connected. Add an API key to enable it."
-    } else {
-        "No API key? SpeechTT falls back to a local model and keeps working fully offline."
-    });
-
     let footer = AppFooter::new()
         .action(
             ActionButton::secondary("btn-settings-cancel", "Cancel")
@@ -215,7 +209,7 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
                 .on_click(cx.listener(|this, _event, window, cx| this.save(window, cx))),
         );
 
-    DialogShell::new()
+    let mut shell = DialogShell::new()
         .body(
             SettingRow::new(
                 "Dictation Language",
@@ -247,8 +241,17 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
             .prominent()
             .control(cleanup_control),
         )
-        .body(api_key)
-        .body(note)
-        .footer(footer)
-        .into_any_element()
+        .body(api_key);
+
+    // The note explains why this provider cannot be used yet, so it is drawn
+    // only while the worker reports the provider as unavailable: with the
+    // provider connected there is nothing left to explain.
+    if unavailable {
+        shell = shell.body(
+            InfoNote::new("This provider is not connected. Add an API key to enable it.")
+                .id("note-settings-provider"),
+        );
+    }
+
+    shell.footer(footer).into_any_element()
 }

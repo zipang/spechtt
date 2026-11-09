@@ -255,6 +255,46 @@ fn dialogs_render_and_save_through_the_app(cx: &mut gpui_kit::TestAppContext) {
     .unwrap();
 }
 
+/// The Settings dialog explains an unavailable provider only while the worker
+/// reports it as unavailable. A connected provider has nothing to explain.
+#[gpui_kit::test]
+fn the_settings_note_appears_only_for_an_unavailable_provider(cx: &mut gpui_kit::TestAppContext) {
+    let mut unavailable = catalogue();
+    unavailable[0].available = false;
+
+    let (main, view) = common::open_speechtt_window(cx);
+
+    cx.update_window(main.into(), |_, window, cx| {
+        view.update(cx, |app, cx| app.open_settings(window, cx));
+    })
+    .unwrap();
+
+    let dialog = cx
+        .windows()
+        .into_iter()
+        .find(|window| window.window_id() != main.window_id())
+        .expect("Settings opened its own window");
+
+    cx.update_window(dialog, |_, window, cx| {
+        view.update(cx, |app, cx| {
+            assert!(app.set_settings_provider("vercel-ai-gateway", cx));
+        });
+        window.render_frame(cx);
+        assert!(
+            window.try_find("note-settings-provider").is_none(),
+            "a connected provider needs no note"
+        );
+
+        view.update(cx, |app, cx| app.apply_capabilities(unavailable, cx));
+        window.render_frame(cx);
+        assert!(
+            window.try_find("note-settings-provider").is_some(),
+            "an unavailable provider explains why it cannot be used"
+        );
+    })
+    .unwrap();
+}
+
 #[gpui_kit::test]
 fn each_dialog_opens_its_own_floating_window(cx: &mut gpui_kit::TestAppContext) {
     let (main, view) = common::open_speechtt_window(cx);
