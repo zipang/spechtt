@@ -1,10 +1,11 @@
 //! Typed user settings and their on-disk JSON representation.
 //!
 //! [`Settings`] holds the active provider, one default model per take mode,
-//! per-provider API keys and the raw shortcut strings (parsed by
-//! [`crate::hotkeys`], which keeps this module free of shortcut semantics). API
-//! keys are [`SecretString`]s: they serialize for persistence but never appear
-//! in `Debug` output.
+//! per-provider API keys and the window geometry. Shortcuts are not configurable:
+//! the commands live in [`crate::actions`] and their keys in the UI's binding
+//! table, so the persisted `shortcuts` map is read for migration only. API keys
+//! are [`SecretString`]s: they serialize for persistence but never appear in
+//! `Debug` output.
 //!
 //! [`JsonFileStore`] persists settings as pretty-printed JSON. Saves are
 //! atomic (write `<file>.tmp`, `sync_all`, rename over the target) and, on
@@ -119,8 +120,10 @@ pub struct Settings {
     pub language: String,
     /// Provider id -> API key. Serialized, but never exposed by `Debug`.
     pub api_keys: BTreeMap<String, SecretString>,
-    /// Action name -> shortcut string (for example `startRecording` ->
-    /// `Ctrl+Shift+R`). Parsed by [`crate::hotkeys::bindings_from_settings`].
+    /// Action name -> shortcut string, written by releases that had rebindable
+    /// global shortcuts. Kept so an older file still loads; cleared by
+    /// [`Settings::normalize`] so the next save drops it. Nothing reads it.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub shortcuts: BTreeMap<String, String>,
     /// Paste the finished transcript into the focused field automatically.
     pub auto_paste: bool,
@@ -176,10 +179,12 @@ impl Settings {
         }
     }
 
-    /// Rewrites legacy ids and drops unusable window geometry.
+    /// Rewrites legacy ids, drops unusable window geometry, and clears the dead
+    /// shortcut map so the next save stops writing it.
     pub fn normalize(&mut self) {
         self.normalize_provider_ids();
         self.normalize_window_layout();
+        self.shortcuts.clear();
     }
 
     pub fn normalize_provider_ids(&mut self) {
@@ -541,7 +546,7 @@ mod tests {
                 DEFAULT_PROVIDER.to_owned(),
                 SecretString::new("sk-live-secret-123456"),
             )]),
-            shortcuts: BTreeMap::from([("startRecording".to_owned(), "Ctrl+Shift+R".to_owned())]),
+            shortcuts: BTreeMap::new(),
             auto_paste: false,
             window: None,
         }
@@ -843,6 +848,65 @@ mod tests {
         );
     }
 
+    // T7.1 — the dead shortcut map ---------------------------------------
+
+    /// Releases that had rebindable global shortcuts wrote this map; a file that
+    /// still holds one must load, and the next save must drop it.
+    #[test]
+    fn a_file_with_the_old_shortcut_map_still_loads_and_forgets_it() {
+        let dir = TempDir::new("legacy-shortcuts");
+        let store = JsonFileStore::new(dir.join("settings.json"));
+        fs::write(
+            store.path(),
+            r#"{"provider":"vercel-ai-gateway","shortcuts":{"startRecording":"Ctrl+Shift+R"}}"#,
+        )
+        .expect("write legacy settings");
+
+        let loaded = store.load().expect("an older file must still load");
+        assert!(loaded.shortcuts.is_empty(), "the dead map is cleared");
+
+        store.save(&loaded).expect("save the migrated settings");
+        let json = fs::read_to_string(store.path()).expect("read saved settings");
+        assert!(
+            !json.contains("\"shortcuts\""),
+            "the next save drops the dead key"
+        );
+    }
+
+    /// The map an older release wrote, attached to a current fixture.
+    fn legacy_shortcut_map() -> BTreeMap<String, String> {
+        BTreeMap::from([("startRecording".to_owned(), "Ctrl+Shift+R".to_owned())])
+    }
+
+    #[test]
+    fn normalize_clears_the_legacy_shortcut_map() {
+        let mut settings = Settings {
+            shortcuts: legacy_shortcut_map(),
+            ..sample_settings()
+        };
+
+        settings.normalize();
+
+        assert!(settings.shortcuts.is_empty());
+    }
+
+    /// Saving is the migration: a file that still carries the map is rewritten
+    /// without it.
+    #[test]
+    fn the_legacy_shortcut_map_is_not_written_once_it_is_empty() {
+        let dir = TempDir::new("no-shortcuts");
+        let store = JsonFileStore::new(dir.join("settings.json"));
+        let settings = Settings {
+            shortcuts: legacy_shortcut_map(),
+            ..sample_settings()
+        };
+
+        store.save(&settings).expect("save settings");
+
+        let json = fs::read_to_string(store.path()).expect("read saved settings");
+        assert!(!json.contains("shortcuts"), "{json}");
+    }
+
     // T6.2 — store -------------------------------------------------------
 
     #[test]
@@ -1024,13 +1088,15 @@ mod tests {
             .expect("model_streaming field");
         let batch = json.find("\"model_batch\"").expect("model_batch field");
         let api_keys = json.find("\"api_keys\"").expect("api_keys field");
-        let shortcuts = json.find("\"shortcuts\"").expect("shortcuts field");
         let auto_paste = json.find("\"auto_paste\"").expect("auto_paste field");
         assert!(provider < streaming);
         assert!(streaming < batch);
         assert!(batch < api_keys);
-        assert!(api_keys < shortcuts);
-        assert!(shortcuts < auto_paste);
+        assert!(api_keys < auto_paste);
+        assert!(
+            !json.contains("\"shortcuts\""),
+            "the dead shortcut map is not written"
+        );
     }
 
     #[test]

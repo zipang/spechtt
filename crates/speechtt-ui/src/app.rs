@@ -11,9 +11,8 @@
 //! ```
 //!
 //! This module owns the window shell, the workflow state, the window-level
-//! text-selection command and the public command/query surface. Screen
-//! composition lives in [`crate::views`] and reusable controls in
-//! [`crate::components`].
+//! commands and the public command/query surface. Screen composition lives in
+//! [`crate::views`] and reusable controls in [`crate::components`].
 //!
 //! # Who uses this
 //!
@@ -23,6 +22,29 @@
 //! methods below. The transcript's context menu
 //! ([`crate::components::CaptionWell`]) dispatches [`CopySelection`], which this
 //! module binds and handles.
+//!
+//! # Commands
+//!
+//! Every keyboard command is declared here as one GPUI action, so the key
+//! ([`crate::shortcuts`]), the button on a screen and — for the two dialogs —
+//! the dialog window reach the same handler. A command exists only in the state
+//! where it can act: the window root declares the state fact from the session
+//! machine every frame, and each binding names it in its key-context predicate.
+//! Handlers run [`SpeechTtApp::apply_action`] and call `cx.propagate()` when the
+//! command does not apply in the current state, which lets action dispatch
+//! continue to the next candidate for that keystroke.
+//!
+//! Inside the widget window a focused control keeps its own Space and Enter
+//! through binding precedence, not through propagation: a component declares a
+//! key context deeper on the focused path, and the documented context-depth
+//! rule ranks its binding ahead of the window's. That is what leaves a focused
+//! control's activation and the editor's own keys untouched there.
+//!
+//! In a dialog window nothing is outranked, because the take commands are not
+//! bound in that window at all: its root declares [`SPEECHTT_DIALOG_CONTEXT`]
+//! and no `SpeechTT` fact, so the take predicates cannot match, and
+//! `DialogWindow` registers no take handler. Space and Enter are the API-key
+//! field's and the buttons' own keys there, not a window command that yields.
 
 use gpui_kit::assets::IconName;
 use gpui_kit::base::{TextSelection, h_flex, v_flex};
@@ -44,12 +66,10 @@ use gpui_kit::{
     Pixels, Point, ScrollHandle, Size, Subscription, Task, Window, WindowBounds, WindowId,
     WindowKind, WindowOptions, actions, div, px,
 };
+use speechtt_core::actions::SessionAction;
 use speechtt_core::audio::{AudioError, AudioSource, CpalAudioSource, PcmChunk};
 use speechtt_core::backend::{BackendError, BunSubprocess, SttEventReceiver, SttSessionSink};
 use speechtt_core::fft::SpectrumAnalyzer;
-use speechtt_core::hotkeys::{
-    GlobalHotkeyListener, HotkeyError, SessionAction, ShortcutListener, bindings_from_settings,
-};
 use speechtt_core::output::clipboard::{ClipboardSink, SystemClipboard};
 use speechtt_core::output::file::{FileOpener, SystemOpener, suggested_transcript_name};
 use speechtt_core::output::paste::{PasteSink, SystemPaste};
@@ -75,14 +95,24 @@ use crate::views::dialogs::{
 /// Application title shown in the header strip.
 pub const APP_TITLE: &str = "SpeechTT";
 
-// Copy the transcript range the pointer has selected.
+// The widget's window-scoped commands.
 //
-// Declared as one action so the keybinding, the transcript's context menu and
-// the handler name the same command. `actions!` generates a unit struct whose
-// documentation rustdoc does not render, so the command is documented on the
-// binding (`lib.rs::run`) and on `SpeechTtApp::on_copy_selection`, the only
-// writer of the range.
-actions!(speechtt, [CopySelection]);
+// Declared once each so the keybinding, the screen button and — for the two
+// dialogs — the dialog window dispatch the same GPUI action and reach the same
+// handler on [`SpeechTtApp`]. `actions!` generates unit structs whose
+// documentation rustdoc does not render, so each command is documented on its
+// binding ([`crate::shortcuts::BINDINGS`]) and on the handler that owns it.
+actions!(
+    speechtt,
+    [
+        CopySelection,
+        ToggleRecording,
+        StopRecording,
+        ToggleHelp,
+        ToggleSettings,
+        SaveTranscript,
+    ]
+);
 
 /// Key context of the widget window, declared on the window view's root
 /// element.
@@ -91,7 +121,41 @@ actions!(speechtt, [CopySelection]);
 /// contextual binding to match; the copy shortcut is bound under this context
 /// (in `lib.rs::run`) so it outranks the generic binding of the window root by
 /// the documented context-depth precedence.
+///
+/// On the live take and the finished transcript the root declares this context
+/// together with the screen's state fact ([`SPEECHTT_TAKE_CONTEXT`],
+/// [`SPEECHTT_SESSION_END_CONTEXT`]), so the `SpeechTT` fact stays on the
+/// dispatch path there too.
 pub const SPEECHTT_CONTEXT: &str = "SpeechTT";
+
+/// Key context of the live take screen: the window fact plus the `Take` state
+/// fact.
+///
+/// A key context holds a *set* of whitespace-separated identifiers, so one
+/// declaration carries both facts and the keymap tests them separately as
+/// `SpeechTT && Take`. This constant is the declaration string the window root
+/// uses; [`crate::shortcuts::BINDINGS`] spells the predicate. Keeping the two
+/// state facts named separately from [`SPEECHTT_CONTEXT`] lets the binding
+/// tests compare every term of a predicate with the facts the root declares,
+/// instead of matching a substring.
+pub const SPEECHTT_TAKE_CONTEXT: &str = "SpeechTT Take";
+
+/// Key context of the finished transcript screen: the window fact plus the
+/// `SessionEnd` state fact.
+///
+/// Separate from [`SPEECHTT_CONTEXT`] for the same reason as
+/// [`SPEECHTT_TAKE_CONTEXT`]: the save command is bound under
+/// `SpeechTT && SessionEnd`, so the declaration and the predicate are checked
+/// against each other term by term.
+pub const SPEECHTT_SESSION_END_CONTEXT: &str = "SpeechTT SessionEnd";
+
+/// Key context of a Help or Settings window, declared on its root element.
+///
+/// The two dialog toggles are bound under `SpeechTT || SpeechTTDialog`, so
+/// **F1** and **F2** work while a dialog owns focus; without this context on the
+/// dialog's root they would go dead as soon as a dialog opened. No take command
+/// names it, so a dialog keeps its own Space and Enter.
+pub const SPEECHTT_DIALOG_CONTEXT: &str = "SpeechTTDialog";
 
 /// The part of a window selection that may replace the clipboard.
 ///
@@ -107,11 +171,53 @@ fn copyable_selection(selected: &str) -> Option<&str> {
     }
 }
 
+/// What the platform save dialog answered.
+///
+/// The three outcomes are distinct on purpose: a dismissed dialog is the user's
+/// decision and stays silent, while a dialog that could not open is a failure
+/// the widget must report.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SaveAnswer {
+    /// The path the user chose.
+    Chosen(PathBuf),
+    /// The user dismissed the dialog.
+    Cancelled,
+    /// The platform could not open the dialog.
+    Failed,
+}
+
+/// Opens the platform save dialog for the finished take.
+///
+/// One of the injected side effects, so the `Ctrl+S` command is headless-
+/// testable: a test answers with a temporary path instead of driving an OS
+/// dialog.
+pub trait SavePrompt: Send {
+    /// What the user did with the dialog.
+    fn pick_save_path(&mut self, cx: &mut App, suggested: &str) -> Task<SaveAnswer>;
+}
+
+/// The platform save dialog, suggested inside `$HOME/Documents`.
+pub struct GpuiSavePrompt;
+
+impl SavePrompt for GpuiSavePrompt {
+    fn pick_save_path(&mut self, cx: &mut App, suggested: &str) -> Task<SaveAnswer> {
+        let selection = cx.prompt_for_new_path(&documents_dir(), Some(suggested));
+
+        cx.spawn(async move |_cx| match selection.await {
+            Ok(Ok(Some(path))) => SaveAnswer::Chosen(path),
+            Ok(Ok(None)) => SaveAnswer::Cancelled,
+            // The platform refused to open the picker: the user never got to
+            // choose, so this is a failure rather than a cancellation.
+            Ok(Err(_)) | Err(_) => SaveAnswer::Failed,
+        })
+    }
+}
+
 /// Every side effect the widget needs, injected as a single composition root.
 ///
 /// Production is built by [`SpeechTtApp::new`]; headless tests build the same
 /// struct with fakes so no microphone, display server, clipboard, editor,
-/// filesystem or live provider is required.
+/// filesystem, save dialog or live provider is required.
 pub struct AppServices {
     pub audio: Box<dyn AudioSource>,
     pub analyzer: SpectrumAnalyzer,
@@ -121,7 +227,7 @@ pub struct AppServices {
     pub clipboard: Box<dyn ClipboardSink>,
     pub paste: Box<dyn PasteSink>,
     pub opener: Box<dyn FileOpener>,
-    pub listener: Box<dyn ShortcutListener>,
+    pub save_prompt: Box<dyn SavePrompt>,
     pub clock: Box<dyn Clock>,
 }
 
@@ -134,9 +240,14 @@ pub struct SpeechTtApp {
     /// The root tracks this handle, so a pointer press anywhere in the widget —
     /// including the drag that selects a transcript range — puts the root on the
     /// focused dispatch path. That is what makes the window's key context match,
-    /// and therefore what makes the copy shortcut reach
-    /// [`SpeechTtApp::on_copy_selection`].
+    /// and therefore what makes a window-scoped command reach its handler.
     focus: FocusHandle,
+    /// The widget window itself.
+    ///
+    /// Dialog windows are placed beside it, and a command that arrives from a
+    /// dialog runs against it: the dialog that forwarded the command may be
+    /// removing itself in the same keystroke.
+    shell_window: AnyWindowHandle,
     controller: SessionController,
     /// Monotonic click counters for round-button ripples, keyed by element id.
     /// `u64` because the view only needs "this changed", not a timestamp.
@@ -172,7 +283,9 @@ pub struct SpeechTtApp {
     clipboard: Box<dyn ClipboardSink>,
     paste: Box<dyn PasteSink>,
     opener: Box<dyn FileOpener>,
-    listener: Box<dyn ShortcutListener>,
+    save_prompt: Box<dyn SavePrompt>,
+    /// Whether the save dialog is up. See [`SpeechTtApp::save_prompt_open`].
+    save_prompt_open: bool,
     clock: Box<dyn Clock>,
     stored_settings: Settings,
     /// Geometry seen on screen, waiting for the quiet period before persisting.
@@ -184,10 +297,10 @@ pub struct SpeechTtApp {
 
 impl SpeechTtApp {
     /// Production composition root: real capture, duplex Bun backend,
-    /// settings file, clipboard/paste/opener and global hotkeys.
+    /// settings file, clipboard/paste/opener and the platform save dialog.
     ///
-    /// A missing Bun binary or hotkey backend never prevents the widget from
-    /// opening; the failure is surfaced as a typed error strip instead.
+    /// A missing Bun binary never prevents the widget from opening; the failure
+    /// is surfaced as a typed error strip instead.
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let (sink, events, backend_failed) = match BunSubprocess::spawn_default() {
             Ok(backend) => {
@@ -204,11 +317,6 @@ impl SpeechTtApp {
             }
         };
 
-        let listener: Box<dyn ShortcutListener> = match GlobalHotkeyListener::new() {
-            Ok(listener) => Box::new(listener),
-            Err(_) => Box::new(NoopShortcutListener),
-        };
-
         let factory: AudioFactory =
             Box::new(|| Ok(Box::new(CpalAudioSource::open_default()?) as Box<dyn AudioSource>));
         let services = AppServices {
@@ -220,7 +328,7 @@ impl SpeechTtApp {
             clipboard: Box::new(SystemClipboard::new()),
             paste: Box::new(SystemPaste::new()),
             opener: Box::new(SystemOpener::new()),
-            listener,
+            save_prompt: Box::new(GpuiSavePrompt),
             clock: Box::new(SystemClock),
         };
 
@@ -316,6 +424,7 @@ impl SpeechTtApp {
 
         let mut app = Self {
             focus: cx.focus_handle(),
+            shell_window: window.window_handle(),
             controller,
             ripple: None,
             ripple_seq: 0,
@@ -345,7 +454,8 @@ impl SpeechTtApp {
             clipboard: services.clipboard,
             paste: services.paste,
             opener: services.opener,
-            listener: services.listener,
+            save_prompt: services.save_prompt,
+            save_prompt_open: false,
             clock: services.clock,
             stored_settings,
             pending_window_layout: None,
@@ -355,7 +465,6 @@ impl SpeechTtApp {
         if let Some(error) = settings_error {
             app.controller.report_error(AppError::from_settings(&error));
         }
-        app.register_hotkeys();
         app.start_event_loop(services.events, cx);
         app.start_clock_loop(cx);
         app.controller.request_capabilities();
@@ -363,24 +472,6 @@ impl SpeechTtApp {
         // the window's key context is on the dispatch path from the first frame.
         app.focus.focus(window, cx);
         app
-    }
-
-    fn register_hotkeys(&mut self) {
-        let bindings = match bindings_from_settings(&self.stored_settings) {
-            Ok(bindings) => bindings,
-            Err(error) => {
-                self.controller
-                    .report_error(AppError::ProtocolError(format!(
-                        "invalid shortcut settings: {error}"
-                    )));
-                return;
-            }
-        };
-        let pairs: Vec<_> = bindings.into_iter().collect();
-        if let Err(error) = self.listener.register(&pairs) {
-            self.controller
-                .report_error(AppError::ProtocolError(format!("hotkeys: {error}")));
-        }
     }
 
     fn start_clock_loop(&mut self, cx: &mut Context<Self>) {
@@ -497,6 +588,12 @@ impl SpeechTtApp {
 
     pub fn written_path(&self) -> Option<&std::path::Path> {
         self.controller.written_path()
+    }
+
+    /// Whether a save dialog is open. A second Ctrl+S while the OS dialog is up
+    /// must not stack another one.
+    pub fn save_prompt_open(&self) -> bool {
+        self.save_prompt_open
     }
 
     pub fn active_dialog(&self) -> Option<Dialog> {
@@ -748,6 +845,29 @@ impl SpeechTtApp {
         cx.notify();
     }
 
+    /// Starts, pauses or resumes the live take — the record button's command.
+    ///
+    /// One method for the button and for **Space**, so the two cannot disagree
+    /// about what a press means. The session decides which of the three steps
+    /// applies (see [`SessionController::toggle_recording_at`]); a start also
+    /// rewinds the caption well and opens the capture, exactly as
+    /// [`Self::start_recording`] does. Returns `false`, having changed nothing,
+    /// when no take can be toggled — on the mode chooser, on the transcript
+    /// screen, or for a file take the worker decodes.
+    pub fn toggle_recording(&mut self, cx: &mut Context<Self>) -> bool {
+        let starting = self.controller.session_state() == SessionState::Ready;
+        if !self.controller.toggle_recording_at(self.clock.now()) {
+            cx.notify();
+            return false;
+        }
+        if starting {
+            self.rewind_caption();
+            self.start_audio_capture(cx);
+        }
+        cx.notify();
+        true
+    }
+
     /// Opens the native file picker, then shows the setup form for the chosen
     /// file.
     ///
@@ -899,8 +1019,15 @@ impl SpeechTtApp {
         cx.notify();
     }
 
-    /// Apply a hotkey action exactly like its button, including opening the
-    /// dialog windows for the toggle actions.
+    /// Runs a keyboard command through the same guards as its button.
+    ///
+    /// The binding's key-context predicate is the first gate and this state
+    /// guard is the second, so a command that matched in a rare race still
+    /// declines. Returns `false` — having changed nothing — when the command is
+    /// inert in the current state; every key handler turns that into
+    /// [`Context::propagate`], which lets action dispatch continue to the next
+    /// candidate for the same keystroke. The two dialog toggles always apply:
+    /// they either open the dialog or close the one that is already open.
     pub fn apply_action(
         &mut self,
         action: SessionAction,
@@ -908,31 +1035,92 @@ impl SpeechTtApp {
         cx: &mut Context<Self>,
     ) -> bool {
         match action {
+            SessionAction::ToggleRecording => self.toggle_recording(cx),
+            SessionAction::StopRecording => {
+                // Stop is valid from the two active states, so `finish_take`
+                // cannot decline once this guard passes.
+                if !self.controller.session_state().is_active() {
+                    return false;
+                }
+                self.finish_take(cx);
+                true
+            }
             SessionAction::ToggleHelp => {
-                self.open_help(window, cx);
+                self.toggle_dialog(Dialog::Help, window, cx);
                 true
             }
             SessionAction::ToggleSettings => {
-                self.open_settings(window, cx);
+                self.toggle_dialog(Dialog::Settings, window, cx);
                 true
             }
-            _ => {
-                let applied = self.controller.apply_action(action);
-                if applied {
-                    match action {
-                        SessionAction::StartRecording => {
-                            self.rewind_caption();
-                            self.start_audio_capture(cx);
-                        }
-                        SessionAction::StopRecording | SessionAction::NewTake => {
-                            self.stop_audio_capture();
-                        }
-                        _ => {}
-                    }
-                }
-                cx.notify();
-                applied
-            }
+            SessionAction::SaveTranscript => self.save_transcript(cx),
+        }
+    }
+
+    /// Opens `dialog`, or closes it when it is the one already open.
+    fn toggle_dialog(&mut self, dialog: Dialog, window: &mut Window, cx: &mut Context<Self>) {
+        if self.controller.active_dialog() == Some(dialog) {
+            self.close_dialog(window, cx);
+            return;
+        }
+        match dialog {
+            Dialog::Help => self.open_help(window, cx),
+            Dialog::Settings => self.open_settings(window, cx),
+        }
+    }
+
+    /// The `Space` handler: starts, pauses or resumes the live take.
+    fn on_toggle_recording(
+        &mut self,
+        _: &ToggleRecording,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.apply_action(SessionAction::ToggleRecording, window, cx) {
+            cx.propagate();
+        }
+    }
+
+    /// The `Enter` handler: ends the take and shows its transcript.
+    fn on_stop_recording(
+        &mut self,
+        _: &StopRecording,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.apply_action(SessionAction::StopRecording, window, cx) {
+            cx.propagate();
+        }
+    }
+
+    /// The `F1` handler: opens Help, or closes it when it is already open.
+    fn on_toggle_help(&mut self, _: &ToggleHelp, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.apply_action(SessionAction::ToggleHelp, window, cx) {
+            cx.propagate();
+        }
+    }
+
+    /// The `F2` handler: opens Settings, or closes it when it is already open.
+    fn on_toggle_settings(
+        &mut self,
+        _: &ToggleSettings,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.apply_action(SessionAction::ToggleSettings, window, cx) {
+            cx.propagate();
+        }
+    }
+
+    /// The `Ctrl+S` handler: asks where to write the finished take.
+    fn on_save_transcript(
+        &mut self,
+        _: &SaveTranscript,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.apply_action(SessionAction::SaveTranscript, window, cx) {
+            cx.propagate();
         }
     }
 
@@ -1015,32 +1203,43 @@ impl SpeechTtApp {
 
     /// Ask where to write the finished take, with a suggested name: the source
     /// file's stem for a file take, a timestamped `speechtt-…` for dictation.
-    pub fn save_transcript(&mut self, cx: &mut Context<Self>) {
+    ///
+    /// Returns `false`, having asked nothing, when there is no transcript to
+    /// write or while the dialog is already up — a second `Ctrl+S` must not
+    /// stack another dialog. The three [`SaveAnswer`]s are handled in one place:
+    /// a chosen path is written, a dismissed dialog changes nothing, and a
+    /// dialog that could not open reports [`AppError::FileDialogFailed`].
+    pub fn save_transcript(&mut self, cx: &mut Context<Self>) -> bool {
+        if !self.controller.can_save_transcript() || self.save_prompt_open {
+            return false;
+        }
         let prefix = self
             .controller
             .suggested_save_name()
             .unwrap_or_else(|| "speechtt".to_owned());
         let suggested = suggested_transcript_name(&prefix, self.clock.system_now());
-        let selection = cx.prompt_for_new_path(&documents_dir(), Some(&suggested));
 
+        self.save_prompt_open = true;
+        let selection = self.save_prompt.pick_save_path(cx, &suggested);
         cx.spawn(async move |this, cx| {
-            match selection.await {
-                Ok(Ok(Some(path))) => {
-                    let _ = this.update(cx, |this, cx| {
+            let answer = selection.await;
+            let _ = this.update(cx, |this, cx| {
+                this.save_prompt_open = false;
+                match answer {
+                    SaveAnswer::Chosen(path) => {
                         this.save_transcript_to(&path, cx);
-                    });
-                }
-                // The user canceled the dialog.
-                Ok(Ok(None)) => {}
-                Ok(Err(_)) | Err(_) => {
-                    let _ = this.update(cx, |this, cx| {
+                    }
+                    SaveAnswer::Cancelled => {}
+                    SaveAnswer::Failed => {
                         this.controller.report_error(AppError::FileDialogFailed);
-                        cx.notify();
-                    });
+                    }
                 }
-            }
+                cx.notify();
+            });
         })
         .detach();
+        cx.notify();
+        true
     }
 
     /// Write the finished take to `path`. Headless-testable seam behind the
@@ -1074,9 +1273,9 @@ impl SpeechTtApp {
 
     /// Opens Help in its own floating window beside the widget.
     pub fn open_help(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.close_dialog_window(cx);
+        self.release_dialog_window(window, cx);
         self.controller.open_help();
-        self.request_dialog_window(Dialog::Help, window, cx);
+        self.request_dialog_window(Dialog::Help, cx);
         cx.notify();
     }
 
@@ -1086,7 +1285,7 @@ impl SpeechTtApp {
     /// what will be used rather than an empty form. A fresh install opens empty
     /// and asks for a provider first.
     pub fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.close_dialog_window(cx);
+        self.release_dialog_window(window, cx);
         // The controller holds the migrated view of the settings: a file
         // written before the two defaults existed only shows its single model
         // there, once the catalogue has resolved its mode.
@@ -1117,7 +1316,7 @@ impl SpeechTtApp {
             state.set_value("", window, cx);
             state.set_masked(true, window, cx);
         });
-        self.request_dialog_window(Dialog::Settings, window, cx);
+        self.request_dialog_window(Dialog::Settings, cx);
         cx.notify();
     }
 
@@ -1125,6 +1324,7 @@ impl SpeechTtApp {
     pub fn close_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.controller.close_dialog();
         self.clear_settings_key(window, cx);
+        self.release_dialog_window(window, cx);
         cx.notify();
     }
 
@@ -1144,14 +1344,13 @@ impl SpeechTtApp {
     /// request is still current, opens outside any entity borrow, then records
     /// the handle. `WindowKind::Floating` keeps it above the widget on the
     /// platforms that support transient windows.
-    fn request_dialog_window(
-        &mut self,
-        dialog: Dialog,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    ///
+    /// The new window is placed against the widget window, never against the
+    /// dialog that forwarded the command: that dialog may be closing itself in
+    /// the same keystroke, and its handle must not be updated from here.
+    fn request_dialog_window(&mut self, dialog: Dialog, cx: &mut Context<Self>) {
         let app = cx.entity();
-        let main_window = window.window_handle();
+        let shell_window = self.shell_window;
         cx.defer(move |cx| {
             if app.update(cx, |app, _| app.active_dialog()) != Some(dialog) {
                 return;
@@ -1159,7 +1358,7 @@ impl SpeechTtApp {
 
             let title = views::dialogs::window_title(dialog);
             let app_for_window = app.clone();
-            let opened = main_window.update(cx, |_, window, cx| {
+            let opened = shell_window.update(cx, |_, window, cx| {
                 let bounds = dialog_window_bounds(dialog, window, cx);
                 let options = WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -1218,6 +1417,28 @@ impl SpeechTtApp {
         self.dialog_window_id.set(None);
         if let Some((_, handle)) = self.dialog_window.take() {
             let _ = handle.update(cx, |_, window, _| window.remove_window());
+        }
+    }
+
+    /// Releases the open dialog window for a command that arrived from
+    /// `window`.
+    ///
+    /// When `window` is the dialog's own window, the dialog removes itself
+    /// after forwarding the command, so the handle is only forgotten: reaching
+    /// into that window through its handle while it is dispatching the
+    /// keystroke would re-enter a window that is already borrowed. Any other
+    /// window closes the dialog from here.
+    fn release_dialog_window(&mut self, window: &Window, cx: &mut Context<Self>) {
+        let Some((_, handle)) = self.dialog_window else {
+            return;
+        };
+        if handle.window_id() == window.window_handle().window_id() {
+            // Also clears the id the observer compares against, so the close
+            // that follows cannot dismiss a replacement dialog.
+            self.dialog_window_id.set(None);
+            self.dialog_window = None;
+        } else {
+            self.close_dialog_window(cx);
         }
     }
 
@@ -1618,17 +1839,30 @@ impl gpui_kit::Render for SpeechTtApp {
                 .sync(options, selected.as_deref(), window, cx);
         }
 
-        // The root declares the application's key context and owns the copy
-        // command, so a `secondary-c` keystroke is resolved against the widget
-        // rather than against the window root's generic selection binding. The
-        // tracked handle keeps this element on the focused dispatch path.
+        // The root declares the window fact plus exactly one state fact, rebuilt
+        // from the controller every frame. The keymap registers each command
+        // under the predicate that names the state where it can act, so a
+        // keystroke only matches on the screen that can honour it: Space and
+        // Enter on the live take, Ctrl+S on a finished transcript. The facts are
+        // mutually exclusive because one `match` chooses them.
+        let key_context = match self.view_state() {
+            ViewState::Live => SPEECHTT_TAKE_CONTEXT,
+            ViewState::SessionEnd => SPEECHTT_SESSION_END_CONTEXT,
+            _ => SPEECHTT_CONTEXT,
+        };
+
         let mut root = v_flex()
             .size_full()
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
             .track_focus(&self.focus)
-            .key_context(SPEECHTT_CONTEXT)
-            .on_action(cx.listener(Self::on_copy_selection));
+            .key_context(key_context)
+            .on_action(cx.listener(Self::on_copy_selection))
+            .on_action(cx.listener(Self::on_toggle_recording))
+            .on_action(cx.listener(Self::on_stop_recording))
+            .on_action(cx.listener(Self::on_toggle_help))
+            .on_action(cx.listener(Self::on_toggle_settings))
+            .on_action(cx.listener(Self::on_save_transcript));
 
         root = root.child(
             AppHeader::new(APP_TITLE)
@@ -1777,7 +2011,6 @@ impl Drop for SpeechTtApp {
         if let Some(stop) = self.audio_stop.take() {
             stop.store(true, Ordering::Relaxed);
         }
-        self.listener.unregister_all();
     }
 }
 
@@ -1815,20 +2048,6 @@ impl SttSessionSink for UnavailableSink {
     fn send(&mut self, _cmd: speechtt_core::protocol::SttCommand) -> Result<(), BackendError> {
         Err(BackendError::Disconnected)
     }
-}
-
-/// Hotkey fallback when the OS manager is unavailable (headless sessions).
-struct NoopShortcutListener;
-
-impl ShortcutListener for NoopShortcutListener {
-    fn register(
-        &mut self,
-        _shortcuts: &[(SessionAction, speechtt_core::hotkeys::Shortcut)],
-    ) -> Result<(), HotkeyError> {
-        Ok(())
-    }
-
-    fn unregister_all(&mut self) {}
 }
 
 #[cfg(test)]

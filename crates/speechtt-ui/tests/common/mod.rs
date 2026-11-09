@@ -2,8 +2,14 @@
 //! deterministic test bounds. Mirrors gpui-kit's own `tests/common`.
 //!
 //! The SpeechTT fixtures inject hermetic [`AppServices`]: an in-memory
-//! settings store, silent audio, a no-op backend/clipboard/paste/opener and a
-//! recording-free shortcut listener. No test reads or writes the user's real
+//! settings store, silent audio, a no-op backend/clipboard/paste/opener and, by
+//! default, a [`ScriptedSavePrompt`] that cancels every save request, so no
+//! fixture opens the platform save dialog unless a test asks for it. A test
+//! that exercises `Ctrl+S` supplies its own prompt through
+//! [`open_speechtt_window_with_save_prompt`]; only
+//! [`open_speechtt_window_with_events`] keeps the production adapter, for the
+//! one test that answers the platform dialog with
+//! `simulate_new_path_selection`. No test reads or writes the user's real
 //! config, spawns Bun, or opens audio/display hardware.
 
 #![allow(dead_code)]
@@ -12,13 +18,12 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use gpui_kit::{
-    App, AppContext, Bounds, Entity, Pixels, Point, Render, Size, TestAppContext, Window,
+    App, AppContext, Bounds, Entity, Pixels, Point, Render, Size, Task, TestAppContext, Window,
     WindowBounds, WindowHandle, WindowOptions, base::Root, px, size,
 };
 use speechtt_core::audio::{AudioError, AudioSource, PcmChunk};
 use speechtt_core::backend::{BackendError, SttSessionSink};
 use speechtt_core::fft::SpectrumAnalyzer;
-use speechtt_core::hotkeys::{HotkeyError, SessionAction, Shortcut, ShortcutListener};
 use speechtt_core::output::OutputError;
 use speechtt_core::output::clipboard::ClipboardSink;
 use speechtt_core::output::file::FileOpener;
@@ -27,7 +32,7 @@ use speechtt_core::protocol::{
     ModelCapabilityInfo, ProviderCapability, SttCommand, TranscriptionMode,
 };
 use speechtt_core::settings::{Settings, SettingsError, SettingsStore};
-use speechtt_ui::app::{AppServices, SpeechTtApp};
+use speechtt_ui::app::{AppServices, GpuiSavePrompt, SaveAnswer, SavePrompt, SpeechTtApp};
 use speechtt_ui::controller::{SAMPLE_RATE, SystemClock};
 
 /// In-memory settings store. The initial key makes the widget's recording
@@ -158,14 +163,66 @@ impl FileOpener for NoopOpener {
     }
 }
 
-struct NoopListener;
+/// A save prompt that answers every request with one scripted [`SaveAnswer`].
+///
+/// It records every suggested name it was asked for, so a test can prove that a
+/// second keystroke did not stack a dialog. The answer resolves on the next
+/// executor poll, which is what keeps the prompt "open" for the rest of the
+/// frame that asked.
+#[derive(Clone)]
+pub struct ScriptedSavePrompt {
+    answer: SaveAnswer,
+    asks: Arc<Mutex<Vec<String>>>,
+}
 
-impl ShortcutListener for NoopListener {
-    fn register(&mut self, _shortcuts: &[(SessionAction, Shortcut)]) -> Result<(), HotkeyError> {
-        Ok(())
+impl Default for ScriptedSavePrompt {
+    fn default() -> Self {
+        Self::cancelled()
+    }
+}
+
+impl ScriptedSavePrompt {
+    /// A prompt that answers every request with `path`.
+    pub fn answering(path: impl Into<PathBuf>) -> Self {
+        Self::chosen(path)
     }
 
-    fn unregister_all(&mut self) {}
+    /// A prompt the user picks `path` in.
+    pub fn chosen(path: impl Into<PathBuf>) -> Self {
+        Self::with_answer(SaveAnswer::Chosen(path.into()))
+    }
+
+    /// A prompt the user dismisses.
+    pub fn cancelled() -> Self {
+        Self::with_answer(SaveAnswer::Cancelled)
+    }
+
+    /// A prompt whose platform dialog could not open.
+    pub fn failed() -> Self {
+        Self::with_answer(SaveAnswer::Failed)
+    }
+
+    fn with_answer(answer: SaveAnswer) -> Self {
+        Self {
+            answer,
+            asks: Arc::default(),
+        }
+    }
+
+    /// The suggested names asked for so far, in order.
+    pub fn asks(&self) -> Vec<String> {
+        self.asks.lock().expect("save prompt lock").clone()
+    }
+}
+
+impl SavePrompt for ScriptedSavePrompt {
+    fn pick_save_path(&mut self, _cx: &mut App, suggested: &str) -> Task<SaveAnswer> {
+        self.asks
+            .lock()
+            .expect("save prompt lock")
+            .push(suggested.to_owned());
+        Task::ready(self.answer.clone())
+    }
 }
 
 fn test_services() -> AppServices {
@@ -179,6 +236,14 @@ fn test_services() -> AppServices {
 
 /// Injected services whose backend event stream is owned by the caller.
 fn services_with_events(events: speechtt_core::backend::SttEventReceiver) -> AppServices {
+    services_with_events_and_prompt(events, Box::new(ScriptedSavePrompt::cancelled()))
+}
+
+/// Injected services with a caller-supplied save dialog.
+fn services_with_events_and_prompt(
+    events: speechtt_core::backend::SttEventReceiver,
+    save_prompt: Box<dyn SavePrompt>,
+) -> AppServices {
     AppServices {
         audio: Box::new(SilentAudio),
         analyzer: SpectrumAnalyzer::new(SAMPLE_RATE),
@@ -188,9 +253,18 @@ fn services_with_events(events: speechtt_core::backend::SttEventReceiver) -> App
         clipboard: Box::new(NoopClipboard),
         paste: Box::new(NoopPaste),
         opener: Box::new(NoopOpener),
-        listener: Box::new(NoopListener),
+        save_prompt,
         clock: Box::new(SystemClock),
     }
+}
+
+/// Prepares a test context for the widget: theme, component bindings and the
+/// window-scoped shortcuts, exactly as `lib.rs::run` does before opening a
+/// window.
+pub fn init_kit(cx: &mut App) {
+    gpui_kit::init(cx);
+    speechtt_ui::theme::apply(cx);
+    speechtt_ui::shortcuts::bind_keys(cx);
 }
 
 /// Opens the production `gpui_kit::open_window` entry point with the
@@ -263,10 +337,7 @@ pub fn test_catalogue() -> Vec<ProviderCapability> {
 pub fn open_speechtt_window(
     cx: &mut TestAppContext,
 ) -> (WindowHandle<Root>, Entity<speechtt_ui::app::SpeechTtApp>) {
-    cx.update(|cx| {
-        gpui_kit::init(cx);
-        speechtt_ui::theme::apply(cx);
-    });
+    cx.update(init_kit);
     open_window(cx, None, |window, cx| {
         window.set_window_title(speechtt_ui::app::APP_TITLE);
         let view = cx.new(|cx| SpeechTtApp::with_services(test_services(), window, cx));
@@ -278,7 +349,10 @@ pub fn open_speechtt_window(
 /// Opens the widget window with a backend event stream the test drives.
 ///
 /// Lets a headless test feed a transcript before finishing the take, so the
-/// stopped screen has real text to save.
+/// stopped screen has real text to save. This fixture keeps the production save
+/// adapter, because `tests/widget.rs` answers its dialog with
+/// `TestAppContext::simulate_new_path_selection`; every fixture that does not
+/// supply a prompt cancels a save request instead.
 pub fn open_speechtt_window_with_events(
     cx: &mut TestAppContext,
 ) -> (
@@ -288,15 +362,43 @@ pub fn open_speechtt_window_with_events(
         Result<speechtt_core::protocol::SttEvent, speechtt_core::backend::BackendError>,
     >,
 ) {
-    cx.update(|cx| {
-        gpui_kit::init(cx);
-        speechtt_ui::theme::apply(cx);
-    });
+    cx.update(init_kit);
     let (sender, events) = speechtt_core::async_channel::unbounded();
     let (window, view) = open_window(cx, None, |window, cx| {
         window.set_window_title(speechtt_ui::app::APP_TITLE);
-        let view =
-            cx.new(|cx| SpeechTtApp::with_services(services_with_events(events), window, cx));
+        let view = cx.new(|cx| {
+            SpeechTtApp::with_services(
+                services_with_events_and_prompt(events, Box::new(GpuiSavePrompt)),
+                window,
+                cx,
+            )
+        });
+        view.update(cx, |app, cx| app.apply_capabilities(test_catalogue(), cx));
+        view
+    });
+    (window, view, sender)
+}
+
+/// Opens the widget window with a save dialog the test answers.
+pub fn open_speechtt_window_with_save_prompt(
+    cx: &mut TestAppContext,
+    save_prompt: Box<dyn SavePrompt>,
+) -> (
+    WindowHandle<Root>,
+    Entity<speechtt_ui::app::SpeechTtApp>,
+    EventSender,
+) {
+    cx.update(init_kit);
+    let (sender, events) = speechtt_core::async_channel::unbounded();
+    let (window, view) = open_window(cx, None, |window, cx| {
+        window.set_window_title(speechtt_ui::app::APP_TITLE);
+        let view = cx.new(|cx| {
+            SpeechTtApp::with_services(
+                services_with_events_and_prompt(events, save_prompt),
+                window,
+                cx,
+            )
+        });
         view.update(cx, |app, cx| app.apply_capabilities(test_catalogue(), cx));
         view
     });
@@ -310,10 +412,7 @@ pub fn open_speechtt_window_at(
     width: f32,
     height: f32,
 ) -> (WindowHandle<Root>, Entity<speechtt_ui::app::SpeechTtApp>) {
-    cx.update(|cx| {
-        gpui_kit::init(cx);
-        speechtt_ui::theme::apply(cx);
-    });
+    cx.update(init_kit);
     open_window(cx, Some(size(px(width), px(height))), |window, cx| {
         window.set_window_title(speechtt_ui::app::APP_TITLE);
         let view = cx.new(|cx| SpeechTtApp::with_services(test_services(), window, cx));
@@ -341,10 +440,7 @@ pub fn open_speechtt_window_with_channels(
     RecordingClipboard,
     EventSender,
 ) {
-    cx.update(|cx| {
-        gpui_kit::init(cx);
-        speechtt_ui::theme::apply(cx);
-    });
+    cx.update(init_kit);
     let (sender, events) = speechtt_core::async_channel::unbounded();
     let sink = RecordingSink::default();
     let clipboard = RecordingClipboard::default();
@@ -357,7 +453,7 @@ pub fn open_speechtt_window_with_channels(
         clipboard: Box::new(clipboard.clone()),
         paste: Box::new(NoopPaste),
         opener: Box::new(NoopOpener),
-        listener: Box::new(NoopListener),
+        save_prompt: Box::new(ScriptedSavePrompt::cancelled()),
         clock: Box::new(SystemClock),
     };
     let (window, view) = open_window(cx, None, |window, cx| {

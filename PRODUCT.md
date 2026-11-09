@@ -10,7 +10,7 @@ Speech-to-Text (STT) provider.
 The product is split in two cooperating parts:
 
 - **Rust core**: audio capture (mic input), frequency analysis for the
-  waveform, global keyboard shortcuts, clipboard/paste integration, file
+  waveform, the keyboard command vocabulary, clipboard/paste integration, file
   save, and communication with STT provider backends (local or remote).
 - **Rust UI layer — native, GPU-accelerated (gpui-kit)**: the floating
   widget UI and dialogs, built with `gpui-kit` on **`gpui-component`
@@ -30,10 +30,11 @@ drift.
 
 ## 2. Users & use case
 
-A developer/power user who wants to dictate text anywhere on their desktop
-(any input field, any app) via a global shortcut, see what is being
-transcribed in real time, and either have it auto-pasted or copy/save it
-manually.
+A developer/power user who wants to dictate text and have it land anywhere on
+their desktop (any input field, any app), see what is being transcribed in real
+time, and either have it auto-pasted or copy/save it manually. Starting and
+stopping the take happens in the widget, whose commands act only while it — or
+one of its dialogs — holds focus.
 
 ## 3. Functional requirements
 
@@ -48,8 +49,8 @@ manually.
 
 ### 3.2 Core interactions
 
-- **Record / Pause / Resume** toggle via the big button or a global keyboard
-  shortcut.
+- **Record / Pause / Resume** toggle via the big button or the window-scoped
+  `Space` key.
 - **Stop** recording (ends the session, keeps transcript in widget).
 - **Live waveform**: bars/visualization reactive to live input frequency
   bins (not just raw amplitude).
@@ -72,19 +73,33 @@ manually.
     environment variable or stored key is present (e.g.
     `VERCEL_AI_GATEWAY_API_KEY`).
 
-### 3.3 Keyboard shortcuts (cross-platform generic notation)
+### 3.3 Keyboard shortcuts
 
-| Action | Shortcut (example, configurable) |
+| Action | Shortcut |
 |---|---|
-| Start / Pause / Resume recording | `Ctrl+Shift+R` |
-| Stop recording | `Ctrl+Shift+S` |
-| Copy transcript | `Ctrl+Shift+C` |
-| Paste transcript to focused field | `Ctrl+Shift+V` |
-| Save transcript to file | `Ctrl+Shift+F` |
-| Open settings | `Ctrl+Shift+,` |
+| Start / pause / resume recording | `Space` |
+| Stop recording | `Enter` |
+| Save transcript to file | `Ctrl+S` |
+| Open Help | `F1` |
+| Open Settings | `F2` |
 
-Exact bindings are configurable in Settings; the widget's top info strip
-always reflects the currently bound shortcuts.
+Shortcuts are **window-scoped and state-scoped**: a command runs only while the
+SpeechTT window, or one of its Help/Settings dialogs, holds focus, and only in
+the state where it can act. **Space** and **Enter** are bound on the live take
+screen alone, **Ctrl+S** on a finished transcript alone, **F1**/**F2** in the
+widget window and its dialogs. A keystroke that matches but could not act would
+be a keystroke taken from a button, a toggle or a text field, so the keymap
+knows the session state and not merely the window.
+
+The widget never takes a key from another application, so a global `Space`
+cannot break typing elsewhere and a global `Ctrl+S` cannot steal Save from
+another editor. Dictation therefore starts and stops from the widget itself; no
+command reaches it from another window.
+
+The set is fixed — there is no rebinding and no shortcut row in Settings — and
+the Help dialog's Shortcuts tab is generated from the same table that registers
+the bindings, so the two cannot disagree. `Ctrl+S` is `Cmd+S` on macOS; every
+other key is the same on every platform.
 
 ### 3.4 Non-functional requirements
 
@@ -158,7 +173,9 @@ always reflects the currently bound shortcuts.
 - **Rust — core (`crates/speechtt-core`)**:
   - Audio capture: `cpal`.
   - FFT / frequency analysis for waveform: `rustfft` (or `realfft`).
-  - Global shortcuts: platform-appropriate crate (e.g. `global-hotkey`).
+  - Keyboard commands: the window-scoped, state-scoped command vocabulary
+    (`speechtt-core`'s `actions`), bound to keys through gpui-kit's keymap in
+    the UI layer.
   - Clipboard: `arboard`.
   - Synthetic keyboard paste (type into focused field):
     `enigo` or platform input simulation.
@@ -194,12 +211,11 @@ always reflects the currently bound shortcuts.
     a control's label may change freely for copy/UX reasons without
     breaking any test, and its position likewise must not be asserted.
   - Rust: `cargo test` (unit tests for state transitions, audio
-    chunking, FFT bin aggregation, hotkey event mapping, clipboard/paste
+    chunking, FFT bin aggregation, command dispatch, clipboard/paste
     adapters mocked behind traits; gpui-kit headless UI tests for the
     behaviors above).
   - TypeScript: `bun test` (unit tests for provider adapters, settings
-    store, transcript buffer/streaming reducer, shortcut-to-action
-    mapping).
+    store, transcript buffer/streaming reducer).
 
 ## 6. Task list (TDD-first)
 
@@ -342,8 +358,8 @@ Rules:
       note, Cancel/Save). Test: cog click opens, Cancel/Save close —
       behavior only.
 - [ ] Help / Shortcuts dialog per `mockups/dialogs/help.png` (keycap rows,
-      global-scope note, version/footer, Got it). Test: `?` click opens,
-      Got it/Escape closes — behavior only.
+      window- and state-scope note, version/footer, Got it). Test: `?` click
+      opens, Got it/Escape closes — behavior only.
 - [ ] Visual QA (manual, not automated): side-by-side against all
       `mockups/**/*.png`.
 
@@ -357,11 +373,12 @@ Rules:
 - [ ] Implement FFT + bin-to-bar-amplitude mapping for the waveform.
 - [ ] Test: silence (near-zero amplitude) maps to a flat/minimal waveform.
 
-### Phase 4 — Rust core: hotkeys & lifecycle events
-> Tracked in [`tickets/planned/T0006-core-settings-and-shortcuts.md`](tickets/planned/T0006-core-settings-and-shortcuts.md) (hotkey half).
-- [ ] Test: global hotkey events map to the correct session actions
-      (start, pause, resume, finish).
-- [ ] Implement hotkey listener + dispatch into `SessionMachine`.
+### Phase 4 — Rust core: keyboard commands & lifecycle events
+> Tracked in [`tickets/planned/T0006-core-settings-and-shortcuts.md`](tickets/planned/T0006-core-settings-and-shortcuts.md) (command half).
+- [ ] Test: each keyboard command maps to the correct session action
+      (start, pause, resume, finish), and only in the state where it acts.
+- [ ] Implement command dispatch into the session machine, bound to
+      window- and state-scoped keys.
 - [ ] Test: a finished take (memory or file mode) is routed to the right
       consumer — transcript buffer vs file writer.
 
@@ -419,7 +436,7 @@ Rules:
 > Tracked in [`tickets/planned/T0009-e2e-wiring-and-error-ux.md`](tickets/planned/T0009-e2e-wiring-and-error-ux.md).
 - [ ] Wire live `cpal` PCM chunks + FFT waveform bins into `SessionController`
       and the `BunStdioBackend` `stdin` stream.
-- [ ] Wire global hotkeys → `SessionController` → UI updates.
+- [ ] Wire the window-scoped commands → `SessionController` → UI updates.
 - [ ] Settings dialog writes to the Rust settings store; active provider and
       API key are passed in `InboundCommand::Start`.
 - [ ] End-to-end manual test: record → live waveform + live streaming text
@@ -434,11 +451,11 @@ Rules:
 
 ## 7. Open questions / future scope
 
-- **UI ↔ core topology — DECIDED: single process.** Core (audio, hotkeys,
-  clipboard, save, settings, transcript buffer) and the gpui-kit UI live in
-  one Rust program and talk directly. We never wanted a background daemon; if
-  hotkeys must later survive a closed window, that is a new requirement to be
-  scoped.
+- **UI ↔ core topology — DECIDED: single process.** Core (audio, the keyboard
+  command vocabulary, clipboard, save, settings, transcript buffer) and the
+  gpui-kit UI live in one Rust program and talk directly. We never wanted a
+  background daemon; if a command must later act while the widget is not
+  focused, that is a new requirement to be scoped.
 - **Rust ↔ TypeScript/Bun STT bridge — DECIDED: child process over `stdin`/`stdout` NDJSON (`tickets/done/T0002-rust-duplex-bridge.md`, `tickets/done/T0003-bun-stt-worker.md`).**
   - `speechtt-core` spawns `bun run src/stt/worker.ts` (assuming `bun` is
     pre-installed; no compiled JS binary needed) with piped `stdin`/`stdout`.

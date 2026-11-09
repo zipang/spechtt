@@ -1,10 +1,12 @@
-// speechtt-core: audio capture, FFT waveform, session state machine,
-// clipboard, hotkeys, save. Audio/FFT arrive in Phase 3; the session
-// machine is Phase 2's behavioral backbone.
+//! `speechtt-core` — the framework-free domain logic behind the SpeechTT
+//! widget: the session state machine, audio capture, the FFT waveform, the
+//! keyboard command vocabulary, transcript accumulation, clipboard/paste/file
+//! output, the NDJSON worker bridge, the backend client and the settings store.
+//! Nothing here depends on GPUI.
+pub mod actions;
 pub mod audio;
 pub mod backend;
 pub mod fft;
-pub mod hotkeys;
 pub mod media;
 pub mod output;
 pub mod protocol;

@@ -61,8 +61,9 @@ speechtt/
 
 - **`crates/speechtt-core`** — the behavioral backbone. Pure Rust with no
   GPUI dependency, so the rules (session parameters, transport transitions,
-  finished-take hand-off) are testable headlessly. Audio capture, FFT,
-  clipboard, hotkeys and file save will land here in later phases.
+  finished-take hand-off) are testable headlessly. It also owns audio capture,
+  the FFT waveform, the keyboard command vocabulary (`actions.rs`), clipboard
+  and paste adapters, file save and the settings store.
 - **`crates/speechtt-ui`** — everything native and visual. `controller.rs` owns
   the pure view model (session machine, mode, setup draft, finished take);
   `app.rs` owns the window shell, state and command surface; `views/` composes

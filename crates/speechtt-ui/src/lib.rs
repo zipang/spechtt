@@ -7,6 +7,7 @@
 //! - [`theme`] — that token set mapped onto gpui-kit's Theme.
 //! - [`controller`] — the pure session/view-model state (no window needed).
 //! - [`components`] — SpeechTT's `RenderOnce` visual pieces.
+//! - [`shortcuts`] — the window-scoped keyboard bindings and the Help rows.
 //! - [`app`] — the widget window view (shell now; dialogs next).
 
 pub mod app;
@@ -14,6 +15,7 @@ pub mod components;
 pub mod controller;
 pub mod diagnostics;
 pub mod layout;
+pub mod shortcuts;
 pub mod theme;
 pub mod tokens;
 
@@ -153,6 +155,11 @@ pub fn run() {
         .run(move |cx| {
             // MUST be first: registers component state, icons, theme keys.
             gpui_kit::init(cx);
+
+            // The window-scoped commands (`Space`, `Enter`, `Ctrl+S`, `F1`,
+            // `F2`). They act only while the widget or one of its dialogs holds
+            // focus, and the Help dialog lists them from the same table.
+            shortcuts::bind_keys(cx);
 
             // The widget binds the copy shortcut itself. `gpui_kit::base::Root`
             // advertises selection copying, but the transcript's copy must not

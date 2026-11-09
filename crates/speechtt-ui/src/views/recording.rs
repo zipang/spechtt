@@ -48,7 +48,8 @@ pub(crate) fn render(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyEle
 
     // One control, one glyph: it is always the microphone, and it is a switch.
     // Pressing it while capturing pauses; pressing it while paused (or idle)
-    // starts.
+    // starts or resumes. The button calls the same method as **Space**, so the
+    // two can never disagree about what a press means.
     let record = ToggleRoundButton::new(
         "btn-record",
         IconName::Mic,
@@ -58,13 +59,7 @@ pub(crate) fn render(app: &SpeechTtApp, cx: &mut Context<SpeechTtApp>) -> AnyEle
         this.ripple("btn-record", cx);
     }))
     .on_click(cx.listener(|this, _event, _window, cx| {
-        if this.session_state() == SessionState::Recording {
-            this.pause_recording(cx);
-        } else if this.session_state() == SessionState::Paused {
-            this.resume_recording(cx);
-        } else {
-            this.start_recording(cx);
-        }
+        this.toggle_recording(cx);
     }));
 
     let mut shell = ScreenShell::new(badge)

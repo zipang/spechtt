@@ -1,7 +1,7 @@
 //! T9.2–T9.5 — integration wiring and the happy path.
 //!
 //! Every test uses injected fakes (`AudioSource`, `SttSessionSink`,
-//! `SettingsStore`, clipboard/paste/opener, shortcut listener and clock), so
+//! `SettingsStore`, clipboard/paste/opener, save prompt and clock), so
 //! no microphone, display server, real clipboard, editor or network provider
 //! is touched.
 
@@ -14,7 +14,6 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use speechtt_core::audio::{AudioError, AudioSource, PcmChunk};
 use speechtt_core::backend::{BackendError, SttSessionSink};
 use speechtt_core::fft::SpectrumAnalyzer;
-use speechtt_core::hotkeys::{HotkeyError, SessionAction, Shortcut, ShortcutListener};
 use speechtt_core::output::OutputError;
 use speechtt_core::output::clipboard::ClipboardSink;
 use speechtt_core::output::file::FileOpener;
@@ -23,9 +22,9 @@ use speechtt_core::protocol::{
     ModelCapabilityInfo, ProviderCapability, SecretString, SttCommand, SttEvent, TranscriptionMode,
 };
 use speechtt_core::settings::{Settings, SettingsError, SettingsStore, WindowLayout};
-use speechtt_ui::app::{AppServices, SpeechTtApp};
+use speechtt_ui::app::{AppServices, GpuiSavePrompt, SpeechTtApp};
 use speechtt_ui::controller::{
-    AppError, Clock, Dialog, SAMPLE_RATE, SessionController, SessionMode, SettingsChange, ViewState,
+    AppError, Clock, SAMPLE_RATE, SessionController, SessionMode, SettingsChange, ViewState,
 };
 
 // ----- Fakes -----------------------------------------------------------
@@ -134,24 +133,6 @@ impl FileOpener for RecordingOpener {
             .expect("opener lock")
             .push(path.to_path_buf());
         Ok(())
-    }
-}
-
-#[derive(Clone, Default)]
-struct RecordingListener {
-    registrations: Arc<Mutex<Vec<(SessionAction, Shortcut)>>>,
-    unregistered: Arc<AtomicUsize>,
-}
-
-impl ShortcutListener for RecordingListener {
-    fn register(&mut self, shortcuts: &[(SessionAction, Shortcut)]) -> Result<(), HotkeyError> {
-        *self.registrations.lock().expect("listener lock") = shortcuts.to_vec();
-        Ok(())
-    }
-
-    fn unregister_all(&mut self) {
-        self.unregistered.fetch_add(1, Ordering::SeqCst);
-        self.registrations.lock().expect("listener lock").clear();
     }
 }
 
@@ -467,32 +448,37 @@ fn stale_session_events_are_ignored() {
 }
 
 #[test]
-fn hotkey_actions_match_the_button_guards() {
+fn keyboard_commands_match_the_button_guards() {
     let (mut controller, _sink) = duplex_controller();
 
-    assert!(controller.apply_action(SessionAction::StartRecording));
+    // One command walks the take: start, pause, resume.
+    assert!(controller.toggle_recording_at(Instant::now()));
     assert_eq!(
         controller.session_state(),
         speechtt_core::session::SessionState::Recording
     );
+    assert!(controller.toggle_recording_at(Instant::now()));
+    assert_eq!(
+        controller.session_state(),
+        speechtt_core::session::SessionState::Paused
+    );
+    assert!(controller.toggle_recording_at(Instant::now()));
+    assert_eq!(
+        controller.session_state(),
+        speechtt_core::session::SessionState::Recording
+    );
+
     // The microphone owns pause/resume, so Stop is the only way to end a take
     // and stays live while one is open.
-    assert!(controller.apply_action(SessionAction::StopRecording));
+    assert!(controller.finish_take());
     assert_eq!(
         controller.session_state(),
         speechtt_core::session::SessionState::Blank
     );
-    assert!(controller.apply_action(SessionAction::NewTake));
-    assert!(!controller.apply_action(SessionAction::NewTake));
-    // With no take open, Stop and Pause are inert like their disabled buttons.
-    assert!(!controller.apply_action(SessionAction::StopRecording));
-    assert!(!controller.apply_action(SessionAction::PauseRecording));
-
-    assert!(controller.apply_action(SessionAction::ToggleHelp));
-    assert_eq!(controller.active_dialog(), Some(Dialog::Help));
-    controller.close_dialog();
-    assert!(controller.apply_action(SessionAction::ToggleSettings));
-    assert_eq!(controller.active_dialog(), Some(Dialog::Settings));
+    // With no take open, the command is inert like its disabled button, and a
+    // take that recorded nothing has no transcript to save.
+    assert!(!controller.toggle_recording_at(Instant::now()));
+    assert!(!controller.can_save_transcript());
 }
 
 #[test]
@@ -1141,7 +1127,6 @@ struct FakeApp {
     clipboard: RecordingClipboard,
     paste: RecordingPaste,
     opener: RecordingOpener,
-    listener: RecordingListener,
     clock: ManualClock,
 }
 
@@ -1156,7 +1141,6 @@ impl Default for FakeApp {
             clipboard: RecordingClipboard::default(),
             paste: RecordingPaste::default(),
             opener: RecordingOpener::default(),
-            listener: RecordingListener::default(),
             clock: ManualClock::new(),
         }
     }
@@ -1173,7 +1157,7 @@ impl FakeApp {
             clipboard: Box::new(self.clipboard),
             paste: Box::new(self.paste),
             opener: Box::new(self.opener),
-            listener: Box::new(self.listener),
+            save_prompt: Box::new(GpuiSavePrompt),
             clock: Box::new(self.clock),
         }
     }
@@ -1188,11 +1172,8 @@ fn the_app_constructs_from_fakes_and_persists_settings(cx: &mut gpui_kit::TestAp
 
     let store = MemoryStore::new(Settings::default());
     let store_handle = store.clone();
-    let listener = RecordingListener::default();
-    let listener_handle = listener.clone();
     let fake = FakeApp {
         store,
-        listener,
         ..FakeApp::default()
     };
 
@@ -1205,14 +1186,6 @@ fn the_app_constructs_from_fakes_and_persists_settings(cx: &mut gpui_kit::TestAp
     });
 
     assert_eq!(cx.update(|cx| view.read(cx).view_state()), ViewState::Mode);
-    assert!(
-        !listener_handle
-            .registrations
-            .lock()
-            .expect("listener lock")
-            .is_empty(),
-        "default bindings are registered"
-    );
 
     cx.update_window(window.into(), |_, window, cx| {
         view.update(cx, |app, cx| app.open_settings(window, cx));
@@ -1280,7 +1253,7 @@ fn the_automatic_paste_copies_the_final_transcript(cx: &mut gpui_kit::TestAppCon
             pastes: pastes.clone(),
         }),
         opener: Box::new(RecordingOpener::default()),
-        listener: Box::new(RecordingListener::default()),
+        save_prompt: Box::new(GpuiSavePrompt),
         clock: Box::new(ManualClock::new()),
     };
     let (window, view) = common::open_window(cx, None, |window, cx| {

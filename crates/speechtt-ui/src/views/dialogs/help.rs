@@ -1,36 +1,31 @@
-//! Help dialog: keyboard shortcuts and the discovered model catalogue.
+//! Help dialog: the window-scoped commands and the discovered model catalogue.
 //!
-//! Two tabs share the dialog: the historical shortcut reference and a compact
-//! list of the selected provider's models with the streaming/batch badge,
-//! description and price. Model metadata comes from the capability handshake;
-//! nothing here performs I/O.
+//! Two tabs share the dialog: a shortcut reference and a compact list of the
+//! selected provider's models with the streaming/batch badge, description and
+//! price. The reference is drawn from [`crate::shortcuts::BINDINGS`] — the same
+//! table that registers the bindings — so the tab cannot advertise a key that
+//! does nothing. Model metadata comes from the capability handshake; nothing
+//! here performs I/O.
+//!
+//! Rendered by `views::dialogs::window` for the `Dialog::Help` window.
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::tab::{Tab, TabBar};
 use gpui_kit::prelude::*;
-use gpui_kit::{AnyElement, App, Context, IntoElement, div};
+use gpui_kit::{AnyElement, App, Context, IntoElement, TestSupportExt as _, div};
 
+use speechtt_core::actions::SessionAction;
 use speechtt_core::protocol::{CapabilitySource, ModelCapabilityInfo};
 
 use crate::components::{
     ActionButton, AppFooter, Body, KeyCap, Label, StatusDot, TranscriptionModeBadge,
 };
 use crate::controller::{HelpTab, pricing_lines};
+use crate::shortcuts::{self, Binding};
 use crate::tokens::color;
 use crate::views::dialogs::{DialogShell, DialogWindow};
-
-/// One row of the shortcuts reference: a description and its keys, in one
-/// table so the prose cannot drift from the behaviour.
-pub(crate) const HELP_SHORTCUTS: &[(&str, &[&str])] = &[
-    ("Record · pause · resume", &["Ctrl", "Shift", "R"]),
-    ("Stop recording", &["Ctrl", "Shift", "S"]),
-    ("Copy transcript to clipboard", &["Ctrl", "Shift", "C"]),
-    ("Paste transcript as keystrokes", &["Ctrl", "Shift", "V"]),
-    ("Save transcript to file", &["Ctrl", "Shift", "F"]),
-    ("Open settings", &["Ctrl", "Shift", ","]),
-];
 
 pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> AnyElement {
     let (tab, provider_label, source, model_rows) = {
@@ -94,23 +89,39 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
         .into_any_element()
 }
 
+/// The Shortcuts tab: one row per binding, in [`shortcuts::BINDINGS`] order.
+///
+/// Each row carries the element id `help-shortcut-<action>`, which is stable
+/// per command and lets the headless tests prove the tab draws the whole table.
 fn shortcuts(cx: &App) -> AnyElement {
+    let is_mac = shortcuts::is_mac();
     let mut rows = v_flex().w_full().gap_0();
-    for (label, keys) in HELP_SHORTCUTS {
-        rows = rows.child(
-            h_flex()
-                .w_full()
-                .justify_between()
-                .items_center()
-                .gap_3()
-                .py_2p5()
-                .border_b_1()
-                .border_color(cx.theme().border)
-                .child(Body::new(*label))
-                .child(KeyCap::new(keys.iter().copied())),
-        );
+    for binding in &shortcuts::BINDINGS {
+        rows = rows.child(shortcut_row(binding, is_mac, cx));
     }
     rows.into_any_element()
+}
+
+/// One shortcut row: the command's description, then its keycaps.
+fn shortcut_row(binding: &Binding, is_mac: bool, cx: &App) -> AnyElement {
+    h_flex()
+        .id(shortcut_row_id(binding.action))
+        .test_support()
+        .w_full()
+        .justify_between()
+        .items_center()
+        .gap_3()
+        .py_2p5()
+        .border_b_1()
+        .border_color(cx.theme().border)
+        .child(Body::new(binding.description))
+        .child(KeyCap::new(shortcuts::key_caps(binding, is_mac)))
+        .into_any_element()
+}
+
+/// The element id of a command's Help row.
+fn shortcut_row_id(action: SessionAction) -> String {
+    format!("help-shortcut-{}", action.as_str())
 }
 
 fn models(

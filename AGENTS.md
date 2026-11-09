@@ -21,8 +21,9 @@ NDJSON bridge. Visual fidelity is governed by `DESIGN.md` + `design-tokens.css`.
 
 - **`crates/speechtt-core`** — framework-free domain logic (no GPUI dependency).
   Hermetic, headless-testable via injected traits/fakes. Owns: session machine,
-  audio capture, FFT, settings store, hotkeys, clipboard/paste/file output,
-  NDJSON bridge protocol, backend client.
+  audio capture, FFT, settings store, the keyboard command vocabulary
+  (`actions`), clipboard/paste/file output, NDJSON bridge protocol, backend
+  client.
 - **`crates/speechtt-ui`** — native `gpui-kit` application. Owns: window shell,
   view model (`controller.rs`), screens (`views/`), reusable components,
   theme/token mirror, dialogs.
@@ -298,7 +299,7 @@ of the rendered HTML.
 | `@ai-sdk/openai` | <https://ai-sdk.dev/providers/ai-sdk-providers/openai.md> | Provider page. |
 | `@ai-sdk/xai` | <https://ai-sdk.dev/providers/ai-sdk-providers/xai.md> | Provider page. |
 | Bun (runtime, test runner, bundler) | <https://bun.com/docs/llms.txt> | `bun test`, `Bun.*` APIs, tooling. |
-| `cpal`, `enigo`, `global-hotkey`, `arboard`, `rustfft`, `base64`, `async-channel`, `serde`, `serde_json`, `thiserror` | `https://docs.rs/<crate>/latest/<crate>/` | docs.rs is where these crates publish their API. |
+| `cpal`, `enigo`, `arboard`, `rustfft`, `base64`, `async-channel`, `serde`, `serde_json`, `thiserror` | `https://docs.rs/<crate>/latest/<crate>/` | docs.rs is where these crates publish their API. |
 
 Rules that go with the table:
 

@@ -19,7 +19,6 @@ use std::time::{Duration, Instant, SystemTime};
 use gpui_kit::SharedString;
 use speechtt_core::audio::AudioError;
 use speechtt_core::backend::{BackendError, SttEventReceiver, SttSessionSink};
-use speechtt_core::hotkeys::SessionAction;
 use speechtt_core::media::is_media_path;
 use speechtt_core::output::OutputError;
 use speechtt_core::output::clipboard::{ClipboardSink, CopySummary, copy_transcript};
@@ -123,7 +122,8 @@ pub enum AppError {
     FileUnreadable,
     /// `ffmpeg`/`ffprobe` are not installed on the worker's host.
     FfmpegMissing,
-    /// The native file picker could not be opened.
+    /// A native file dialog — the picker or the save prompt — could not be
+    /// opened.
     FileDialogFailed,
 }
 
@@ -188,7 +188,7 @@ impl AppError {
             Self::FfmpegMissing => {
                 "Transcribing files needs ffmpeg. Install it, then try again.".to_owned()
             }
-            Self::FileDialogFailed => "Could not open the file picker.".to_owned(),
+            Self::FileDialogFailed => "Could not open the file dialog.".to_owned(),
         };
         clamp_message(message, 160)
     }
@@ -611,7 +611,7 @@ fn humanize_price_key(key: &str) -> String {
 /// Which page the Help dialog shows.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum HelpTab {
-    /// Keyboard shortcuts (the historical content).
+    /// The window-scoped commands and their keys, drawn from the binding table.
     #[default]
     Shortcuts,
     /// The discovered model catalogue with description and pricing.
@@ -3267,41 +3267,30 @@ impl SessionController {
         self.forget_clean();
     }
 
-    /// Apply a hotkey action through the same guards as its button.
+    /// One command walks the live take through start, pause and resume.
     ///
-    /// Returns `true` only when the action actually changed state. Invalid
-    /// actions (for example Stop while Recording) are inert.
-    pub fn apply_action(&mut self, action: SessionAction) -> bool {
-        match action {
-            SessionAction::StartRecording => self.start_recording(),
-            SessionAction::PauseRecording => self.pause_recording(),
-            SessionAction::ResumeRecording => self.resume_recording(),
-            // Stop needs no pause first: the microphone owns pause/resume, so
-            // Stop is the only way to end the take and is always live.
-            SessionAction::StopRecording => {
-                if self.machine.state().is_active() {
-                    self.finish_take()
-                } else {
-                    false
-                }
-            }
-            SessionAction::NewTake => {
-                if self.result.is_some() {
-                    self.new_take();
-                    true
-                } else {
-                    false
-                }
-            }
-            SessionAction::ToggleHelp => {
-                self.open_help();
-                true
-            }
-            SessionAction::ToggleSettings => {
-                self.open_settings();
-                true
-            }
+    /// The record button and **Space** both land here, so the two cannot
+    /// disagree about what a press means: `Recording` pauses, `Paused` resumes,
+    /// `Ready` in live mode starts, and every other state — or a file take,
+    /// which the worker decodes in one batch — is refused without sending a
+    /// command.
+    pub fn toggle_recording_at(&mut self, now: Instant) -> bool {
+        match self.machine.state() {
+            SessionState::Recording => self.pause_recording_at(now),
+            SessionState::Paused => self.resume_recording_at(now),
+            SessionState::Ready => self.start_recording_at(now),
+            SessionState::Blank => false,
         }
+    }
+
+    /// Whether there is a finished transcript to write.
+    ///
+    /// True only once a take has ended with text: Save is offered for exactly
+    /// the takes the footer's Save button enables, and a take that recorded
+    /// nothing has no file to name.
+    #[must_use]
+    pub fn can_save_transcript(&self) -> bool {
+        !self.finished_take_is_empty()
     }
 
     /// Re-issue `Start` for the current take after a retryable failure.
@@ -4660,5 +4649,136 @@ mod tests {
         assert!(controller.set_settings_provider("other-provider"));
         assert_eq!(controller.settings_draft().model_streaming, None);
         assert_eq!(controller.settings_draft().model_batch, None);
+    }
+
+    // ----- Window-scoped commands ----------------------------------------
+
+    /// A Ready live controller whose commands the test can inspect.
+    fn ready_live_controller() -> (SessionController, CommandLog) {
+        let mut controller = complete_controller();
+        let sink = CommandLog::default();
+        controller.set_sink(Box::new(sink.clone()));
+        (controller, sink)
+    }
+
+    /// A real media file on disk, removed on drop.
+    struct TempMedia(PathBuf);
+
+    impl TempMedia {
+        fn new(name: &str) -> Self {
+            let path =
+                std::env::temp_dir().join(format!("speechtt-toggle-{}-{name}", std::process::id()));
+            std::fs::write(&path, b"the worker decodes this, not the host")
+                .expect("write temp media file");
+            Self(path)
+        }
+    }
+
+    impl Drop for TempMedia {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+
+    /// A Ready controller in file mode, past the setup form.
+    fn complete_file_controller() -> SessionController {
+        let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
+        assert!(!controller.choose_mode(SessionMode::File));
+        controller
+            .set_pending_file(PathBuf::from("/tmp/speechtt-toggle-pending.mp4"))
+            .expect("a media path");
+        controller.cycle_provider();
+        controller.cycle_model();
+        assert!(controller.create_session());
+        controller
+    }
+
+    /// One command walks the take Ready → Recording → Paused → Recording,
+    /// sending exactly the command of each step.
+    #[test]
+    fn toggle_recording_walks_start_pause_and_resume() {
+        let (mut controller, sink) = ready_live_controller();
+        let now = Instant::now();
+
+        assert!(controller.toggle_recording_at(now));
+        assert_eq!(controller.session_state(), SessionState::Recording);
+        assert!(
+            matches!(sink.take().as_slice(), [SttCommand::Start { .. }]),
+            "a start opens one stream"
+        );
+
+        assert!(controller.toggle_recording_at(now));
+        assert_eq!(controller.session_state(), SessionState::Paused);
+        assert_eq!(sink.take(), vec![SttCommand::Pause]);
+
+        assert!(controller.toggle_recording_at(now));
+        assert_eq!(controller.session_state(), SessionState::Recording);
+        assert_eq!(sink.take(), vec![SttCommand::Resume]);
+    }
+
+    /// With no take configured there is nothing to toggle, and the command
+    /// reaches no worker.
+    #[test]
+    fn toggle_recording_is_inert_on_the_mode_chooser() {
+        let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
+        let sink = CommandLog::default();
+        controller.set_sink(Box::new(sink.clone()));
+
+        assert!(!controller.toggle_recording_at(Instant::now()));
+
+        assert_eq!(controller.session_state(), SessionState::Blank);
+        assert!(sink.take().is_empty(), "no command may be sent");
+    }
+
+    /// A file take decodes on the worker: it has no pause to toggle.
+    #[test]
+    fn toggle_recording_is_inert_for_a_file_take() {
+        let media = TempMedia::new("toggle.mp4");
+        let mut controller = complete_file_controller();
+        let sink = CommandLog::default();
+        controller.set_sink(Box::new(sink.clone()));
+        controller
+            .start_file_session(&media.0)
+            .expect("the file take starts");
+        let _ = sink.take();
+
+        assert!(!controller.toggle_recording_at(Instant::now()));
+
+        assert_eq!(controller.session_state(), SessionState::Recording);
+        assert_eq!(controller.view_state(), ViewState::Transcription);
+        assert!(sink.take().is_empty(), "no command may be sent");
+    }
+
+    /// Save is offered exactly when there is a transcript to write, so the key
+    /// and the footer button agree.
+    #[test]
+    fn can_save_transcript_follows_the_finished_take() {
+        let (mut controller, _sink) = ready_live_controller();
+        assert!(
+            !controller.can_save_transcript(),
+            "nothing has been recorded yet"
+        );
+
+        assert!(controller.toggle_recording_at(Instant::now()));
+        assert!(
+            !controller.can_save_transcript(),
+            "a running take has nothing to save"
+        );
+
+        controller.handle_stt_event(SttEvent::Stopped {
+            session_id: "take-1".into(),
+            full_text: "hello".into(),
+        });
+        assert!(controller.finish_take());
+        assert!(controller.can_save_transcript());
+
+        // A take that recorded nothing is a normal outcome: there is no text
+        // to write, so the command stays inert.
+        let (mut empty, _sink) = ready_live_controller();
+        assert!(empty.toggle_recording_at(Instant::now()));
+        assert!(empty.finish_take());
+        assert!(!empty.can_save_transcript());
     }
 }

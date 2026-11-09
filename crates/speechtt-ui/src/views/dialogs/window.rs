@@ -5,6 +5,12 @@
 //! piece of view state is the Settings dropdown states, refreshed from the
 //! app's controller on every frame. It uses the same Header + Body structure as
 //! the widget window.
+//!
+//! The root declares [`SPEECHTT_DIALOG_CONTEXT`] and handles the two dialog
+//! toggles, so **F1** closes Help or switches to it and **F2** does the same for
+//! Settings while a dialog owns focus. A forwarded command runs against the
+//! widget window, and this window closes itself when the command replaced or
+//! closed its dialog.
 
 use gpui_kit::assets::IconName;
 use gpui_kit::base::v_flex;
@@ -15,7 +21,9 @@ use gpui_kit::{
     Context, Entity, FocusHandle, IntoElement, KeyDownEvent, Render, Subscription, Window,
 };
 
-use crate::app::SpeechTtApp;
+use speechtt_core::actions::SessionAction;
+
+use crate::app::{SPEECHTT_DIALOG_CONTEXT, SpeechTtApp, ToggleHelp, ToggleSettings};
 use crate::components::{
     AppHeader, IconButton, LanguageItem, ModelOption, ProviderOption, SettingsSelectFields,
     SettingsSnapshot,
@@ -129,6 +137,36 @@ impl DialogWindow {
         window.remove_window();
     }
 
+    /// The `F1` handler: opens Help, or closes it when this is the Help window.
+    fn on_toggle_help(&mut self, _: &ToggleHelp, window: &mut Window, cx: &mut Context<Self>) {
+        self.forward(SessionAction::ToggleHelp, window, cx);
+    }
+
+    /// The `F2` handler: opens Settings, or closes it when this is that window.
+    fn on_toggle_settings(
+        &mut self,
+        _: &ToggleSettings,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.forward(SessionAction::ToggleSettings, window, cx);
+    }
+
+    /// Runs a dialog toggle in the app, then closes this window when the
+    /// command closed its dialog or replaced it with the other one.
+    ///
+    /// The window removes itself rather than being removed through its handle:
+    /// it is the window dispatching the keystroke, and reaching into it again
+    /// from the app would re-enter a window that is already borrowed.
+    fn forward(&mut self, action: SessionAction, window: &mut Window, cx: &mut Context<Self>) {
+        self.app.update(cx, |app, cx| {
+            app.apply_action(action, window, cx);
+        });
+        if self.app.read(cx).active_dialog() != Some(self.dialog) {
+            window.remove_window();
+        }
+    }
+
     /// Switches the Help dialog page (Shortcuts / Models).
     pub(crate) fn select_help_tab(&mut self, tab: HelpTab, cx: &mut Context<Self>) {
         self.app.update(cx, |app, cx| app.set_help_tab(tab, cx));
@@ -182,6 +220,9 @@ impl Render for DialogWindow {
         v_flex()
             .size_full()
             .track_focus(&self.focus)
+            .key_context(SPEECHTT_DIALOG_CONTEXT)
+            .on_action(cx.listener(Self::on_toggle_help))
+            .on_action(cx.listener(Self::on_toggle_settings))
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 if event.keystroke.key == "escape" {
                     this.close(window, cx);
