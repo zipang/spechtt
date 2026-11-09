@@ -119,8 +119,8 @@ actions!(
 ///
 /// A context has to be a named fact on the focused dispatch path for a
 /// contextual binding to match; the copy shortcut is bound under this context
-/// (in `lib.rs::run`) so it outranks the generic binding of the window root by
-/// the documented context-depth precedence.
+/// (in [`crate::shortcuts::bind_app_keys`]) so it outranks the generic binding
+/// of the window root by the documented context-depth precedence.
 ///
 /// On the live take and the finished transcript the root declares this context
 /// together with the screen's state fact ([`SPEECHTT_TAKE_CONTEXT`],

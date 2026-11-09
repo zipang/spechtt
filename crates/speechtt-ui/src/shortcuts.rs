@@ -2,10 +2,16 @@
 //! shortcut rows.
 //!
 //! [`BINDINGS`] is the single source of truth for both halves of a keyboard
-//! command: [`bind_keys`] registers it on the application keymap at startup
-//! (`lib.rs::run`), and the Help dialog's Shortcuts tab
+//! command: [`bind_app_keys`] registers it on the application keymap at startup
+//! (`startup::init_app`), and the Help dialog's Shortcuts tab
 //! (`views::dialogs::help`) draws one row per entry. A command therefore cannot
 //! be advertised without being bound, or bound without being documented.
+//!
+//! [`bind_app_keys`] installs [`bind_keys`]'s table plus the transcript's copy
+//! shortcut. It is one of the three installs [`crate::startup::init_app`]
+//! performs, between `gpui_kit::init` and `theme::apply`; the seam as a whole is
+//! what `lib.rs::run` calls and what a headless test runs, so every keymap
+//! registration is parsed before a user starts the widget.
 //!
 //! No keystroke is registered with the operating system: the widget never takes
 //! a key from another application.
@@ -119,25 +125,60 @@ pub const BINDINGS: [Binding; 5] = [
     },
 ];
 
-/// Whether this build follows macOS keyboard conventions.
+/// Whether the host platform follows macOS keyboard conventions.
 ///
-/// The pinned framework has no runtime platform accessor: neither `App` nor the
-/// `Platform` trait reports the host operating system at this version, and the
-/// documented `cx.platform_info()` belongs to a later release. A native build's
-/// key conventions are those of the target it was compiled for, so the answer
-/// comes from the build target.
+/// The answer is the framework's report of the running host, so a runtime that
+/// is not the compile target selects the right modifier.
+///
+/// [`bind_keys`] reads it to choose [`Binding::mac_keys`] over
+/// [`Binding::keys`] on the application keymap, [`bind_app_keys`] reads it to
+/// choose `cmd-c` over `ctrl-c` for the copy shortcut, and
+/// `views::dialogs::help` reads it to draw the matching keycaps.
+/// `Binding::keystroke` and [`key_caps`] take the resulting `bool` rather than
+/// an `App`, so the formatting rules stay testable without an application
+/// context.
 #[must_use]
-pub fn is_mac() -> bool {
-    cfg!(target_os = "macos")
+pub fn is_mac(cx: &App) -> bool {
+    cx.platform_info().is_mac()
 }
 
-/// Registers [`BINDINGS`] on the application keymap.
+/// Registers the application keymap: [`BINDINGS`] plus the copy shortcut.
+///
+/// [`crate::startup::init_app`] calls this between `gpui_kit::init` and
+/// `theme::apply`, and the whole keymap has to be installed through it — a
+/// registration that lives at a call site instead is never parsed by the test
+/// suite, and [`KeyBinding::new`] panics on a keystroke or predicate it cannot
+/// parse.
+///
+/// The copy shortcut is registered here rather than left to
+/// `gpui_kit::base::Root`, which advertises selection copying: the transcript's
+/// copy must read the window selection and write it under
+/// [`crate::app::SPEECHTT_CONTEXT`], which outranks the root's own binding by
+/// the documented context-depth precedence.
+pub fn bind_app_keys(cx: &mut App) {
+    bind_keys(cx);
+
+    // `gpui-kit` parses `cmd` and `ctrl` but not the `secondary` alias, which
+    // `KeyBinding::new` rejects; the platform copy key is therefore chosen from
+    // the same host report the rest of the keymap uses.
+    let copy_keys = if is_mac(cx) { "cmd-c" } else { "ctrl-c" };
+    cx.bind_keys([KeyBinding::new(
+        copy_keys,
+        crate::app::CopySelection,
+        Some(crate::app::SPEECHTT_CONTEXT),
+    )]);
+}
+
+/// Registers the [`BINDINGS`] table on the application keymap.
 ///
 /// Each row is registered under its own `context` predicate, so a command only
-/// matches in the state where it can act. Must run after `gpui_kit::init(cx)`,
-/// which installs the component bindings.
+/// matches in the state where it can act. [`bind_app_keys`] is the entry point
+/// that installs the complete keymap; this function covers the table alone so a
+/// test can exercise one half of it.
+///
+/// Must run after `gpui_kit::init(cx)`, which installs the component bindings.
 pub fn bind_keys(cx: &mut App) {
-    let is_mac = is_mac();
+    let is_mac = is_mac(cx);
     let bindings: Vec<KeyBinding> = BINDINGS
         .iter()
         .map(|binding| {
@@ -204,9 +245,13 @@ const FUNCTION_KEYS: [&str; 12] = [
 /// Splits one GPUI keystroke into the caps a keycap row draws.
 ///
 /// `secondary` is the platform primary modifier: Control on Linux and Windows,
-/// Command on macOS. A token no cap can spell — an unknown modifier such as
-/// `hyper`, or a second key inside one stroke — yields `None` rather than a
-/// shortened row that silently drops part of the keystroke.
+/// Command on macOS. It is a *display* token only — `KeyBinding::new` rejects
+/// the alias, so every registration writes `cmd` or `ctrl` explicitly and this
+/// branch exists for a string a caller formats directly.
+///
+/// A token no cap can spell — an unknown modifier such as `hyper`, or a second
+/// key inside one stroke — yields `None` rather than a shortened row that
+/// silently drops part of the keystroke.
 fn caps_of(keystroke: &'static str, is_mac: bool) -> Option<Vec<&'static str>> {
     let mut caps = ModifierCaps::default();
     let mut key: Option<&'static str> = None;
@@ -567,6 +612,56 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The shortcut convention is the host's, as reported by the framework at
+    /// runtime. The expectation is computed here from the build target, so the
+    /// assertion pins the host's answer, not the mechanism: on a native host it
+    /// cannot distinguish a framework report from a build-target guess.
+    #[gpui_kit::test]
+    fn is_mac_follows_the_host_platform(cx: &mut gpui_kit::TestAppContext) {
+        let host_is_mac = cfg!(target_os = "macos");
+        cx.update(|cx| {
+            assert_eq!(is_mac(cx), host_is_mac);
+        });
+    }
+
+    /// Parses both key columns of [`BINDINGS`] plus both copy keystrokes on the
+    /// host running the suite.
+    ///
+    /// [`bind_keys`] registers one column per host, so on any given machine the
+    /// other column is never handed to the parser: a malformed `mac_keys` entry
+    /// ships green on Linux and a malformed `keys` entry ships green on macOS.
+    /// This test closes that gap by parsing every string of both columns
+    /// regardless of host. `KeyBinding::new` accepts `cmd` on every platform —
+    /// the KeyBinding page lists it among the modifiers GPUI always parses
+    /// (<https://gpui-kit.com/docs/keybinding.md>, "Write key strings") — so the
+    /// macOS column can be checked here without a macOS host.
+    ///
+    /// It pins parseability only. Precedence and state scoping are unobservable
+    /// in a headless window (`Window::bindings_for_action` reports nothing for
+    /// any action), and the precedence argument lives on [`bind_app_keys`].
+    #[gpui_kit::test]
+    fn every_keystroke_of_both_platform_columns_parses(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            for binding in &BINDINGS {
+                for keystrokes in [binding.keys, binding.mac_keys] {
+                    let _ = KeyBinding::new(
+                        keystrokes,
+                        crate::app::CopySelection,
+                        Some(crate::app::SPEECHTT_CONTEXT),
+                    );
+                }
+            }
+            for copy_keys in ["cmd-c", "ctrl-c"] {
+                let _ = KeyBinding::new(
+                    copy_keys,
+                    crate::app::CopySelection,
+                    Some(crate::app::SPEECHTT_CONTEXT),
+                );
+            }
+        });
     }
 
     /// `KeyBinding::new` panics on an unparsable keystroke or predicate, so the

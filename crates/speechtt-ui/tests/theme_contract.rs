@@ -87,6 +87,10 @@ fn assert_role(name: &str, actual: Hsla, expected: Rgba) {
 
 /// Layer 2 — `theme::apply` installs SpeechTT tokens into the gpui-kit
 /// theme; semantic roles read back exactly.
+///
+/// The framework and the theme are installed directly rather than through
+/// `startup::init_app`: this gate isolates the token mapping, so it must not
+/// depend on any other startup step being able to run.
 #[gpui_kit::test]
 fn the_active_theme_carries_the_speechtt_token_values(cx: &mut TestAppContext) {
     cx.update(|cx| {

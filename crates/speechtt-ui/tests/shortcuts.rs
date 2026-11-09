@@ -374,9 +374,9 @@ fn space_is_inert_on_the_transcript_screen(cx: &mut TestAppContext) {
 /// `SpeechTT || SpeechTTDialog` would fall through to the field and produce the
 /// same result. The predicate itself is pinned by the table tests in
 /// `src/shortcuts.rs`; the runtime absence of the take bindings cannot be
-/// asserted here, because the pinned framework's `Window::bindings_for_action`
-/// returns no bindings for any action in a headless window (it is empty even
-/// for the copy shortcut, which does dispatch when pressed).
+/// asserted here, because `Window::bindings_for_action` returns no bindings for
+/// any action in a headless window (it is empty even for the copy shortcut,
+/// which does dispatch when pressed).
 ///
 /// The field is the last row of the scrolling dialog body, so the test scrolls
 /// it into view before typing — the reachability step a user performs, not a

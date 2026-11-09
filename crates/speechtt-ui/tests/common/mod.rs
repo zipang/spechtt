@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 
 use gpui_kit::{
     App, AppContext, Bounds, Entity, Pixels, Point, Render, Size, Task, TestAppContext, Window,
-    WindowBounds, WindowHandle, WindowOptions, base::Root, px, size,
+    WindowBounds, WindowHandle, base::Root, px, size,
 };
 use speechtt_core::audio::{AudioError, AudioSource, PcmChunk};
 use speechtt_core::backend::{BackendError, SttSessionSink};
@@ -258,17 +258,30 @@ fn services_with_events_and_prompt(
     }
 }
 
-/// Prepares a test context for the widget: theme, component bindings and the
-/// window-scoped shortcuts, exactly as `lib.rs::run` does before opening a
-/// window.
+/// Runs the production startup seam on a test context: the gpui-kit
+/// framework, the application keymap and the SpeechTT theme, in the order
+/// `startup::init_app` installs them.
+///
+/// Calls [`speechtt_ui::startup::init_app`] rather than repeating its steps, so a
+/// step added to production is installed by every UI test that opens the widget.
+/// It does not load the persisted window layout: that read touches the user's
+/// config directory, and tests stay hermetic.
 pub fn init_kit(cx: &mut App) {
-    gpui_kit::init(cx);
-    speechtt_ui::theme::apply(cx);
-    speechtt_ui::shortcuts::bind_keys(cx);
+    speechtt_ui::startup::init_app(cx);
 }
 
 /// Opens the production `gpui_kit::open_window` entry point with the
 /// SpeechTT widget bounds by default, wrapped in Base's `Root`.
+///
+/// The window options are the production contract
+/// ([`speechtt_ui::startup::window_options`]) with deterministic test bounds
+/// substituted for the restored layout, so a field added to the production
+/// contract reaches every UI test without a second list to maintain. An
+/// explicit `window_size` also drops the production minimum size:
+/// `WindowOptions::window_min_size` is documented only as "Window minimum size"
+/// with nothing about creation clamping the requested bounds, so the adaptive
+/// smoke test that asks for a size below production's floor gets exactly the
+/// bounds it asked for.
 pub fn open_window<V: Render>(
     cx: &mut TestAppContext,
     window_size: Option<Size<Pixels>>,
@@ -287,15 +300,14 @@ pub fn open_window<V: Render>(
                     px(speechtt_ui::tokens::WIDGET_HEIGHT),
                 ),
             });
-        let (window, content) = gpui_kit::open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                ..WindowOptions::default()
-            },
-            cx,
-            build,
-        )
-        .expect("open test window");
+        let mut options = speechtt_ui::startup::window_options(None, &[]);
+        options.window_bounds = Some(WindowBounds::Windowed(bounds));
+        if window_size.is_some() {
+            // Deliberately below production's minimum: see the doc above.
+            options.window_min_size = None;
+        }
+        let (window, content) =
+            gpui_kit::open_window(options, cx, build).expect("open test window");
         (window.downcast::<Root>().expect("Base Root"), content)
     })
 }

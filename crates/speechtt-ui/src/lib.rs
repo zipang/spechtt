@@ -8,6 +8,8 @@
 //! - [`controller`] — the pure session/view-model state (no window needed).
 //! - [`components`] — SpeechTT's `RenderOnce` visual pieces.
 //! - [`shortcuts`] — the window-scoped keyboard bindings and the Help rows.
+//! - [`startup`] — the startup seam: the installs and the window contract that
+//!   `run` wires together and the tests call directly.
 //! - [`app`] — the widget window view (shell now; dialogs next).
 
 pub mod app;
@@ -16,14 +18,13 @@ pub mod controller;
 pub mod diagnostics;
 pub mod layout;
 pub mod shortcuts;
+pub mod startup;
 pub mod theme;
 pub mod tokens;
 
 mod views;
 
-use gpui_kit::{
-    AppContext, Bounds, KeyBinding, Pixels, Point, Size, WindowBounds, WindowOptions, point, px,
-};
+use gpui_kit::{AppContext, Bounds, Pixels, Point, Size, point, px};
 use speechtt_core::settings::{JsonFileStore, SettingsStore, WindowLayout};
 
 // SpeechTT's own icon set — embedded as borrowed static bytes, nothing more.
@@ -135,50 +136,25 @@ pub fn minimum_window_size() -> Size<Pixels> {
     }
 }
 
-/// Window options for the widget, restoring a persisted layout when present.
-#[must_use]
-pub fn widget_window_options(layout: Option<WindowLayout>) -> WindowOptions {
-    WindowOptions {
-        window_bounds: Some(WindowBounds::Windowed(restored_window_bounds(layout, &[]))),
-        window_min_size: Some(minimum_window_size()),
-        ..WindowOptions::default()
-    }
-}
-
 /// Runs the SpeechTT widget application (single process — PRODUCT.md §7).
-/// Used by `main.rs`; headless tests drive the same pieces directly.
+///
+/// A wiring shell only: it builds the gpui-kit application, loads the persisted
+/// window layout, delegates every install and the window contract to
+/// [`startup`], opens the window, and reports the opened window with
+/// [`diagnostics::log_launched`]. Startup steps belong in
+/// [`startup::init_app`] and [`startup::window_options`], because a closure body
+/// handed to `gpui_kit::application().run` cannot be called by a test.
 pub fn run() {
     gpui_kit::application()
         // Composed asset source (SpeechTT icons + component defaults) —
         // see `AppAssets` above. No full-catalog embed.
         .with_assets(AppAssets)
         .run(move |cx| {
-            // MUST be first: registers component state, icons, theme keys.
-            gpui_kit::init(cx);
-
-            // The window-scoped commands (`Space`, `Enter`, `Ctrl+S`, `F1`,
-            // `F2`). They act only while the widget or one of its dialogs holds
-            // focus, and the Help dialog lists them from the same table.
-            shortcuts::bind_keys(cx);
-
-            // The widget binds the copy shortcut itself. `gpui_kit::base::Root`
-            // advertises selection copying, but the transcript's copy must not
-            // depend on it: the application action reads the window selection and
-            // writes it under [`app::SPEECHTT_CONTEXT`], which outranks the root's
-            // own binding by the documented context-depth precedence.
-            // `secondary-c` is the platform copy key: Command on macOS, Control
-            // on Linux and Windows.
-            cx.bind_keys([KeyBinding::new(
-                "secondary-c",
-                app::CopySelection,
-                Some(app::SPEECHTT_CONTEXT),
-            )]);
-
-            // SpeechTT Sensor token mapping, so the first frame is ours.
-            theme::apply(cx);
+            startup::init_app(cx);
 
             // Restore the last size/position before the window exists, so the
-            // first frame is already at the right geometry.
+            // first frame is already at the right geometry. Loading the layout
+            // stays with the caller: startup does no I/O.
             let layout = JsonFileStore::new(JsonFileStore::default_path())
                 .load()
                 .ok()
@@ -188,17 +164,17 @@ pub fn run() {
                 .iter()
                 .map(|display| display.visible_bounds())
                 .collect();
-            let bounds = restored_window_bounds(layout, &displays);
-            let options = WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                window_min_size: Some(minimum_window_size()),
-                ..WindowOptions::default()
-            };
+            let options = startup::window_options(layout, &displays);
 
             gpui_kit::open_window(options, cx, |window, cx| {
                 window.set_window_title(app::APP_TITLE);
                 cx.new(|cx| app::SpeechTtApp::new(window, cx))
             })
             .expect("failed to open SpeechTT widget window");
+
+            // The window exists and the widget view is built. `tests/launch.rs`
+            // waits for this line to tell a launched widget from one that is
+            // still initialising.
+            diagnostics::log_launched();
         });
 }

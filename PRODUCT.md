@@ -146,7 +146,7 @@ other key is the same on every platform.
 
 - **Rust — UI layer (gpui-kit, native GPU-accelerated; replaces the
   former webview/tauri plan)**:
-  - Framework: `gpui-kit = "0.8"` — one dependency bundling GPUI,
+  - Framework: `gpui-kit = "0.9.1"` — one dependency bundling GPUI,
     `gpui-base`, `gpui-component` (75+ styled components), the theme
     system, default **Lucide** icon assets, and headless UI integration
     testing.
@@ -300,7 +300,7 @@ Rules:
 ### Phase 2 — GPUI UI shell (no backend, mock state)
 > Dialogs tracked in [`tickets/planned/T0004-ui-dialogs-help-and-settings.md`](tickets/planned/T0004-ui-dialogs-help-and-settings.md).
 - [x] Workspace scaffold: workspace `Cargo.toml`, `crates/speechtt-ui`,
-      `crates/speechtt-core` placeholder; `gpui-kit = "0.8"` dependency;
+      `crates/speechtt-core` placeholder; `gpui-kit = "0.9.1"` dependency;
       app opens a 600×460 always-on-top, draggable window
       (`application()` → `init(cx)` → `open_window`).
 - [x] Test: headless (`#[gpui_kit::test]`) render shows the header with

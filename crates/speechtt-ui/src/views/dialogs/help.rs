@@ -94,7 +94,7 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
 /// Each row carries the element id `help-shortcut-<action>`, which is stable
 /// per command and lets the headless tests prove the tab draws the whole table.
 fn shortcuts(cx: &App) -> AnyElement {
-    let is_mac = shortcuts::is_mac();
+    let is_mac = shortcuts::is_mac(cx);
     let mut rows = v_flex().w_full().gap_0();
     for binding in &shortcuts::BINDINGS {
         rows = rows.child(shortcut_row(binding, is_mac, cx));

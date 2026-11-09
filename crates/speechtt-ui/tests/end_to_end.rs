@@ -1165,10 +1165,7 @@ impl FakeApp {
 
 #[gpui_kit::test]
 fn the_app_constructs_from_fakes_and_persists_settings(cx: &mut gpui_kit::TestAppContext) {
-    cx.update(|cx| {
-        gpui_kit::init(cx);
-        speechtt_ui::theme::apply(cx);
-    });
+    cx.update(common::init_kit);
 
     let store = MemoryStore::new(Settings::default());
     let store_handle = store.clone();
@@ -1232,10 +1229,7 @@ fn the_app_constructs_from_fakes_and_persists_settings(cx: &mut gpui_kit::TestAp
 
 #[gpui_kit::test]
 fn the_automatic_paste_copies_the_final_transcript(cx: &mut gpui_kit::TestAppContext) {
-    cx.update(|cx| {
-        gpui_kit::init(cx);
-        speechtt_ui::theme::apply(cx);
-    });
+    cx.update(common::init_kit);
 
     let (sender, events) = speechtt_core::async_channel::unbounded();
     let copies = Arc::new(Mutex::new(Vec::new()));
@@ -1346,10 +1340,7 @@ fn the_shared_test_window_does_not_write_the_real_settings_file(cx: &mut gpui_ki
 fn the_app_event_pump_updates_the_caption_and_copy_uses_the_clipboard(
     cx: &mut gpui_kit::TestAppContext,
 ) {
-    cx.update(|cx| {
-        gpui_kit::init(cx);
-        speechtt_ui::theme::apply(cx);
-    });
+    cx.update(common::init_kit);
 
     let sink = RecordingSink::default();
     let sink_handle = sink.clone();
@@ -1441,10 +1432,7 @@ fn the_app_event_pump_updates_the_caption_and_copy_uses_the_clipboard(
 
 #[gpui_kit::test]
 fn a_mixed_case_settings_key_is_saved_byte_for_byte(cx: &mut gpui_kit::TestAppContext) {
-    cx.update(|cx| {
-        gpui_kit::init(cx);
-        speechtt_ui::theme::apply(cx);
-    });
+    cx.update(common::init_kit);
 
     let store = MemoryStore::new(Settings::default());
     let store_handle = store.clone();
@@ -1507,10 +1495,7 @@ fn a_mixed_case_settings_key_is_saved_byte_for_byte(cx: &mut gpui_kit::TestAppCo
 
 #[gpui_kit::test]
 fn a_pasted_mixed_case_key_reaches_the_store_unchanged(cx: &mut gpui_kit::TestAppContext) {
-    cx.update(|cx| {
-        gpui_kit::init(cx);
-        speechtt_ui::theme::apply(cx);
-    });
+    cx.update(common::init_kit);
 
     let store = MemoryStore::new(Settings::default());
     let store_handle = store.clone();
@@ -1555,10 +1540,7 @@ fn a_pasted_mixed_case_key_reaches_the_store_unchanged(cx: &mut gpui_kit::TestAp
 
 #[gpui_kit::test]
 fn a_stored_key_shows_only_its_mask_and_reveal_stays_disabled(cx: &mut gpui_kit::TestAppContext) {
-    cx.update(|cx| {
-        gpui_kit::init(cx);
-        speechtt_ui::theme::apply(cx);
-    });
+    cx.update(common::init_kit);
 
     let fake = FakeApp {
         store: MemoryStore::new(settings_with_mixed_case_key()),
@@ -1605,10 +1587,7 @@ fn a_stored_key_shows_only_its_mask_and_reveal_stays_disabled(cx: &mut gpui_kit:
 
 #[gpui_kit::test]
 fn a_stable_window_geometry_is_persisted_after_the_quiet_period(cx: &mut gpui_kit::TestAppContext) {
-    cx.update(|cx| {
-        gpui_kit::init(cx);
-        speechtt_ui::theme::apply(cx);
-    });
+    cx.update(common::init_kit);
 
     let store = MemoryStore::new(Settings::default());
     let store_handle = store.clone();
@@ -1643,10 +1622,7 @@ fn a_stable_window_geometry_is_persisted_after_the_quiet_period(cx: &mut gpui_ki
 
 #[gpui_kit::test]
 fn saving_settings_keeps_the_remembered_geometry(cx: &mut gpui_kit::TestAppContext) {
-    cx.update(|cx| {
-        gpui_kit::init(cx);
-        speechtt_ui::theme::apply(cx);
-    });
+    cx.update(common::init_kit);
 
     let layout = WindowLayout::new(640, 560, 20, 30);
     let mut settings = settings_with_key();
@@ -1693,10 +1669,7 @@ fn ready_app_for_files(
     EventSender,
     RecordingSink,
 ) {
-    cx.update(|cx| {
-        gpui_kit::init(cx);
-        speechtt_ui::theme::apply(cx);
-    });
+    cx.update(common::init_kit);
 
     let (sender, events) = speechtt_core::async_channel::unbounded();
     let fake = FakeApp {

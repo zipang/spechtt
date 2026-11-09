@@ -117,6 +117,7 @@ Decisions, deviations, verification output.
 | [T0034](done/T0034-live-take-header-model-and-timer.md) | Show the model and the timer on the live take screen from the start | Rust UI (components + view + controller + design) |
 | [T0031](done/T0031-live-transcript-window-overlap.md) | Split the partial and delta channels in the live transcript | Rust core (transcript) + Bun worker (diagnosis) |
 | [T0035](done/T0035-window-scoped-keyboard-shortcuts.md) | Window- and state-scoped keyboard shortcuts, and a Help tab generated from them | Cross-cutting (core + UI + docs) |
+| [T0036](done/T0036-gpui-kit-0-9-migration.md) | Migrate the UI to gpui-kit 0.9.1 | Rust UI (framework bump) |
 
 ### In Progress
 
@@ -124,7 +125,9 @@ _(none)_
 
 ### Review
 
-_(none)_
+| Ticket | Title | Track |
+|---|---|---|
+| [T0037](review/T0037-launch-smoke-gate.md) | A gate that launches the built binary | Rust UI (test infrastructure) |
 
 
 ### Planned
@@ -133,4 +136,3 @@ _(none)_
 |---|---|---|---|
 | [T0016](planned/T0016-dependency-bootstrap-script.md) | Dependency bootstrap for Bun and ffmpeg | Tooling (TypeScript/Bun) | — |
 | [T0032](planned/T0032-language-reach-honesty.md) | Say honestly what the dictation language can reach | Cross-cutting (worker → core → UI) | T0030 |
-| [T0036](planned/T0036-gpui-kit-0-9-migration.md) | Migrate the UI to gpui-kit 0.9.1 | Rust UI (framework bump) | T0035 |

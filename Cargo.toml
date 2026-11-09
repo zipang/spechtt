@@ -8,7 +8,7 @@ members = ["crates/speechtt-core", "crates/speechtt-ui"]
 debug = "line-tables-only"
 
 [workspace.dependencies]
-gpui-kit = "0.8"
+gpui-kit = "0.9.1"
 
 [workspace.package]
 edition = "2024"

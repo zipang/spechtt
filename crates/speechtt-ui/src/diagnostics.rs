@@ -5,11 +5,39 @@
 //! strip is dismissed. Log lines never contain transcript text or secrets.
 //!
 //! Read by `controller::SessionController::report_error` and by the event pump
-//! in `controller::SessionController::handle_stt_event`; nothing else writes a
-//! diagnostic line.
+//! in `controller::SessionController::handle_stt_event`; nothing else writes an
+//! error line. `lib.rs::run` writes the launch handshake ([`log_launched`])
+//! through the same channel, and `tests/launch.rs` waits for it to judge a real
+//! launch.
 
 use crate::controller::{AppError, sanitize_detail};
 use speechtt_core::protocol::SttEvent;
+
+/// Status token of the launch handshake: the widget's window is open.
+const LAUNCHED_STATUS: &str = "window-open";
+
+/// The line the widget writes once its window is open and its view is built.
+///
+/// `run()` writes it exactly once, through [`log_launched`], after
+/// `gpui_kit::open_window` returns. It says the window exists and
+/// `SpeechTtApp::new` has returned; the first frame's render follows it, which
+/// is why a launcher waits for the process to stay alive afterwards as well.
+///
+/// Carries no path, no settings value and no credential: it is a handshake, not
+/// a boot log. `tests/launch.rs` waits for this exact line and takes the text
+/// from this function rather than restating it, so the gate cannot drift from
+/// the binary it launches.
+#[must_use]
+pub fn launched_line() -> String {
+    format!("[speechtt] startup status={LAUNCHED_STATUS}")
+}
+
+/// Write the launch line [`launched_line`] describes.
+///
+/// Called by `lib.rs::run` once the window is open; nothing else writes it.
+pub fn log_launched() {
+    eprintln!("{}", launched_line());
+}
 
 /// Write exactly one redacted diagnostic line for `error`.
 ///

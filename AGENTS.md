@@ -26,7 +26,7 @@ NDJSON bridge. Visual fidelity is governed by `DESIGN.md` + `design-tokens.css`.
   client.
 - **`crates/speechtt-ui`** — native `gpui-kit` application. Owns: window shell,
   view model (`controller.rs`), screens (`views/`), reusable components,
-  theme/token mirror, dialogs.
+  theme/token mirror, dialogs, and the startup seam (`startup.rs`).
 - **`src/stt/`** — TypeScript/Bun worker. Runs as a subprocess; `stdout` is
   strictly NDJSON events, `stderr` is strictly human diagnostics.
 - **`scripts/` + `tests/` (TypeScript)** — design-system tooling only; run
@@ -195,7 +195,7 @@ it: the code, the tests and the ticket already hold the truth.
 
 ## 4. Tech Stack
 
-- **Rust** (edition 2024): `speechtt-core`, `speechtt-ui` (gpui-kit 0.8).
+- **Rust** (edition 2024): `speechtt-core`, `speechtt-ui` (gpui-kit 0.9.1).
 - **TypeScript / Bun**: worker + design tooling. All JS/TS tooling uses Bun.
 - **NDJSON** over piped `stdin`/`stdout` for the Rust ↔ Bun bridge.
 - **Vercel AI SDK** (`ai`, `@ai-sdk/*`) for transcription providers.
@@ -209,7 +209,18 @@ it: the code, the tests and the ticket already hold the truth.
 ### Rust
 - `cargo fmt -- --check`
 - `cargo clippy --all-targets -- -D warnings`
-- `cargo test`
+- `cargo test` — includes the **startup gate** (`crates/speechtt-ui/tests/startup.rs`),
+  which runs `startup::init_app` headlessly (so every keymap registration is
+  parsed), asserts that `lib.rs::run` still calls the seam and registers nothing
+  itself, and that the UI test fixture calls the seam instead of copying it.
+- `cargo test` also includes the **launch gate**
+  (`crates/speechtt-ui/tests/launch.rs`), which runs the built `speechtt-ui`
+  binary in a throwaway `$HOME`/`$XDG_CONFIG_HOME`, waits for the
+  `[speechtt] startup status=window-open` line `run()` writes once its window is
+  open, and fails if the widget exits before that line or within the settle
+  window after it. This is the only gate that needs a graphical session: with
+  neither `DISPLAY` nor `WAYLAND_DISPLAY` set it prints a skip reason and
+  returns, so run the suite from a session before staging a UI ticket.
 
 ### TypeScript / Bun
 - `bun test`
@@ -245,6 +256,17 @@ All gates must be green with **zero warnings**. Do not weaken, skip, or
   never require a real microphone, audio server, display server, clipboard,
   real user config directory (`$HOME`/`$XDG_CONFIG_HOME`), or live network
   unless explicitly gated/skipped per the ticket.
+- **Every startup registration lives behind `crates/speechtt-ui/src/startup.rs`'s
+  `init_app`**, `run()` wires and never registers, and the UI test fixture calls
+  that seam instead of re-listing its steps. `tests/startup.rs` enforces the
+  split, because a startup step reachable only from `gpui_kit::application().run`'s
+  closure is parsed for the first time on the user's machine.
+- **Startup keeps the launch handshake.** `run()` writes
+  `diagnostics::log_launched()` once `open_window` has returned, and
+  `tests/launch.rs` launches the built binary and fails when it exits before or
+  just after that line. A change that opens the window by another route keeps the
+  handshake, and a machine without a display skips the gate with a printed reason
+  rather than `#[ignore]`-ing it.
 - Treat shared registration files (`Cargo.toml`, `lib.rs`) as **append-only**
   across parallel tickets — never rewrite or delete sibling lines.
 - Use `SecretString` (Rust) / `apiKey` (TS) for credentials; persist settings
