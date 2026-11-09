@@ -7,7 +7,7 @@ with a stateless Bun worker doing the speech-to-text behind a local pipe.
 
 ## Demo
 
-<!-- The demo recording is attached here through GitHub's README editor. -->
+[![Demo video](./demo-launcher-vignette.png)](https://github.com/user-attachments/assets/6368304a-95e1-4701-9b4a-b19ce5365059)
 
 ## What it does
 
