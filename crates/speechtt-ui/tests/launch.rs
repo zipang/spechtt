@@ -406,3 +406,132 @@ impl Drop for Sandbox {
         let _ = fs::remove_dir_all(&self.root);
     }
 }
+
+/// The packaged AppDir layout resolves the worker from the executable's own
+/// directory.
+///
+/// The binary is a **copy** into `usr/bin`, not a symlink: `current_exe()`
+/// resolves a symlink back to the build tree, which would hide the AppDir
+/// lookup behind the Cargo fallback. A copy of the real worker sits at
+/// `usr/share/speechtt/worker.js`, and a fake `bun` first on `PATH` records the
+/// argv it receives instead of running a worker. The verdict is therefore about
+/// the packaged path — the AppDir's worker, not a repository path — while the
+/// existing launch handshake still proves the window opens.
+///
+/// The child keeps the [`Sandbox`] isolation of the launch gate: throwaway
+/// `HOME`/`XDG_CONFIG_HOME` and no display variables, so no window appears on
+/// the developer's desktop. The child is killed and reaped on every path.
+#[cfg(unix)]
+#[test]
+fn the_packaged_appdir_resolves_the_worker_through_the_usr_share_layout() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let sandbox = Sandbox::create();
+    let app_dir = sandbox.root.join("SpeechTT.AppDir");
+    let bin_dir = app_dir.join("usr/bin");
+    let worker_dir = app_dir.join("usr/share/speechtt");
+    let fake_bin = sandbox.root.join("fake-bin");
+    for directory in [&bin_dir, &worker_dir, &fake_bin] {
+        fs::create_dir_all(directory)
+            .unwrap_or_else(|error| panic!("cannot create {}: {error}", directory.display()));
+    }
+
+    let binary = bin_dir.join("speechtt-ui");
+    fs::copy(env!("CARGO_BIN_EXE_speechtt-ui"), &binary)
+        .unwrap_or_else(|error| panic!("cannot copy the widget binary: {error}"));
+    fs::set_permissions(&binary, fs::Permissions::from_mode(0o755))
+        .expect("the copied widget binary must be executable");
+
+    let worker_source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../src/stt/worker.ts");
+    let worker = worker_dir.join("worker.js");
+    fs::copy(&worker_source, &worker)
+        .unwrap_or_else(|error| panic!("cannot copy the worker: {error}"));
+
+    let marker = sandbox.root.join("bun-args.txt");
+    let fake_bun = fake_bin.join("bun");
+    fs::write(
+        &fake_bun,
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$SPEECHTT_FAKE_BUN_MARKER\"\nexit 0\n",
+    )
+    .expect("the fake bun script must be writable");
+    fs::set_permissions(&fake_bun, fs::Permissions::from_mode(0o755))
+        .expect("the fake bun script must be executable");
+
+    let path = format!(
+        "{}:{}",
+        fake_bin.display(),
+        env::var("PATH").unwrap_or_default()
+    );
+    let mut command = Command::new(&binary);
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("HOME", sandbox.home())
+        .env("XDG_CONFIG_HOME", sandbox.config())
+        .env("PATH", path)
+        .env("SPEECHTT_FAKE_BUN_MARKER", &marker);
+    for variable in DISPLAY_VARIABLES {
+        command.env_remove(variable);
+    }
+
+    let mut child = command
+        .spawn()
+        .expect("the packaged widget binary must be runnable");
+    let captured = Arc::new(Mutex::new(Captured::default()));
+    let stderr_reader = capture_stderr(&mut child, Arc::clone(&captured));
+    let stdout_drain = drain_stdout(&mut child);
+
+    let signal = speechtt_ui::diagnostics::launched_line();
+    let verdict = judge(&mut child, &captured, &signal);
+    let recorded = if verdict.is_ok() {
+        wait_for_marker(&marker, Duration::from_secs(5))
+    } else {
+        None
+    };
+
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = stderr_reader.join();
+    if let Some(drain) = stdout_drain {
+        let _ = drain.join();
+    }
+
+    let stderr = captured.lock().expect("captured stderr lock").stderr();
+
+    if let Err(reason) = verdict {
+        panic!("{reason}\n--- widget stderr ---\n{stderr}");
+    }
+
+    let recorded = recorded.unwrap_or_else(|| {
+        panic!("the fake bun was never spawned; the widget found no worker\n--- widget stderr ---\n{stderr}")
+    });
+    let mut lines = recorded.lines();
+    assert_eq!(
+        lines.next(),
+        Some("run"),
+        "bun must be invoked as `bun run`"
+    );
+    let spawned = PathBuf::from(lines.next().unwrap_or_default());
+    let expected = bin_dir.join("../share/speechtt/worker.js");
+    assert_eq!(
+        spawned, expected,
+        "the packaged widget must spawn the AppDir worker, not a repository path"
+    );
+}
+
+/// Polls for the fake `bun`'s marker file until it has args or `timeout` passes.
+fn wait_for_marker(marker: &PathBuf, timeout: Duration) -> Option<String> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Ok(contents) = fs::read_to_string(marker)
+            && !contents.is_empty()
+        {
+            return Some(contents);
+        }
+        if Instant::now() >= deadline {
+            return None;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+}
