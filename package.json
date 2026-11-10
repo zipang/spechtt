@@ -1,6 +1,6 @@
 {
 	"name": "speechtt",
-	"version": "0.5.0",
+	"version": "0.5.1",
 	"private": true,
 	"type": "module",
 	"scripts": {
@@ -10,6 +10,7 @@
 		"test": "bun test",
 		"setup": "bun run scripts/setup.ts",
 		"package": "bun run scripts/package.ts",
+		"release": "bun run scripts/package.ts --release",
 		"stt:worker": "bun run src/stt/worker.ts",
 		"design:validate": "bun scripts/validate-design.ts",
 		"design:contrast": "bun scripts/sync-contrast.ts",

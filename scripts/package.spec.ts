@@ -15,9 +15,12 @@ import {
 	appRunScriptLinux,
 	archFrom,
 	bumpedManifest,
+	bumpedPackageJson,
 	checksumLine,
 	desktopEntryLinux,
+	dirtyEntries,
 	nextPatchVersion,
+	releaseArgs,
 	releaseCommand,
 	runCli,
 	stagePlanLinux,
@@ -58,6 +61,23 @@ gpui-kit = "0.9.1"
 [workspace.package]
 edition = "2024"
 version = "0.5.0"
+`;
+
+/** The tab-indented `package.json` fixture; its shape mirrors the repository's. */
+const PACKAGE_JSON = `{
+\t"name": "speechtt",
+\t"version": "0.5.0",
+\t"private": true,
+\t"type": "module",
+\t"scripts": {
+\t\t"package": "bun run scripts/package.ts",
+\t\t"release": "bun run scripts/package.ts --release"
+\t},
+\t"dependencies": {
+\t\t"ai": "^7.0.155",
+\t\t"pinned": "0.5.0"
+\t}
+}
 `;
 
 const DIGEST = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -173,6 +193,65 @@ describe("bumpedManifest", () => {
 
 	test("returns null when the section has no version key", () => {
 		expect(bumpedManifest('[workspace.package]\nedition = "2024"\n', "0.6.0")).toBeNull();
+	});
+});
+
+describe("bumpedPackageJson", () => {
+	test("replaces only the version and keeps tabs and key order", () => {
+		const bumped = bumpedPackageJson(PACKAGE_JSON, "0.5.1");
+
+		expect(bumped).toBe(PACKAGE_JSON.replace('"version": "0.5.0"', '"version": "0.5.1"'));
+	});
+
+	test("leaves a dependency pin that carries the old number untouched", () => {
+		const bumped = bumpedPackageJson(PACKAGE_JSON, "2.0.0");
+
+		expect(bumped).toContain('"pinned": "0.5.0"');
+		expect(bumped).toContain('"version": "2.0.0"');
+	});
+
+	test("the result parses to the same object plus the new version", () => {
+		const bumped = bumpedPackageJson(PACKAGE_JSON, "0.5.1");
+		const parsed = JSON.parse(bumped as string) as Record<string, unknown>;
+
+		expect(parsed.version).toBe("0.5.1");
+		expect(Object.keys(parsed)).toEqual([
+			"name",
+			"version",
+			"private",
+			"type",
+			"scripts",
+			"dependencies"
+		]);
+	});
+
+	test("returns null when the text is not a JSON object", () => {
+		for (const invalid of ["[]", '"x"', "null", "42", "", "{"]) {
+			expect(bumpedPackageJson(invalid, "0.5.1")).toBeNull();
+		}
+	});
+});
+
+describe("dirtyEntries", () => {
+	test("empty output means a clean tree", () => {
+		expect(dirtyEntries("")).toEqual([]);
+	});
+
+	test("one entry is reported as written", () => {
+		expect(dirtyEntries(" M Cargo.toml\n")).toEqual([" M Cargo.toml"]);
+	});
+
+	test("several entries keep their order", () => {
+		expect(dirtyEntries("?? src/new.ts\n M Cargo.toml\nA  added.rs\n")).toEqual([
+			"?? src/new.ts",
+			" M Cargo.toml",
+			"A  added.rs"
+		]);
+	});
+
+	test("blank lines and trailing whitespace are dropped", () => {
+		expect(dirtyEntries(" M Cargo.toml   \n\n\n")).toEqual([" M Cargo.toml"]);
+		expect(dirtyEntries("\n\n")).toEqual([]);
 	});
 });
 
@@ -315,6 +394,20 @@ describe("releaseCommand", () => {
 		expect(command).toContain('--title "SpeechTT 1.0.0"');
 		expect(command).not.toContain('--title "SpeechTT v1.0.0"');
 	});
+
+	test("the argv executed under --release is the printed command", () => {
+		expect(releaseArgs("0.5.0", "x86_64")).toEqual([
+			"gh",
+			"release",
+			"create",
+			"v0.5.0",
+			"dist/SpeechTT-0.5.0-x86_64.AppImage",
+			"dist/SpeechTT-0.5.0-x86_64.AppImage.sha256",
+			"--title",
+			"SpeechTT 0.5.0",
+			"--generate-notes"
+		]);
+	});
 });
 
 describe("staleArtifacts", () => {
@@ -405,6 +498,7 @@ interface Harness {
 	bundle: string;
 	manifest: string;
 	lockfile: string;
+	packageJson: string;
 }
 
 /** Reads the workspace version out of a manifest fixture. */
@@ -439,6 +533,15 @@ function lockfileFor(version: string): string {
 	return LOCKFILE.replaceAll('version = "0.5.0"', `version = "${version}"`);
 }
 
+/** `bumpedPackageJson` for the fixture, which is always a JSON object. */
+function bumpedPackageFixture(version: string): string {
+	const bumped = bumpedPackageJson(PACKAGE_JSON, version);
+	if (bumped === null) {
+		throw new Error("fixture package.json stopped being a JSON object");
+	}
+	return bumped;
+}
+
 /** `bumpedManifest` for the fixture manifest, which always has the section. */
 function bumpedFixture(version: string): string {
 	const bumped = bumpedManifest(MANIFEST, version);
@@ -454,12 +557,14 @@ function harness(
 		has?: (bin: string) => boolean;
 		metadata?: string;
 		manifest?: string;
+		packageJson?: string;
 		exists?: (path: string) => boolean;
 		bundle?: string;
 		digest?: string;
 		onExec?: (argv: readonly string[]) => void;
 		exitCode?: (argv: readonly string[]) => number;
 		stderr?: (argv: readonly string[]) => string;
+		stdout?: (argv: readonly string[]) => string;
 		copyError?: Error;
 		fetchError?: Error;
 		sha256Error?: Error;
@@ -492,7 +597,8 @@ function harness(
 		files,
 		bundle: options.bundle ?? "export const ready = true;\n",
 		manifest: options.manifest ?? MANIFEST,
-		lockfile: LOCKFILE
+		lockfile: LOCKFILE,
+		packageJson: options.packageJson ?? PACKAGE_JSON
 	};
 
 	const deps: CliDeps = {
@@ -517,9 +623,13 @@ function harness(
 				};
 			}
 			options.onExec?.(argv);
+			// A successful build makes its output exist, so a full run reaches staging without
+			// every test restating it.
+			if (argv[0] === "bun" && argv[1] === "build") files.add("dist/worker.js");
+			if (argv[0] === "cargo" && argv[1] === "build") files.add("target/release/speechtt-ui");
 			return {
 				exitCode: options.exitCode?.(argv) ?? 0,
-				stdout: "",
+				stdout: options.stdout?.(argv) ?? "",
 				stderr: options.stderr?.(argv) ?? ""
 			};
 		},
@@ -533,10 +643,14 @@ function harness(
 		exists: (path) =>
 			options.exists
 				? options.exists(path)
-				: path === "Cargo.toml" || path === "Cargo.lock" || files.has(path),
+				: path === "Cargo.toml" ||
+					path === "Cargo.lock" ||
+					path === "package.json" ||
+					files.has(path),
 		readFile: (path) => {
 			if (path === "Cargo.toml") return state.manifest;
 			if (path === "Cargo.lock") return state.lockfile;
+			if (path === "package.json") return state.packageJson;
 			if (path === "dist/worker.js") return state.bundle;
 			return "";
 		},
@@ -544,6 +658,7 @@ function harness(
 			written.push({ path, contents });
 			if (path === "Cargo.toml") state.manifest = contents;
 			if (path === "Cargo.lock") state.lockfile = contents;
+			if (path === "package.json") state.packageJson = contents;
 			files.add(path);
 		},
 		copyFile: (from, to) => {
@@ -584,6 +699,13 @@ function harness(
 
 const lineMatches = (lines: readonly string[], pattern: RegExp) =>
 	lines.some((line) => pattern.test(line));
+
+/** The `gh release create` calls the run made, as argv lists. */
+function ghCalls(fake: Harness): string[][] {
+	return fake.execCalls.filter((call) => call.argv[0] === "gh").map((call) => [...call.argv]);
+}
+
+const GIT_STATUS_ARGV = ["git", "status", "--porcelain"];
 
 const METADATA_ARGV = ["cargo", "metadata", "--format-version", "1", "--no-deps"];
 
@@ -865,6 +987,251 @@ describe("runCli stale artifacts in dist/", () => {
 			"dist/SpeechTT-0.6.0-x86_64.AppImage",
 			"dist/SpeechTT-0.6.0-x86_64.AppImage.sha256"
 		]);
+	});
+});
+
+describe("runCli --release", () => {
+	test("publishes the artifact it built, with the exact gh argv, once", async () => {
+		const fake = harness();
+
+		expect(await runCli(["--release"], fake.deps)).toBe(0);
+
+		expect(ghCalls(fake)).toEqual([
+			[
+				"gh",
+				"release",
+				"create",
+				"v0.5.1",
+				"dist/SpeechTT-0.5.1-x86_64.AppImage",
+				"dist/SpeechTT-0.5.1-x86_64.AppImage.sha256",
+				"--title",
+				"SpeechTT 0.5.1",
+				"--generate-notes"
+			]
+		]);
+		expect(fake.stdout).toContain(releaseCommand("0.5.1", "x86_64"));
+	});
+
+	test("the release runs after the cleanup and the checksum", async () => {
+		const fake = harness({ listDir: () => ["SpeechTT-0.4.0-x86_64.AppImage"] });
+
+		expect(await runCli(["--release"], fake.deps)).toBe(0);
+
+		const checksumIndex = fake.stdout.findIndex((line) => line.startsWith("wrote: "));
+		const removedIndex = fake.stdout.findIndex((line) => line.startsWith("removed: "));
+		const publishIndex = fake.stdout.findIndex((line) =>
+			line.startsWith("gh release create v0.5.1 ")
+		);
+
+		expect(checksumIndex).toBeGreaterThanOrEqual(0);
+		expect(removedIndex).toBeGreaterThan(checksumIndex);
+		expect(publishIndex).toBeGreaterThan(removedIndex);
+		expect(fake.stdout).toContain("published: v0.5.1");
+	});
+
+	test("a plain run never invokes gh", async () => {
+		const fake = harness();
+
+		expect(await runCli([], fake.deps)).toBe(0);
+
+		expect(ghCalls(fake)).toEqual([]);
+	});
+
+	test("a missing gh exits 2 before any build step", async () => {
+		const fake = harness({ has: (bin) => bin !== "gh" });
+
+		const code = await runCli(["--release"], fake.deps);
+
+		expect(code).toBe(2);
+		expect(lineMatches(fake.stderr, /gh/)).toBe(true);
+		expect(fake.execCalls).toEqual([]);
+		expect(fake.written).toEqual([]);
+	});
+
+	test("a failing gh exits 1, prints its stderr and keeps the artifact", async () => {
+		const fake = harness({
+			exitCode: (argv) => (argv[0] === "gh" ? 4 : 0),
+			stderr: (argv) => (argv[0] === "gh" ? "gh: HTTP 403: authentication failed" : "")
+		});
+
+		const code = await runCli(["--release"], fake.deps);
+
+		expect(code).toBe(1);
+		expect(lineMatches(fake.stderr, /HTTP 403/)).toBe(true);
+		expect(fake.written).toContainEqual({
+			path: "dist/SpeechTT-0.5.1-x86_64.AppImage.sha256",
+			contents: `${DIGEST}  SpeechTT-0.5.1-x86_64.AppImage\n`
+		});
+		expect(fake.stdout).toContain("wrote: dist/SpeechTT-0.5.1-x86_64.AppImage.sha256");
+		// The build succeeded, so the release version stays written: retrying is a republish at
+		// the same number, not a second bump.
+		expect(fake.manifest).toContain('version = "0.5.1"');
+		expect(fake.packageJson).toContain('"version": "0.5.1"');
+	});
+
+	test("--dry-run prints the command and calls no gh", async () => {
+		const fake = harness();
+
+		const code = await runCli(["--release", "--dry-run"], fake.deps);
+
+		expect(code).toBe(0);
+		expect(ghCalls(fake)).toEqual([]);
+		expect(fake.stdout).toContain(releaseCommand("0.5.1", "x86_64"));
+		expect(fake.written).toEqual([]);
+	});
+
+	test("--dry-run on a dirty tree names the blocking paths, exits 0 and publishes nothing", async () => {
+		const fake = harness({
+			stdout: (argv) => (argv[0] === "git" ? " M Cargo.toml\n?? src/new.ts\n" : "")
+		});
+
+		const code = await runCli(["--release", "--dry-run"], fake.deps);
+
+		expect(code).toBe(0);
+		expect(
+			lineMatches(fake.stdout, /^package: a real release would refuse: 2 uncommitted path/)
+		).toBe(true);
+		expect(fake.stdout).toContain("   M Cargo.toml");
+		expect(fake.stdout).toContain("  ?? src/new.ts");
+		expect(ghCalls(fake)).toEqual([]);
+		expect(fake.written).toEqual([]);
+		// The projection stays complete despite the blocking paths.
+		expect(lineMatches(fake.stdout, /^release version: 0\.5\.1$/)).toBe(true);
+		expect(fake.stdout).toContain(releaseCommand("0.5.1", "x86_64"));
+	});
+
+	test("--dry-run on a clean tree reports no blocking path", async () => {
+		const fake = harness();
+
+		const code = await runCli(["--release", "--dry-run"], fake.deps);
+
+		expect(code).toBe(0);
+		expect(lineMatches(fake.stdout, /uncommitted/)).toBe(false);
+		expect(lineMatches(fake.stdout, /^release version: 0\.5\.1$/)).toBe(true);
+	});
+
+	test("--dry-run still reads the guard, so the projection names what would block", async () => {
+		const fake = harness();
+
+		expect(await runCli(["--release", "--dry-run"], fake.deps)).toBe(0);
+
+		expect(fake.execCalls[0]?.argv).toEqual(GIT_STATUS_ARGV);
+	});
+
+	test("--no-build publishes the existing artifact at the current version", async () => {
+		const fake = harness({
+			exists: (path) =>
+				path === "target/release/speechtt-ui" ||
+				path === "dist/worker.js" ||
+				path === "dist/tools/appimagetool-x86_64.AppImage"
+		});
+
+		const code = await runCli(["--release", "--no-build"], fake.deps);
+
+		expect(code).toBe(0);
+		expect(ghCalls(fake)).toEqual([
+			[
+				"gh",
+				"release",
+				"create",
+				"v0.5.0",
+				"dist/SpeechTT-0.5.0-x86_64.AppImage",
+				"dist/SpeechTT-0.5.0-x86_64.AppImage.sha256",
+				"--title",
+				"SpeechTT 0.5.0",
+				"--generate-notes"
+			]
+		]);
+	});
+
+	test("a dirty tree exits 2, names the paths and the override, and builds nothing", async () => {
+		const fake = harness({
+			stdout: (argv) => (argv[0] === "git" ? " M Cargo.toml\n?? src/new.ts\n" : "")
+		});
+
+		const code = await runCli(["--release"], fake.deps);
+
+		expect(code).toBe(2);
+		expect(lineMatches(fake.stderr, /Cargo\.toml/)).toBe(true);
+		expect(lineMatches(fake.stderr, /src\/new\.ts/)).toBe(true);
+		expect(lineMatches(fake.stderr, /--allow-dirty/)).toBe(true);
+		expect(fake.execCalls.map((call) => [...call.argv])).toEqual([GIT_STATUS_ARGV]);
+		expect(fake.written).toEqual([]);
+	});
+
+	test("a clean tree publishes without the override", async () => {
+		const fake = harness({ stdout: (argv) => (argv[0] === "git" ? "" : "") });
+
+		expect(await runCli(["--release"], fake.deps)).toBe(0);
+
+		expect(fake.execCalls[0]?.argv).toEqual(GIT_STATUS_ARGV);
+		expect(ghCalls(fake)).toHaveLength(1);
+	});
+
+	test("--allow-dirty skips the check, says so and publishes", async () => {
+		const fake = harness({
+			stdout: (argv) => (argv[0] === "git" ? " M Cargo.toml\n" : "")
+		});
+
+		expect(await runCli(["--release", "--allow-dirty"], fake.deps)).toBe(0);
+
+		expect(fake.execCalls.some((call) => call.argv[0] === "git")).toBe(false);
+		expect(
+			fake.stdout.some(
+				(line) => line.includes("--allow-dirty") && line.includes("clean-tree")
+			)
+		).toBe(true);
+		expect(ghCalls(fake)).toHaveLength(1);
+	});
+});
+
+describe("runCli package.json version", () => {
+	test("the bump writes the release version beside the manifest", async () => {
+		const fake = harness();
+
+		expect(await runCli([], fake.deps)).toBe(0);
+
+		expect(fake.written.filter((file) => file.path === "package.json")).toEqual([
+			{ path: "package.json", contents: bumpedPackageFixture("0.5.1") }
+		]);
+		expect(fake.packageJson).toContain('"version": "0.5.1"');
+		expect(fake.packageJson).toBe(
+			PACKAGE_JSON.replace('"version": "0.5.0"', '"version": "0.5.1"')
+		);
+	});
+
+	test("a failed build restores it byte for byte", async () => {
+		const fake = harness({
+			exitCode: (argv) => (argv[0] === "cargo" && argv[1] === "build" ? 101 : 0),
+			stderr: (argv) =>
+				argv[0] === "cargo" && argv[1] === "build" ? "error: could not compile" : ""
+		});
+
+		expect(await runCli([], fake.deps)).toBe(1);
+
+		expect(fake.written.filter((file) => file.path === "package.json")).toEqual([
+			{ path: "package.json", contents: bumpedPackageFixture("0.5.1") },
+			{ path: "package.json", contents: PACKAGE_JSON }
+		]);
+		expect(fake.packageJson).toBe(PACKAGE_JSON);
+	});
+
+	test("--no-bump leaves package.json untouched", async () => {
+		const fake = harness();
+
+		expect(await runCli(["--no-bump"], fake.deps)).toBe(0);
+
+		expect(fake.written.filter((file) => file.path === "package.json")).toEqual([]);
+		expect(fake.packageJson).toBe(PACKAGE_JSON);
+	});
+
+	test("--dry-run leaves package.json untouched", async () => {
+		const fake = harness();
+
+		expect(await runCli(["--dry-run"], fake.deps)).toBe(0);
+
+		expect(fake.written).toEqual([]);
+		expect(fake.packageJson).toBe(PACKAGE_JSON);
 	});
 });
 

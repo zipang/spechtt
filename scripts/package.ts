@@ -1,14 +1,15 @@
 /**
- * Builds the Linux AppImage release artifact for SpeechTT.
+ * Builds the Linux AppImage release artifact for SpeechTT, and publishes it under `--release`.
  *
- * The pipeline advances the workspace patch version in `Cargo.toml`, bundles the STT worker into
- * one file, compiles the release widget, stages a `SpeechTT.AppDir` exactly as the AppImage guide
- * describes, turns it into `dist/SpeechTT-<version>-<arch>.AppImage`, writes its `sha256sum`
- * companion and prints the `gh release create` command. It never publishes anything itself.
+ * The pipeline advances the workspace patch version in `Cargo.toml` and `package.json`, bundles the
+ * STT worker into one file, compiles the release widget, stages a `SpeechTT.AppDir` exactly as the
+ * AppImage guide describes, turns it into `dist/SpeechTT-<version>-<arch>.AppImage`, writes its
+ * `sha256sum` companion and prints the `gh release create` command. Only `--release` executes that
+ * command; a plain `bun run package` builds and prints.
  *
  * The bump comes first because the version is compiled into the binary: the artifact name and the
  * `V<version>` the widget shows must be the same number. A failure after the write restores the
- * manifest and the lock file, so a retry does not consume a second version.
+ * manifest, the lock file and `package.json`, so a retry does not consume a second version.
  *
  * Once the artifact and its checksum are written, the run removes the other `SpeechTT-*.AppImage`
  * files and their `.sha256` companions from `dist/`, so the directory names only the release just
@@ -17,7 +18,8 @@
  *
  * # Callers
  *
- * - `package.json`'s `package` script (`bun run package`), the documented entry point.
+ * - `package.json`'s `package` script (`bun run package`) and its `release` script (`bun run
+ *   release`, which passes `--release`), the documented entry points.
  * - `scripts/package.spec.ts`, which drives every pure function and the CLI through injected fakes.
  *
  * # Purity
@@ -25,8 +27,9 @@
  * Importing this module runs nothing: the CLI is entered from the `import.meta.main` guard at the
  * bottom, and every machine-facing capability (`has`, `exec`, `fetch`, the filesystem sinks, the
  * output sinks) arrives as a {@link CliDeps} value. The version is read from `cargo metadata`,
- * never hardcoded, and the only files the release writes outside `dist/` are `Cargo.toml` and its
- * lock file.
+ * never hardcoded, and the only files the run writes outside `dist/` are `Cargo.toml`, its lock
+ * file and `package.json`. The single `git` invocation is the read-only `git status --porcelain`
+ * that guards a release.
  */
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
@@ -117,13 +120,20 @@ export const RELEASE_BINARY = "target/release/speechtt-ui";
 
 const APPIMAGETOOL_BASE = "https://github.com/AppImage/appimagetool/releases/download/continuous";
 
-const USAGE = "usage: bun run package [--dry-run] [--no-build] [--no-bump] [--arch <arch>]";
+const USAGE =
+	"usage: bun run package [--dry-run] [--no-build] [--no-bump] [--release] [--allow-dirty] [--arch <arch>]";
 
 /** The workspace manifest whose `[workspace.package]` version names the release. */
 const MANIFEST_PATH = "Cargo.toml";
 
 /** The lock file `cargo build --locked` checks against the manifest. */
 const LOCKFILE_PATH = "Cargo.lock";
+
+/** The npm manifest whose `version` follows the release version. */
+const PACKAGE_JSON_PATH = "package.json";
+
+/** The working-tree status listing the release guard reads; the script's only git call. */
+const GIT_STATUS_ARGV = ["git", "status", "--porcelain"];
 
 const METADATA_ARGV = ["cargo", "metadata", "--format-version", "1", "--no-deps"];
 
@@ -270,6 +280,45 @@ export function bumpedManifest(manifest: string, version: string): string | null
 }
 
 /**
+ * `text` as a `package.json` whose `version` is `version`, formatting and key order preserved.
+ *
+ * The file is re-serialised with tab indentation, which is how the repository formats it, so the
+ * bump produces the same diff as a hand edit of that one line. Returns `null` when the text is not
+ * a JSON object, so the caller reports the problem instead of writing a file it does not
+ * understand. Written by the packaging run after `Cargo.toml`, and restored with it on failure.
+ */
+export function bumpedPackageJson(text: string, version: string): string | null {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(text);
+	} catch {
+		return null;
+	}
+	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+		return null;
+	}
+	// Spreading keeps the existing key order; assigning `version` updates it in place in the object
+	// literal without moving it to the end.
+	const updated = { ...(parsed as Record<string, unknown>), version };
+	return `${JSON.stringify(updated, null, "\t")}\n`;
+}
+
+/**
+ * The non-blank entries of a `git status --porcelain` listing.
+ *
+ * Clean means empty: a release tags the commit the build came from, so any uncommitted change would
+ * make the tag describe code the artifact does not contain. Trailing whitespace is trimmed and
+ * blank lines dropped, so the caller can report the paths as the listing wrote them.
+ * `--allow-dirty` bypasses the check for a deliberate one-off.
+ */
+export function dirtyEntries(statusOutput: string): string[] {
+	return statusOutput
+		.split("\n")
+		.map((line) => line.trimEnd())
+		.filter((line) => line.trim() !== "");
+}
+
+/**
  * Artifacts in `entries` that belong to another version than `keep`.
  *
  * Only the two release shapes are candidates: `SpeechTT-*.AppImage` and
@@ -384,14 +433,37 @@ export function checksumLine(digest: string, fileName: string): string {
 }
 
 /**
- * The release command the user runs after a successful build.
+ * The `gh release create` command that publishes `version`, as an argv list.
  *
- * The script prints this and never executes it: authentication, tagging and publishing stay
- * explicit human actions.
+ * The single source of the publish command: {@link releaseCommand} prints it and a `--release` run
+ * executes it, so what the user reads and what runs cannot drift apart.
+ */
+export function releaseArgs(version: string, arch: Arch): readonly string[] {
+	const name = appImageFileName(version, arch);
+	return [
+		"gh",
+		"release",
+		"create",
+		`v${version}`,
+		`${DIST_DIR}/${name}`,
+		`${DIST_DIR}/${name}.sha256`,
+		"--title",
+		`SpeechTT ${version}`,
+		"--generate-notes"
+	];
+}
+
+/**
+ * The release command as the terminal shows it.
+ *
+ * Printed by every run. `bun run package` stops there, so a build never publishes; `--release` goes
+ * on to execute the same argv through {@link releaseArgs}. `gh release create v<version>` creates
+ * the tag as part of publishing, so the script never tags anything itself.
  */
 export function releaseCommand(version: string, arch: Arch): string {
-	const name = appImageFileName(version, arch);
-	return `gh release create v${version} dist/${name} dist/${name}.sha256 --title "SpeechTT ${version}" --generate-notes`;
+	return releaseArgs(version, arch)
+		.map((argument) => (argument.includes(" ") ? `"${argument}"` : argument))
+		.join(" ");
 }
 
 /** Command text with an optional environment prefix, for the terminal. */
@@ -513,6 +585,8 @@ interface ParsedArguments {
 	readonly dryRun: boolean;
 	readonly noBuild: boolean;
 	readonly noBump: boolean;
+	readonly release: boolean;
+	readonly allowDirty: boolean;
 	readonly arch: Arch | null;
 }
 
@@ -521,6 +595,8 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
 	let dryRun = false;
 	let noBuild = false;
 	let noBump = false;
+	let release = false;
+	let allowDirty = false;
 	let arch: Arch | null = null;
 
 	for (let index = 0; index < argv.length; index += 1) {
@@ -534,6 +610,12 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
 				break;
 			case "--no-bump":
 				noBump = true;
+				break;
+			case "--release":
+				release = true;
+				break;
+			case "--allow-dirty":
+				allowDirty = true;
 				break;
 			case "--arch": {
 				const value = argv[index + 1];
@@ -549,7 +631,48 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
 		}
 	}
 
-	return { dryRun, noBuild, noBump, arch };
+	return { dryRun, noBuild, noBump, release, allowDirty, arch };
+}
+
+/**
+ * The uncommitted paths that would block a release.
+ *
+ * A release tags the commit the build came from, so an uncommitted change would make the tag
+ * describe code the artifact does not contain. This is the only `git` invocation the script makes,
+ * and it only reads. Returns the entries rather than throwing, so a `--dry-run` can report what a
+ * real release would refuse instead of aborting the projection. A failed `git status` itself is a
+ * {@link UsageError}, because the guard cannot answer at all.
+ */
+function dirtyTree(deps: CliDeps): string[] {
+	const status = deps.exec(GIT_STATUS_ARGV);
+	if (status.exitCode !== 0) {
+		throw new UsageError(`git status failed: ${status.stderr.trim()}`);
+	}
+	return dirtyEntries(status.stdout);
+}
+
+/**
+ * Publishes the artifact `version` just produced, through the command every run prints.
+ *
+ * Only `--release` reaches this. A failure keeps the artifact and its checksum on disk: the build
+ * succeeded, and deleting them would punish the user for a network or authentication problem.
+ * Returns whether `gh` succeeded.
+ */
+function publishRelease(deps: CliDeps, version: string, arch: Arch): boolean {
+	deps.out(releaseCommand(version, arch));
+	const result = deps.exec(releaseArgs(version, arch));
+	if (result.stdout.trim() !== "") {
+		deps.out(result.stdout.trimEnd());
+	}
+	if (result.exitCode !== 0) {
+		deps.err(`package: gh release create failed with exit code ${result.exitCode}`);
+		if (result.stderr.trim() !== "") {
+			deps.err(result.stderr.trimEnd());
+		}
+		return false;
+	}
+	deps.out(`published: v${version}`);
+	return true;
 }
 
 /**
@@ -557,19 +680,22 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
  *
  * Exit codes are the contract: `0` a complete artifact (or a complete `--dry-run`), `1` a build or
  * packaging step failed — a failed `cargo build` or `bun build`, a staging copy, the `appimagetool`
- * download or run, the checksum — and `2` a usage or environment error such as a missing tool, a
- * workspace version mismatch or an unsupported architecture.
+ * download or run, the checksum, a failed `gh release create` — and `2` a usage or environment
+ * error such as a missing tool, a dirty working tree, a workspace version mismatch or an
+ * unsupported architecture.
  *
- * A full build advances the `[workspace.package]` patch version in `Cargo.toml` before `cargo
- * build`, re-reads `cargo metadata`, and names the artifact from that answer. A failure after the
- * write restores the original manifest, so a retry does not consume a second version.
+ * A full build advances the `[workspace.package]` patch version in `Cargo.toml` and the `version`
+ * in `package.json` before `cargo build`, re-reads `cargo metadata`, and names the artifact from
+ * that answer. A failure after the write restores the original files, so a retry does not consume a
+ * second version.
  *
  * `--dry-run` prints every command, the release version it would use, every staged path and the
- * files a run would discard from `dist/`, and runs only the read-only `cargo metadata` query and
- * the `dist/` listing. `--no-build` reuses `target/release/speechtt-ui` and `dist/worker.js`,
- * checks that bundle for bare imports, and fails with exit `1` when either artifact is absent.
- * `--no-bump` packages the current version without writing the manifest. The script never runs
- * `gh`.
+ * files a run would discard from `dist/`, and runs only the read-only `cargo metadata` query, the
+ * `dist/` listing and — under `--release` — the `git status --porcelain` guard, whose blocking
+ * paths it reports instead of aborting. `--no-build` reuses `target/release/speechtt-ui` and
+ * `dist/worker.js`, checks that bundle for bare imports, and fails with exit `1` when either
+ * artifact is absent. `--no-bump` packages the current version without writing the manifest. Only
+ * `--release` executes `gh`; a plain run prints the command and stops.
  */
 export async function runCli(argv: readonly string[], deps: CliDeps): Promise<number> {
 	try {
@@ -594,9 +720,42 @@ async function runPipeline(argv: readonly string[], deps: CliDeps): Promise<numb
 	const arch = parsed.arch ?? archFrom(deps.machine);
 
 	const required = parsed.noBuild ? ["cargo"] : ["cargo", "bun"];
+	// `gh` is checked with the other tools so a release never fails at the last step for a missing
+	// tool, after the whole build has already been paid for.
+	if (parsed.release) {
+		required.push("gh");
+	}
 	for (const tool of required) {
 		if (!deps.has(tool)) {
 			throw new UsageError(`missing required tool: ${tool}`);
+		}
+	}
+
+	if (parsed.release && parsed.allowDirty) {
+		deps.out("package: --allow-dirty given, so the clean-tree check is skipped");
+	}
+	// Publishing tags the commit the artifact was built from, so the tree must carry no
+	// uncommitted change. A dry run publishes nothing, but it exists to predict the real run, so
+	// it reports what would block the release and carries on with the plan.
+	if (parsed.release && !parsed.allowDirty) {
+		const blocked = dirtyTree(deps);
+		if (blocked.length > 0) {
+			const listing = blocked.map((entry) => `  ${entry}`);
+			if (parsed.dryRun) {
+				deps.out(
+					`package: a real release would refuse: ${blocked.length} uncommitted path(s)`
+				);
+				for (const line of listing) {
+					deps.out(line);
+				}
+			} else {
+				throw new UsageError(
+					[
+						"refusing to publish from a dirty working tree; commit or stash these, or pass --allow-dirty:",
+						...listing
+					].join("\n")
+				);
+			}
 		}
 	}
 
@@ -652,6 +811,7 @@ async function runPipeline(argv: readonly string[], deps: CliDeps): Promise<numb
 	let bumped = false;
 	let originalManifest: string | null = null;
 	let originalLockfile: string | null = null;
+	let originalPackageJson: string | null = null;
 	let succeeded = false;
 
 	try {
@@ -660,6 +820,9 @@ async function runPipeline(argv: readonly string[], deps: CliDeps): Promise<numb
 			if (!parsed.noBump) {
 				originalManifest = deps.readFile(MANIFEST_PATH);
 				originalLockfile = deps.exists(LOCKFILE_PATH) ? deps.readFile(LOCKFILE_PATH) : null;
+				originalPackageJson = deps.exists(PACKAGE_JSON_PATH)
+					? deps.readFile(PACKAGE_JSON_PATH)
+					: null;
 				const bumpedManifestText = bumpedManifest(originalManifest, releaseVersion);
 				if (bumpedManifestText === null) {
 					throw new UsageError(
@@ -668,6 +831,20 @@ async function runPipeline(argv: readonly string[], deps: CliDeps): Promise<numb
 				}
 				deps.writeFile(MANIFEST_PATH, bumpedManifestText);
 				bumped = true;
+				// `package.json` is not a workspace member, so it does not affect `cargo metadata`;
+				// it follows the same number so the repository carries one version.
+				if (originalPackageJson !== null) {
+					const bumpedPackageJsonText = bumpedPackageJson(
+						originalPackageJson,
+						releaseVersion
+					);
+					if (bumpedPackageJsonText === null) {
+						throw new UsageError(
+							`${PACKAGE_JSON_PATH} is not a JSON object, so its version cannot be bumped`
+						);
+					}
+					deps.writeFile(PACKAGE_JSON_PATH, bumpedPackageJsonText);
+				}
 				// The lock file follows the manifest, so the `--locked` build accepts it, and the
 				// version is re-read after the write: the artifact name and the compiled-in version
 				// both come from the manifest `cargo build` is about to see.
@@ -721,20 +898,29 @@ async function runPipeline(argv: readonly string[], deps: CliDeps): Promise<numb
 		// The release exists on disk now, so anything older in `dist/` is superseded. Cleaning after
 		// the checksum keeps a failed build from destroying the previous release.
 		discardStaleArtifacts(deps, name, false);
-		deps.out(releaseCommand(version, arch));
+		// The artifact is complete and the tree carries its version, so a publish failure below
+		// must not roll the bump back: the retry is a republish at this number, and rolling back
+		// would leave `--release --no-build` naming a version no artifact carries.
 		succeeded = true;
+		if (parsed.release) {
+			return publishRelease(deps, version, arch) ? 0 : 1;
+		}
+		deps.out(releaseCommand(version, arch));
 		return 0;
 	} finally {
 		// Any failure after the write — a step returning non-zero or a call that throws — leaves the
 		// tree as it was found, so retrying the build does not advance the version twice. The lock
 		// file goes back with the manifest: a bumped lock against a restored manifest would break
-		// the next `--locked` build.
+		// the next `--locked` build. `package.json` follows both.
 		if (bumped && !succeeded) {
 			if (originalManifest !== null) {
 				deps.writeFile(MANIFEST_PATH, originalManifest);
 			}
 			if (originalLockfile !== null) {
 				deps.writeFile(LOCKFILE_PATH, originalLockfile);
+			}
+			if (originalPackageJson !== null) {
+				deps.writeFile(PACKAGE_JSON_PATH, originalPackageJson);
 			}
 		}
 	}
