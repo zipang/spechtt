@@ -2,7 +2,9 @@
 
 - **Track**: Tooling (TypeScript/Bun) + Rust core (worker resolution) + docs
 - **Wave**: 2 (integration — touches the production spawn path, packaging and the README)
-- **Depends on**: T0016 (both tickets edit `README.md`, `package.json` and `.gitignore`; T0016 must be committed and validated first, per AGENTS.md §8)
+- **Depends on**: T0016 (both tickets edit `README.md`, `package.json` and `.gitignore`; T0016's implementation is committed, so the shared files are free, per AGENTS.md §8). T0016 is still in `review/`: if CEO validation changes `README.md` while this ticket holds it, that edit waits for this ticket's commit.
+- **Owner**: coding sub-agent, supervised by CTO
+- **Started**: 2026-11-10
 - **Blocks**: T0039 (macOS and Windows artifacts reuse this ticket's worker bundle, staging pattern, checksums and release command)
 - **References**:
     - `AGENTS.md` §3 (docs describe the code as it is), §5 (quality gates), §6 (Do/Don't), §8 (working-tree hygiene)
