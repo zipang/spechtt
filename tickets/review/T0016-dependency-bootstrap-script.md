@@ -627,14 +627,26 @@ All three were restored afterwards (75 pass, 0 fail).
   `https://github.com/user-attachments/assets/<uuid>` URL, and that URL is what the
   poster links to. The poster is what a reader clicks.
 - Because the video is not a repository file, `recording.mp4` is listed in
-  `.gitignore` and never appears in `git status`, and no `docs/` tree exists for a
-  single media file. The poster `demo-launcher-vignette.png` **is** committed at
-  the repository root and appears in the tree.
-- Because the video is not a repository file, `recording.mp4` is listed in
   `.gitignore` and never appears in `git status`, and no `docs/` tree exists for
-  a single media file. The local file stays on disk for the upload.
+  a single media file. The local copy stays on disk for the upload, and the
+  poster `demo-launcher-vignette.png` **is** committed at the repository root and
+  appears in the tree.
 
 ### Not done here
 
-- The ticket is in `tickets/review/`; no commit was made.
+- The implementation is committed (`d2717d7`, `f178299`); the ticket stays in
+  `tickets/review/` until the CEO validates it.
 - Visual review of the demo/README rendering on GitHub belongs to the CEO.
+
+### Pending before closing
+
+- **The install path has never invoked a package manager.** All 75 unit cases
+  inject a fake executor, and the manual matrix only exercised `--check` and
+  `--dry-run` against fake `PATH` directories. The detection and the
+  manual-instruction branch are proven: `--check`, and the default mode, against
+  a `PATH` with no `ffmpeg`/`ffprobe` both print the plan and exit `1`. What no
+  run here proves is the `sudo <manager> install` step itself. The CEO verifies
+  that on a machine or a container missing `ffmpeg` before this ticket closes.
+- **`scripts/setup.ps1` remains unexecuted** (Deviation 6). Its verification
+  moved to `tickets/planned/T0039-macos-windows-artifacts.md`, task T39.1 and
+  Acceptance Criterion 9, where a Windows host exists by construction.

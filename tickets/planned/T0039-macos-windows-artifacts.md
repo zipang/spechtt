@@ -228,10 +228,16 @@ run **on each platform**: Linux (already green), macOS, Windows. Zero warnings.
 
 - [ ] **T39.1 — Platform survey first**: on a real Mac and a real Windows
       machine (or the §10.2 runners), run `cargo build --release -p speechtt-ui`,
-      `cargo test`, `bun test`. Record every failure verbatim in
-      `## Implementation Notes`. This task produces **no code** and blocks the
-      rest: a ticket that writes packaging for a suite that does not compile is
-      guessing.
+      `cargo test`, `bun test`. On Windows, additionally run
+      `.\scripts\setup.ps1 -Check` and `.\scripts\setup.ps1 -DryRun`, confirm
+      each hands its flag through to `scripts/setup.ts` and propagates its exit
+      code, and record the output. The full install run
+      (`.\scripts\setup.ps1 -Yes`) is exercised only in a throwaway VM or
+      container, never on the machine you keep. Record every failure verbatim
+      in `## Implementation Notes`. This task produces **no code** and blocks
+      the rest: a ticket that writes packaging for a suite that does not compile
+      is guessing, and T0016's PowerShell bootstrap has never been executed
+      anywhere (its Deviation 6 hands that check to this task).
 - [ ] **T39.2 — Shared refactor specs first**: red tests for `--target`
       parsing, the host-mismatch exit `2`, `releaseCommand(version, artifacts[])`
       with two and three assets, and `stagePlanLinux` unchanged by the refactor.
@@ -281,6 +287,10 @@ run **on each platform**: Linux (already green), macOS, Windows. Zero warnings.
    Gatekeeper or SmartScreen prompt when the build is unsigned.
 8. Every gate in §9 is green on every platform it applies to, with zero
    warnings.
+9. `.\scripts\setup.ps1 -Check` and `.\scripts\setup.ps1 -DryRun` have been
+   executed on the Windows machine; each passes its flag to `scripts/setup.ts`,
+   its exit code matches that script's verdict for the same state, and the
+   output is recorded in the ticket.
 
 ## Implementation Notes
 
