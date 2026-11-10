@@ -31,7 +31,7 @@ telling them apart.
 only the product name. A user reporting a problem has to open Help to say which
 build they run.
 
-Done means: `bun run package` advances the minor version itself, the version it
+Done means: `bun run package` advances the patch version itself, the version it
 writes is the one compiled into the artifact and printed in the file name, a
 test build can opt out explicitly, and the widget header shows the version in
 the same mono muted style the Help footer already uses.
@@ -72,7 +72,7 @@ May create or modify:
   window's header only.
 - `DESIGN.md` — the header description, and the version treatment as a role.
 - `README.md` — the release procedure: bump, build, checksum, publish.
-- `AGENTS.md` — one rule recording that an AppImage build advances the minor
+- `AGENTS.md` — one rule recording that an AppImage build advances the patch
   version, and which flags opt out.
 - `tickets/README.md` — board row.
 
@@ -94,12 +94,13 @@ Out of scope — do **not** touch anything else, in particular:
 ### §1 — Bumping
 
 ```ts
-/// The next minor version: `0.5.0` → `0.6.0`.
+/// The next patch version: `0.5.0` → `0.5.1`.
 ///
-/// The patch component resets to zero because a minor bump starts a new
-/// feature line. A value that is not `major.minor.patch` with numeric
-/// components throws a `UsageError` rather than guessing.
-export function nextMinorVersion(version: string): string;
+/// A packaging change is a patch-level change, and the minor number is reserved
+/// for a feature line a human decides on. Major and minor are preserved and
+/// only the patch advances. A value that is not `major.minor.patch` with
+/// numeric components throws a `UsageError` rather than guessing.
+export function nextPatchVersion(version: string): string;
 
 /// `manifest` with the `[workspace.package]` version replaced by `version`.
 ///
@@ -163,7 +164,7 @@ pub fn version(mut self, version: impl Into<SharedString>) -> Self;
 ### §4 — Documentation
 
 - `README.md`'s release procedure becomes explicit: `bun run package` advances
-  the minor version and the commit carries `Cargo.toml` and `Cargo.lock`; a
+  the patch version and the commit carries `Cargo.toml` and `Cargo.lock`; a
   build that must not consume a version uses `--no-bump`; publishing stays the
   `gh release create` command the script prints.
 - `AGENTS.md` records the rule as part of the release workflow, including which
@@ -172,10 +173,10 @@ pub fn version(mut self, version: impl Into<SharedString>) -> Self;
 
 ## TDD Tasks
 
-- [x] **T41.1 — Version specs first**: red tests for `nextMinorVersion`
-      (`0.5.0`→`0.6.0`, `1.9.3`→`1.10.0`, `0.0.0`→`0.1.0`, patch reset, and a
-      `UsageError` for `1.2`, `0.5.0-rc1`, `x.y.z`, empty) and for
-      `bumpedManifest` (replaces the workspace version, leaves a dependency
+- [x] **T41.1 — Version specs first**: red tests for `nextPatchVersion`
+      (`0.5.0`→`0.5.1`, `1.9.3`→`1.9.4`, `0.0.0`→`0.0.1`, major and minor
+      preserved, and a `UsageError` for `1.2`, `0.5.0-rc1`, `x.y.z`, empty) and
+      for `bumpedManifest` (replaces the workspace version, leaves a dependency
       version and a profile line untouched, returns `null` when the section or
       key is missing, tolerates extra whitespace).
 - [x] **T41.2 — Version implementation**: the two pure functions per §1.
@@ -205,10 +206,15 @@ pub fn version(mut self, version: impl Into<SharedString>) -> Self;
       the binary agrees with the file name. Then run `bun run package
 --no-bump` and confirm the version did not move. Record both, and restore
       the intended release version in a single commit.
+- [x] **T41.10 — Patch bump policy**: rename `nextMinorVersion` to
+      `nextPatchVersion` and advance only the patch (`0.5.0`→`0.5.1`), update
+      the version specs and the CLI matrix to 0.5.1, reset the workspace to
+      0.5.1 in `Cargo.toml` and `Cargo.lock`, and correct the patch rule in
+      `README.md` and `AGENTS.md`.
 
 ## Acceptance Criteria
 
-1. `bun run package` advances the minor version in `Cargo.toml` before building,
+1. `bun run package` advances the patch version in `Cargo.toml` before building,
    and the produced artifact's name and its compiled-in version agree.
 2. `--no-bump`, `--no-build` and `--dry-run` never modify `Cargo.toml`.
 3. A build that fails after the bump leaves `Cargo.toml` byte-identical to what
@@ -397,3 +403,77 @@ metadata --format-version 1` exits `0` in 10.1 s against an empty cache and
 
     No `.rs` file changed, so `cargo fmt -- --check` and clippy are not affected
     by this fix.
+
+### Policy correction — a rebuild bumps the patch, not the minor (CEO decision)
+
+- **Decision.** `bun run package` advances the **patch** component, not the
+  minor one. A packaging change is a patch-level change; the minor number is
+  reserved for a feature line that a human decides on. The rule is
+  `0.5.0` → `0.5.1`, `1.9.3` → `1.9.4`, `0.0.0` → `0.0.1`: major and minor are
+  preserved and only the patch advances.
+- **Version reset.** T41.9's real run moved the workspace `0.5.0` → `0.6.0`
+  under the previous minor rule. Nothing was ever published — no tag, no
+  release — so `0.6.0` is discarded rather than built upon: the published
+  history contains no `0.6.0`, so there is no number to keep consistent with.
+  The next release is **`0.5.1`**. The script bumps the manifest _before_ it
+  builds, so the release is always manifest + one patch; to land on `0.5.1` the
+  tree keeps `[workspace.package] version = "0.5.0"`, and both `speechtt-core`
+  and `speechtt-ui` entries of `Cargo.lock` carry `0.5.0` to match. The first
+  `bun run package` after this change therefore produces `0.5.1`.
+- **Code and tests.** `nextMinorVersion` is now `nextPatchVersion` in
+  `scripts/package.ts`, with the doc comment stating the patch rule and its
+  reason. `scripts/package.spec.ts` pins `0.5.0`→`0.5.1`, `1.9.3`→`1.9.4`,
+  `0.0.0`→`0.0.1`, `2.0.7`→`2.0.8`, and the `UsageError` cases (`1.2`,
+  `0.5.0-rc1`, `x.y.z`, empty). The CLI matrix now expects the bumped manifest
+  `0.5.1`, the artifact `SpeechTT-0.5.1-x86_64.AppImage` and the printed
+  release command on `v0.5.1`.
+- **Docs.** `README.md` and `AGENTS.md` state the patch rule and the same
+  reason.
+- **No artifact was rebuilt this round.** `dist/` still holds the stale `0.5.0`
+  and `0.6.0` AppImages; packaging again would only add a third. The point of
+  the change is the policy, so verification stops at
+  `bun run package --dry-run`, which writes nothing. From the `0.5.0` manifest
+  it names `0.5.1` as the release version, the artifact and the tag:
+
+```
+$ bun run package --dry-run
+cargo metadata --format-version 1 --no-deps
+release version: 0.5.1
+bun build src/stt/worker.ts --target=bun --outfile dist/worker.js
+cargo build --release --locked -p speechtt-ui
+…
+ARCH=x86_64 dist/tools/appimagetool-x86_64.AppImage --appimage-extract-and-run --no-appstream dist/SpeechTT.AppDir dist/SpeechTT-0.5.1-x86_64.AppImage
+gh release create v0.5.1 dist/SpeechTT-0.5.1-x86_64.AppImage dist/SpeechTT-0.5.1-x86_64.AppImage.sha256 --title "SpeechTT 0.5.1" --generate-notes
+```
+
+`Cargo.toml` still reads `version = "0.5.0"` afterwards.
+
+- **Gates, patch-policy round** (all green, zero warnings, nothing ignored):
+
+```
+$ cargo fmt -- --check                      # exit 0, no diff
+$ cargo clippy --all-targets -- -D warnings
+    Checking speechtt-core v0.5.0
+    Checking speechtt-ui v0.5.0
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.09s
+
+$ cargo test
+test result: ok. 237 passed; 0 failed; 0 ignored; …   (every target ok,
+  0 failed, 0 ignored: widget 36, dialogs 37, design_system 152, launch 5, …)
+
+$ bun test
+ 477 pass / 0 fail / 1602 expect() calls across 18 files
+$ bun check src/stt
+✓ No type errors in 32 files
+$ bun check scripts/package.ts scripts/package.spec.ts
+✓ No type errors in 2 files
+$ bun run design:validate
+✓ Design contract valid — 66 tokens, 0 errors.
+```
+
+- **Why the manifest keeps `0.5.0`.** A dry run names the version a release
+  _would produce_, so the projected number is always one patch above the
+  manifest. Setting the manifest to `0.5.1` would make the next release
+  `0.5.2`; leaving it at `0.5.0` makes the next release `0.5.1`, which is the
+  number the CEO decided. The tree therefore stays at `0.5.0` and the release
+  lands on `0.5.1`.
