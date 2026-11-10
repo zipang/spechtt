@@ -60,6 +60,11 @@ May create or modify:
   Contract §3 and the predicate the view asks.
 - `crates/speechtt-ui/tests/dialogs.rs` — **modified**: row presence and
   ordering assertions, plus the fresh-install save case.
+- `crates/speechtt-ui/tests/shortcuts.rs` — **modified**: the Settings key
+  test loses its scroll step. It reached the API-key field by scrolling the
+  provider row into view because that field was last; with the new order it is
+  the second row and needs no scrolling, and the scroll target no longer exists
+  while the provider row is hidden.
 - `DESIGN.md` — the Settings panel section: row list, order, rhythm, hidden row.
 - `tickets/README.md` — board row.
 
@@ -182,30 +187,30 @@ above, described as conditional at one position.
 
 ## TDD Tasks
 
-- [ ] **T42.1 — Component specs first**: red tests for `SettingRow`'s new
+- [x] **T42.1 — Component specs first**: red tests for `SettingRow`'s new
       builders — `dense()` renders the row (the element id still resolves),
       `stacked()` renders the control, `accessory()` renders its element, and the
       default/`prominent` row is unchanged. Element-presence assertions only;
       no geometry (AGENTS.md §6).
-- [ ] **T42.2 — Component implementation**: the three builders per §1.
-- [ ] **T42.3 — Controller specs first**: red tests for
+- [x] **T42.2 — Component implementation**: the three builders per §1.
+- [x] **T42.3 — Controller specs first**: red tests for
       `settings_offers_provider_choice` (false with no catalogue, false with one
       provider, true with two) and `pin_single_provider` (pins the catalogue's
       single provider, pins `DEFAULT_PROVIDER` with no catalogue, never
       overwrites a set provider, does nothing when a choice exists), plus the
       end-to-end case: a fresh install with no catalogue can save `Bun path` and
       a key.
-- [ ] **T42.4 — Controller implementation**: §3.
-- [ ] **T42.5 — View specs first**: red tests that the Settings dialog renders
+- [x] **T42.4 — Controller implementation**: §3.
+- [x] **T42.5 — View specs first**: red tests that the Settings dialog renders
       `Bun path` and the API key field before the language row, that
       `Transcription Service` is absent with one provider and present with two,
       and that the API-key field is still reachable. Ordering assertions compare
       the document order of element ids, never coordinates.
-- [ ] **T42.6 — View implementation**: §2 and §4 — the gap-free row list, the
+- [x] **T42.6 — View implementation**: §2 and §4 — the gap-free row list, the
       new order, the provider condition, the stacked API-key row.
-- [ ] **T42.7 — Height**: §5, tuned by building and looking; record the value.
-- [ ] **T42.8 — Docs**: `DESIGN.md` per §6, `tickets/README.md` board row.
-- [ ] **T42.9 — Gates**: `cargo fmt -- --check`,
+- [x] **T42.7 — Height**: §5, tuned by building and looking; record the value.
+- [x] **T42.8 — Docs**: `DESIGN.md` per §6, `tickets/README.md` board row.
+- [x] **T42.9 — Gates**: `cargo fmt -- --check`,
       `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
       `bun check src/stt`, `bun run design:validate`. Zero warnings; nothing
       skipped or `#[ignore]`d.
@@ -237,5 +242,85 @@ above, described as conditional at one position.
 
 ## Implementation Notes
 
-_(added during work: the chosen height, the decisions taken, any deviation from
-the contract with its reason, the exact gate output, and the T42.10 result.)_
+### Chosen height
+
+`SETTINGS_DIALOG_HEIGHT = 660.` At the previous 700 the six dense rows ended
+around y=584 with the footer button at y=658; the layout was measured headlessly
+at 700 and 660 (no window on the user's desktop). At 660 the footer button starts
+at y=618, leaving the body viewport to about y=608 and roughly 24px of slack
+below the last row. The stored-key hint and the conditional notes still scroll,
+as before. The value is not visually confirmed; see T42.10.
+
+### Row order as implemented
+
+1. Bun path (dense, trailing `Input`)
+2. API key (dense, stacked: badge accessory on the label line, masked input plus
+   stored-key label below)
+3. Transcription Service — only when `settings_offers_provider_choice()` is true
+4. Dictation Language
+5. Default Streaming Model
+6. Default Batch Model
+7. Cleanup Model
+
+All rows are passed to `DialogShell` as one child of a gap-free `v_flex()`; the
+`InfoNote`s stay separate children and keep the shell gap. Every row uses
+`.prominent().dense()`; `session_setup` still uses `.prominent()` alone.
+
+### Provider pinning
+
+`pin_single_provider` runs at the end of `open_settings_with` and
+`open_settings_from_stored`, and from `apply_capabilities` whenever
+`active_dialog == Some(Dialog::Settings)`. It is a no-op when the draft already
+has a provider or when the catalogue offers more than one. With no catalogue it
+pins `DEFAULT_PROVIDER`; with exactly one catalogue provider it pins that id. The
+fresh-install recovery case (`BackendFailure::Unavailable`, no catalogue, path +
+key) now saves with the pinned provider.
+
+Existing controller and dialog tests that assumed `open_settings` left the
+provider empty and the model menus empty were updated to the pinned behaviour:
+`cancel_discards_the_draft`, `the_api_key_row_names_the_selected_providers_variable`
+and `settings_options_follow_the_settings_draft`.
+
+### Deviations / blockers
+
+- The API-key description stays monospace: composing the row from `SettingRow`
+  would otherwise have dropped the `mono` face the inline row used. It is
+  preserved by the new opt-in `SettingRow::mono_description()`, called on that
+  row alone. The face itself is not observable in a rendered frame (a row's copy
+  is anonymous text and the test kit has no font reader), so the component unit
+  test pins the flag the builder sets and the dialog render test pins that the
+  row still draws its control.
+- **Two tests outside the original Scope Boundary reached for the provider
+  row.** Hiding it changed what those flows can click, so both were updated
+  (the Scope Boundary now includes `crates/speechtt-ui/tests/shortcuts.rs`):
+    - `crates/speechtt-ui/tests/shortcuts.rs::space_typed_into_the_settings_api_key_field_stays_a_character`
+      scrolled inside `field-settings-provider` to reach the API-key field, which
+      used to be the last row. The scroll step and its doc paragraph are gone: the
+      API key is the second row and the test clicks it where it is drawn. Both
+      assertions — the field holds `"sk "`, the session stays `Blank`, the dialog
+      stays open — are unchanged.
+    - `crates/speechtt-ui/tests/widget.rs::the_settings_menus_commit_the_settings_draft`
+      clicked `within("field-settings-provider")` to exercise the provider menu,
+      which no longer exists under the one-provider fixture. It now installs a
+      second provider before opening Settings, so the row appears for the reason
+      it exists and every existing assertion still holds.
+- `tickets/README.md` was not edited: the ticket stays in `tickets/planned/`, so
+  its existing Planned row (title, track, dependency) is already accurate.
+  Moving it to In Progress would contradict the instruction not to move the
+  ticket.
+- T42.10: `bun run package --no-bump` built
+  `dist/SpeechTT-0.5.1-x86_64.AppImage` and the version stayed at 0.5.1. The
+  Settings window was not opened on a display; the layout was measured
+  headlessly. **Not visually verified, requires the CEO.**
+
+### Gate output (final run)
+
+- `cargo fmt -- --check` — clean (exit 0).
+- `cargo clippy --all-targets -- -D warnings` — `Finished dev profile`, no
+  warnings.
+- `cargo test` — every suite green, `0 failed` throughout: lib 237, dialogs 25,
+  shortcuts 23, widget 36, and the remaining suites 5/11/14/5/11/152/0/3/37/14/5/96/5/4/0/0; nothing
+  skipped or `#[ignore]`d.
+- `bun test` — `515 pass, 0 fail` across 18 files.
+- `bun check src/stt` — `No type errors in 32 files`.
+- `bun run design:validate` — `Design contract valid — 66 tokens, 0 errors.`
