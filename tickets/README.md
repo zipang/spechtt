@@ -126,6 +126,7 @@ Decisions, deviations, verification output.
 | [T0036](done/T0036-gpui-kit-0-9-migration.md)                   | Migrate the UI to gpui-kit 0.9.1                                                | Rust UI (framework bump)                                  |
 | [T0037](done/T0037-launch-smoke-gate.md)                        | A gate that launches the built binary                                           | Rust UI (test infrastructure)                             |
 | [T0038](done/T0038-appimage-release-pipeline.md)                | Build an installable AppImage and publish it on GitHub Releases                 | Tooling (TypeScript/Bun) + Rust core + docs               |
+| [T0041](done/T0041-release-version-and-header.md)              | Version bump per release, the version in the header, and `bun run release`      | Tooling (TypeScript/Bun) + Rust UI + docs                 |
 
 ### In Progress
 
@@ -137,7 +138,6 @@ _(none)_
 | ---------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------- |
 | [T0016](review/T0016-dependency-bootstrap-script.md)       | Dependency bootstrap for Bun and ffmpeg, and a welcome README | Tooling (TypeScript/Bun) + docs |
 | [T0040](review/T0040-bun-runtime-and-settings-recovery.md) | Find `bun`, and never leave Settings as a dead end            | Rust core + Rust UI + docs      |
-| [T0041](review/T0041-release-version-and-header.md)       | Version bump per release, and the version in the header       | Tooling (TypeScript/Bun) + Rust UI + docs |
 
 ### Planned
 
