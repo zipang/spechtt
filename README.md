@@ -28,6 +28,17 @@ self-contained. It still requires:
   not use them.
 - A working graphical session with a Vulkan driver — GPUI renders through it.
 
+A desktop launcher starts the app directly instead of through a shell, so it
+inherits neither `~/.bashrc`, `~/.zshrc` nor the `PATH` they build. A terminal
+may therefore find `bun` while the AppImage started from a menu does not. The
+app also looks in `~/.bun/bin/bun`, `/usr/local/bin/bun` and
+`/opt/bun/bin/bun`. If `bun` lives somewhere else, open **Settings** and fill the
+**Bun path** row — the widget opens Settings by itself when it cannot start the
+worker, and saving the path starts it without restarting the app. To fix the
+environment instead, export `PATH` for the graphical session from
+`~/.config/environment.d/bun.conf` (for example
+`PATH=$HOME/.bun/bin:$PATH`), then log out and back in.
+
 The download is the short path; [Getting started](#getting-started) still covers
 building from source.
 

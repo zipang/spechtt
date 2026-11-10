@@ -601,16 +601,35 @@ documentation, not decoration.
 ### Settings panel
 
 A 560px-wide card in `surface-card`, `rounded-lg`, `elevation-md`, with rows
-separated by 1px `brand.secondary` hairlines. Six rows, top to bottom: Dictation
-Language, Transcription Service, the two default models, Cleanup Model, and the
-masked API key field — then save/cancel actions. Labels in `mono` uppercase
-`--font-size-xs`; values in `base` `--font-size-sm`.
+separated by 1px `brand.secondary` hairlines. Seven rows, top to bottom:
+Dictation Language, Transcription Service, the two default models, Cleanup
+Model, Bun path, and the masked API key field — then save/cancel actions. Labels
+in `mono` uppercase `--font-size-xs`; values in `base` `--font-size-sm`.
 
 Every select uses the same components as the Session setup form, against the
 settings draft: `components::ProviderSelect`, `components::ModelSelect` and
 `components::LanguageSelect`. The provider menu is disabled until the catalogue
 arrives, and both default-model menus until a provider is chosen. The model rows
 and the field beside each menu show the model's `TranscriptionModeBadge`.
+
+While no catalogue has arrived the provider menu's placeholder says
+`Loading providers…` only while a backend can still answer. When the backend is
+unavailable it reads `Backend unavailable`, and an `InfoNote` names the cause —
+for a missing runtime, the paths the lookup searched. The note is present
+exactly while no catalogue exists and the backend is unavailable; an arriving
+catalogue removes it.
+
+The API-key badge reports `NOT VERIFIED` until a catalogue has arrived, because
+availability is what the badge claims. With a catalogue it reads `CONNECTED`
+when a key is stored and the provider is not reported unavailable, and
+`NOT CONNECTED` otherwise.
+
+**Bun path** — a `SettingRow` with an `Input`, the same pair as the API-key row.
+Empty is the normal state: the runtime is resolved from the configured path,
+then `PATH`, then `~/.bun/bin/bun`, `/usr/local/bin/bun` and
+`/opt/bun/bin/bun`. A value is the user's explicit override, needed when a
+desktop launcher's `PATH` does not carry the directory a shell profile added. It
+is optional and never blocks Save.
 
 **Dictation Language** — _"The language you speak; improves accuracy"_; it leads
 the list because it applies to the transcription itself, not to a model choice.
