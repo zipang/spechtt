@@ -65,6 +65,11 @@ May create or modify:
   provider row into view because that field was last; with the new order it is
   the second row and needs no scrolling, and the scroll target no longer exists
   while the provider row is hidden.
+- `crates/speechtt-ui/tests/widget.rs` — **modified**: the Settings menu test
+  clicked inside `field-settings-provider`, which does not exist under the
+  one-provider fixture. It installs a second provider before opening Settings so
+  the row exists for the reason it exists; every assertion it makes is
+  unchanged.
 - `DESIGN.md` — the Settings panel section: row list, order, rhythm, hidden row.
 - `tickets/README.md` — board row.
 
@@ -123,7 +128,10 @@ own padding on top of it. `views::dialogs::settings` therefore passes its rows a
 and below it. The notes (`InfoNote`) stay separate children and keep the shell's
 gap, because they are not rows.
 
-The view chooses no spacing value itself: the rhythm comes from `dense()`.
+The view chooses no spacing value itself: the row rhythm comes from `dense()`.
+A control that stacks a field over its hint sets that hint's gap itself, inside
+the control it passes to the row; that is control-internal layout, not row
+rhythm, and it is the same relative step `views::dialogs::help` uses.
 
 ### §3 — The provider row is absent while there is nothing to choose
 
@@ -149,8 +157,32 @@ pub fn pin_single_provider(&mut self);
 
 - `settings_offers_provider_choice` returns `settings_provider_options().len() > 1`.
 - `pin_single_provider` runs wherever the draft is created and whenever a
-  catalogue arrives while the draft is open, and is a no-op once a provider is
-  set or when a choice exists.
+  catalogue arrives while the draft is open.
+- With no catalogue it pins [`DEFAULT_PROVIDER`] into an empty draft.
+- With exactly one catalogue provider it pins that provider, **replacing a draft
+  provider the catalogue does not list**. [`DEFAULT_PROVIDER`] is a guess made
+  before any catalogue exists; when the arrived catalogue names a different
+  single provider, keeping the guess leaves the row hidden, the provider
+  unknown and `Save changes` permanently disabled. No user choice is at risk:
+  the row is only ever drawn when a choice exists, and then this function
+  returns before touching the draft.
+- With a choice (two or more providers) it does nothing, so a chosen provider
+  is never overwritten.
+- A loaded catalogue that lists **no** provider pins nothing: there is no
+  provider to guess, and a stale draft is left alone.
+
+### §3b — An empty catalogue says so
+
+A worker that reports a catalogue with zero providers leaves no provider to
+pin, no row to show and no way to save. `settings_backend_note` covers that state
+with one sentence so the dialog explains itself instead of silently disabling
+`Save changes`:
+
+```text
+The transcription backend reported no providers.
+```
+
+The note is rendered by the existing `InfoNote` slot, so no view code changes.
 - With the row hidden, `settings_can_save` still succeeds on a fresh install: the
   draft carries the pinned provider, the key the user typed, and (after the
   catalogue arrives) the two mode defaults.
@@ -237,19 +269,23 @@ above, described as conditional at one position.
 7. `DESIGN.md` documents the order, the rhythm and the conditional row.
 8. Every gate in T42.9 is green with zero warnings, and no test asserts layout,
    position, size or geometry.
-9. T42.10 records the visual verification: the window size, and that the dialog
-   fits.
+9. A catalogue that names a single provider different from `DEFAULT_PROVIDER`
+   leaves a savable dialog: the draft ends up on the provider the catalogue
+   lists, not on the guess.
+10. A catalogue with zero providers shows the note from §3b instead of a
+    silently disabled `Save changes`.
+11. T42.10 records the visual verification: the window size, and that the dialog
+    fits.
 
 ## Implementation Notes
 
 ### Chosen height
 
-`SETTINGS_DIALOG_HEIGHT = 660.` At the previous 700 the six dense rows ended
-around y=584 with the footer button at y=658; the layout was measured headlessly
-at 700 and 660 (no window on the user's desktop). At 660 the footer button starts
-at y=618, leaving the body viewport to about y=608 and roughly 24px of slack
-below the last row. The stored-key hint and the conditional notes still scroll,
-as before. The value is not visually confirmed; see T42.10.
+`SETTINGS_DIALOG_HEIGHT = 660.` The layout was measured headlessly at 700 and at
+660: at 660 the footer button starts at y=618, leaving the body viewport about
+24px below the last row, so the six visible rows and the footer fit at once. The
+stored-key hint and the conditional notes keep scrolling inside the body. The
+value is not visually confirmed; see T42.10.
 
 ### Row order as implemented
 
@@ -266,61 +302,108 @@ All rows are passed to `DialogShell` as one child of a gap-free `v_flex()`; the
 `InfoNote`s stay separate children and keep the shell gap. Every row uses
 `.prominent().dense()`; `session_setup` still uses `.prominent()` alone.
 
-### Provider pinning
+### The two dead ends
 
-`pin_single_provider` runs at the end of `open_settings_with` and
-`open_settings_from_stored`, and from `apply_capabilities` whenever
-`active_dialog == Some(Dialog::Settings)`. It is a no-op when the draft already
-has a provider or when the catalogue offers more than one. With no catalogue it
-pins `DEFAULT_PROVIDER`; with exactly one catalogue provider it pins that id. The
-fresh-install recovery case (`BackendFailure::Unavailable`, no catalogue, path +
-key) now saves with the pinned provider.
+**A stale guess could never be corrected.** `DEFAULT_PROVIDER` is a guess made
+before any catalogue exists. When the first catalogue named a *different* single
+provider, the draft kept the guess, `settings_provider_known()` stayed false, the
+provider row was hidden, and `Save changes` could never enable. `pin_single_provider`
+now ranks an arrived catalogue above the guess.
 
-Existing controller and dialog tests that assumed `open_settings` left the
-provider empty and the model menus empty were updated to the pinned behaviour:
-`cancel_discards_the_draft`, `the_api_key_row_names_the_selected_providers_variable`
-and `settings_options_follow_the_settings_draft`.
+**An empty catalogue disabled Save silently.** It leaves no provider to pin, no
+row to show and nothing to save, with no explanation on screen. `settings_backend_note`
+now returns `"The transcription backend reported no providers."` while the loaded
+catalogue holds zero providers, alongside the existing backend-failure cases,
+which keep their precedence.
 
-### Deviations / blockers
+### `pin_single_provider` in its four states
 
-- The API-key description stays monospace: composing the row from `SettingRow`
-  would otherwise have dropped the `mono` face the inline row used. It is
-  preserved by the new opt-in `SettingRow::mono_description()`, called on that
-  row alone. The face itself is not observable in a rendered frame (a row's copy
-  is anonymous text and the test kit has no font reader), so the component unit
-  test pins the flag the builder sets and the dialog render test pins that the
-  row still draws its control.
-- **Two tests outside the original Scope Boundary reached for the provider
-  row.** Hiding it changed what those flows can click, so both were updated
-  (the Scope Boundary now includes `crates/speechtt-ui/tests/shortcuts.rs`):
-    - `crates/speechtt-ui/tests/shortcuts.rs::space_typed_into_the_settings_api_key_field_stays_a_character`
-      scrolled inside `field-settings-provider` to reach the API-key field, which
-      used to be the last row. The scroll step and its doc paragraph are gone: the
-      API key is the second row and the test clicks it where it is drawn. Both
-      assertions — the field holds `"sk "`, the session stays `Blank`, the dialog
-      stays open — are unchanged.
-    - `crates/speechtt-ui/tests/widget.rs::the_settings_menus_commit_the_settings_draft`
-      clicked `within("field-settings-provider")` to exercise the provider menu,
-      which no longer exists under the one-provider fixture. It now installs a
-      second provider before opening Settings, so the row appears for the reason
-      it exists and every existing assertion still holds.
-- `tickets/README.md` was not edited: the ticket stays in `tickets/planned/`, so
-  its existing Planned row (title, track, dependency) is already accurate.
-  Moving it to In Progress would contradict the instruction not to move the
-  ticket.
+| State | Behaviour |
+| ----- | --------- |
+| No catalogue | Pins `DEFAULT_PROVIDER` into a draft that has no provider; an existing provider is left alone. |
+| Exactly one catalogue provider | Pins that id, replacing a draft provider the catalogue does not list, and clears `model_streaming` / `model_batch` when the id actually changes. |
+| Two or more providers | Returns untouched: the row is on screen, so the choice is the user's. |
+| Catalogue loaded, no providers | Pins nothing and leaves the draft alone: there is no provider to guess. |
+
+Replacing a draft provider risks no user choice, because the only branch that
+replaces it is the one where no choice is drawn. `pin_single_provider` runs at the
+end of `open_settings_with` and `open_settings_from_stored`, and from
+`apply_capabilities` whenever the Settings dialog is open.
+
+### Copy and control states
+
+- The API-key description falls back to `"The credential your provider reads"`
+  when no environment variable is known. The previous fallback told the user to
+  select a provider, which the dialog does not offer in the pinned state; the
+  env-var name still shows whenever `settings_api_key_env()` resolves.
+- Both default-model menus are disabled while `!has_provider || !catalogue_loaded`.
+  A pinned provider makes `has_provider` true before any catalogue arrives, so the
+  old guard left two enabled menus with nothing in them.
+- `settings_provider_placeholder` returns `"Choose provider"`. Its only caller
+  draws the row when two or more providers exist, where the catalogue is always
+  loaded, so `"Loading providers…"` and `"Backend unavailable"` were unreachable.
+  The tests that asserted those two strings were removed with them; the
+  `InfoNote` cases that explain a missing backend are unchanged and still pinned.
+
+### Tests added
+
+Component and view (`crates/speechtt-ui/tests/dialogs.rs`):
+
+- `pin_single_provider_replaces_the_guess_the_catalogue_does_not_list` — a draft
+  on `DEFAULT_PROVIDER` ends on the catalogue's single provider.
+- `pin_single_provider_clears_the_models_of_a_provider_it_replaces` — the two mode
+  defaults are cleared when the provider changes.
+- `pin_single_provider_leaves_the_draft_alone_without_a_usable_single_provider` —
+  two providers and an empty catalogue both leave the draft untouched.
+- `an_empty_catalogue_says_it_reported_no_providers` — the §3b note.
+- `the_model_menus_stay_closed_before_a_catalogue_arrives` — clicking a model menu
+  with no catalogue leaves it closed.
+- `settings_leads_with_the_runtime_and_the_api_key` — the full six-id document
+  order, including `field-settings-cleanup`, which the handshake in the test
+  supplies so the row draws its menu rather than the `Label` fallback.
+- `settings_shows_the_provider_row_when_two_providers_exist` — the provider row's
+  document position between the API-key field and the language select.
+- `settings_hides_the_provider_row_for_a_single_catalogue_provider` — an explicit
+  one-provider catalogue hides the row and pins the draft.
+- `setting_row_builders_render_their_content` — the default and `prominent` rows
+  each render their title line (through a keyed accessory, the only keyed element
+  the line can hold) and their control; the title copy is anonymous rendered text
+  and is not enumerable.
+
+Controller (`crates/speechtt-ui/src/controller.rs`):
+
+- `a_catalogue_without_providers_says_so`.
+
+### Deviations and notes
+
+- `SettingRow::mono_description()` keeps the API-key description in the mono face;
+  the row would otherwise have lost it. The face is not observable in a rendered
+  frame, so a component unit test pins the flag the builder sets and the render
+  test pins that the row still draws.
+- The API-key field's hint stack keeps its own `gap_1()` inside the control the
+  view passes. That is inter-child layout of the control, not the row rhythm
+  `dense()` owns, and `views::dialogs::help` uses the same step.
+- `crates/speechtt-ui/tests/shortcuts.rs` drops the scroll inside
+  `field-settings-provider`: the API key is the second row, so the test clicks it
+  where it is drawn, with every assertion intact.
+- `crates/speechtt-ui/tests/widget.rs` installs a second provider before opening
+  Settings, because its menu test clicked a row that only exists with a choice.
+- Board: `tickets/README.md` carries the ticket's row in the Review table, moved
+  there when the ticket was staged; the row's title, track and dependency are
+  unchanged. An earlier draft of these notes described that edit as pending.
 - T42.10: `bun run package --no-bump` built
-  `dist/SpeechTT-0.5.1-x86_64.AppImage` and the version stayed at 0.5.1. The
-  Settings window was not opened on a display; the layout was measured
-  headlessly. **Not visually verified, requires the CEO.**
+  `dist/SpeechTT-0.5.1-x86_64.AppImage`, version 0.5.1. The Settings window was
+  not opened on a display; the fit was measured headlessly. **Not visually
+  verified, requires the CEO.**
 
 ### Gate output (final run)
 
 - `cargo fmt -- --check` — clean (exit 0).
 - `cargo clippy --all-targets -- -D warnings` — `Finished dev profile`, no
   warnings.
-- `cargo test` — every suite green, `0 failed` throughout: lib 237, dialogs 25,
-  shortcuts 23, widget 36, and the remaining suites 5/11/14/5/11/152/0/3/37/14/5/96/5/4/0/0; nothing
-  skipped or `#[ignore]`d.
+- `cargo test` — all 20 suites `ok`, `0 failed`: core lib 237, ui lib 154,
+  dialogs 31, shortcuts 23, widget 36, and the remaining suites
+  5/11/14/5/11/0/3/37/14/5/96/5/4/0/0; nothing skipped or `#[ignore]`d.
 - `bun test` — `515 pass, 0 fail` across 18 files.
 - `bun check src/stt` — `No type errors in 32 files`.
 - `bun run design:validate` — `Design contract valid — 66 tokens, 0 errors.`

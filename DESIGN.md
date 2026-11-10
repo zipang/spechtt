@@ -629,10 +629,14 @@ separated by 1px `brand.secondary` hairlines. The rows read top to bottom:
 
 **Transcription Service** sits between the API key and Dictation Language only
 while the catalogue offers more than one provider. A catalogue with at most one
-provider pins that provider in the draft (`DEFAULT_PROVIDER` before any
-catalogue arrives), so hiding the row never leaves a fresh install without a
-provider to save. The row appears by itself as soon as a second provider exists.
+provider puts that provider in the draft (`DEFAULT_PROVIDER` before any
+catalogue arrives, and the catalogue's own id once it does), so the absence of
+the row means there is nothing to choose: Save already has a provider. The row
+appears by itself as soon as a second provider exists.
 Labels in `mono` uppercase `--font-size-xs`; values in `base` `--font-size-sm`.
+A description that is itself an identifier — an environment-variable name such
+as `AI_GATEWAY_API_KEY`, a path — is drawn in `mono` instead, because it reads
+as code rather than prose (`SettingRow::mono_description`).
 
 Rows use the dense symmetric rhythm: one step tighter than the roomier setup
 form, with equal vertical padding above and below the content, so a divider sits
@@ -641,16 +645,16 @@ separate children of the dialog body and keep its gap.
 
 Every select uses the same components as the Session setup form, against the
 settings draft: `components::ProviderSelect`, `components::ModelSelect` and
-`components::LanguageSelect`. The provider menu is disabled until the catalogue
-arrives, and both default-model menus until a provider is chosen. The model rows
-and the field beside each menu show the model's `TranscriptionModeBadge`.
+`components::LanguageSelect`. The provider menu lists every catalogue provider,
+and its empty trigger reads `Choose provider`. Both default-model menus stay
+disabled until a catalogue has arrived: a pinned provider names no model on its
+own, and a menu with nothing in it must not open. The model rows and the field
+beside each menu show the model's `TranscriptionModeBadge`.
 
-While no catalogue has arrived the provider menu's placeholder says
-`Loading providers…` only while a backend can still answer. When the backend is
-unavailable it reads `Backend unavailable`, and an `InfoNote` names the cause —
-for a missing runtime, the paths the lookup searched. The note is present
-exactly while no catalogue exists and the backend is unavailable; an arriving
-catalogue removes it.
+Two states leave the dialog nothing to save, and each says so in an `InfoNote`
+under the rows: a catalogue that reports no provider at all names that fact, and
+a backend that never started names its cause — for a missing runtime, the paths
+the lookup searched. A note disappears with the state it describes.
 
 The API-key badge reports `NOT VERIFIED` until a catalogue has arrived, because
 availability is what the badge claims. With a catalogue it reads `CONNECTED`
