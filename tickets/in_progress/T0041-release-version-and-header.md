@@ -346,7 +346,7 @@ export function bumpedPackageJson(text: string, version: string): string | null;
       failure restores it, `--no-bump` and `--dry-run` leave it alone.
 - [x] **T41.16 — `package.json` implementation** and the `release` script entry
       per §7.
-- [ ] **T41.8 — Gates**: `cargo fmt -- --check`,
+- [x] **T41.8 — Gates**: `cargo fmt -- --check`,
       `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
       `bun check src/stt`, `bun check scripts/package.ts scripts/package.spec.ts`,
       `bun run design:validate`. Zero warnings; nothing skipped or `#[ignore]`d.
