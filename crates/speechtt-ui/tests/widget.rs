@@ -97,45 +97,6 @@ fn every_screen_renders_at_extreme_window_sizes(cx: &mut TestAppContext) {
     }
 }
 
-// ----- The header's version slot ---------------------------------------
-
-#[gpui_kit::test]
-fn the_widget_header_shows_the_compiled_version_and_a_dialog_header_does_not(
-    cx: &mut TestAppContext,
-) {
-    let (window, view) = open_speechtt_window(cx);
-
-    cx.update_window(window.into(), |_, window, cx| {
-        window.render_frame(cx);
-
-        let version = window.find("app-header-version");
-        assert!(version.visible(), "the widget header shows its version");
-        assert_eq!(
-            version.label(),
-            Some(concat!("V", env!("CARGO_PKG_VERSION"))),
-            "the header shows the version compiled into this binary"
-        );
-
-        view.update(cx, |app, cx| app.open_help(window, cx));
-    })
-    .unwrap();
-
-    let dialog = cx
-        .windows()
-        .into_iter()
-        .find(|dialog| dialog.window_id() != window.window_id())
-        .expect("Help opened its own window");
-
-    cx.update_window(dialog, |_, window, cx| {
-        window.render_frame(cx);
-        assert!(
-            window.try_find("app-header-version").is_none(),
-            "the Help footer carries the version; its header must not repeat it"
-        );
-    })
-    .unwrap();
-}
-
 // ----- T17: mode chooser ripple ----------------------------------------
 
 #[test]

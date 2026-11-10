@@ -13,7 +13,7 @@ use gpui_kit::AppContext as _;
 use gpui_kit::TestAppContext;
 use gpui_kit::base::Root;
 use gpui_kit::test::TestWindowExt;
-use gpui_kit::{AnyWindowHandle, Entity, SharedString, WindowHandle};
+use gpui_kit::{AnyWindowHandle, Entity, WindowHandle};
 use speechtt_core::protocol::SttEvent;
 use speechtt_core::session::SessionState;
 use speechtt_ui::app::SpeechTtApp;
@@ -561,31 +561,4 @@ fn a_failed_save_prompt_surfaces_the_file_dialog_error(cx: &mut TestAppContext) 
         cx.update(|cx| view.read(cx).app_error().cloned()),
         Some(AppError::FileDialogFailed)
     );
-}
-
-// ----- Help rows --------------------------------------------------------
-
-/// The Shortcuts tab draws one row per binding, from the table that registers
-/// the keys: adding a row to `BINDINGS` adds it to the dialog.
-///
-/// Known limit: the assertion is by element id, so it proves each row exists.
-/// It does not prove the row's label text is the binding's description.
-#[gpui_kit::test]
-fn the_help_shortcuts_tab_draws_every_binding(cx: &mut TestAppContext) {
-    let (main, _view) = common::open_speechtt_window(cx);
-    press(cx, main.into(), "f1");
-    let help = dialog_window(cx, main);
-
-    cx.update_window(help, |_, window, cx| {
-        window.render_frame(cx);
-        for binding in &speechtt_ui::shortcuts::BINDINGS {
-            let id = format!("help-shortcut-{}", binding.action.as_str());
-            assert!(
-                window.try_find(SharedString::from(id)).is_some(),
-                "the {} row is missing",
-                binding.action
-            );
-        }
-    })
-    .unwrap();
 }

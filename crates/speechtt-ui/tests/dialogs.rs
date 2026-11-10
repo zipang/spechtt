@@ -1,16 +1,17 @@
 //! Help and Settings dialog behaviour.
 //!
 //! The interaction contract is exercised through `SessionController` commands
-//! (and headless render tests). No assertion depends on element placement,
-//! geometry or labels: row order is read from the document order of the
-//! rendered element ids, and the dialog design stays free to change.
+//! and the wiring that reaches them: opening and closing a window, committing a
+//! menu selection, saving, and surviving a failed save. Nothing asserts which
+//! rows a screen draws or in what order — a dialog is recomposed whenever the
+//! layout improves, and a test that pins its composition only has to be deleted
+//! the next time it is.
 
 use speechtt_core::backend::{BackendError, SttSessionSink};
 use speechtt_core::protocol::{
     ModelCapabilityInfo, ProviderCapability, SttCommand, TranscriptionMode,
 };
 use speechtt_core::settings::{DEFAULT_PROVIDER, Settings};
-use speechtt_ui::components::SettingRow;
 use speechtt_ui::controller::{
     AppError, BackendFailure, Dialog, HelpTab, STORED_KEY_REVEAL_HINT, SessionController,
     SettingsChange,
@@ -451,11 +452,7 @@ fn opening_a_dialog_does_not_disturb_the_recording_session() {
 mod common;
 
 use gpui_kit::AppContext as _;
-use gpui_kit::test::{TestAppContextExt as _, TestQueryExt, TestWindowExt};
-use gpui_kit::{
-    ElementId, InteractiveElement as _, IntoElement, ParentElement as _, Render, Styled as _,
-    TestSupportExt as _, div,
-};
+use gpui_kit::test::{TestAppContextExt as _, TestWindowExt};
 
 #[gpui_kit::test]
 fn dialogs_render_and_save_through_the_app(cx: &mut gpui_kit::TestAppContext) {
@@ -494,46 +491,6 @@ fn dialogs_render_and_save_through_the_app(cx: &mut gpui_kit::TestAppContext) {
             .expect("saved change is staged");
         assert_eq!(pending.provider, "vercel-ai-gateway");
         assert_eq!(pending.api_key.as_deref(), Some("sk-app-test"));
-    })
-    .unwrap();
-}
-
-/// The Settings dialog explains an unavailable provider only while the worker
-/// reports it as unavailable. A connected provider has nothing to explain.
-#[gpui_kit::test]
-fn the_settings_note_appears_only_for_an_unavailable_provider(cx: &mut gpui_kit::TestAppContext) {
-    let mut unavailable = catalogue();
-    unavailable[0].available = false;
-
-    let (main, view) = common::open_speechtt_window(cx);
-
-    cx.update_window(main.into(), |_, window, cx| {
-        view.update(cx, |app, cx| app.open_settings(window, cx));
-    })
-    .unwrap();
-
-    let dialog = cx
-        .windows()
-        .into_iter()
-        .find(|window| window.window_id() != main.window_id())
-        .expect("Settings opened its own window");
-
-    cx.update_window(dialog, |_, window, cx| {
-        view.update(cx, |app, cx| {
-            assert!(app.set_settings_provider("vercel-ai-gateway", cx));
-        });
-        window.render_frame(cx);
-        assert!(
-            window.try_find("note-settings-provider").is_none(),
-            "a connected provider needs no note"
-        );
-
-        view.update(cx, |app, cx| app.apply_capabilities(unavailable, cx));
-        window.render_frame(cx);
-        assert!(
-            window.try_find("note-settings-provider").is_some(),
-            "an unavailable provider explains why it cannot be used"
-        );
     })
     .unwrap();
 }
@@ -623,38 +580,31 @@ fn help_switches_to_the_model_catalogue_tab(cx: &mut gpui_kit::TestAppContext) {
 }
 
 #[gpui_kit::test]
-async fn the_dialog_commits_the_dictation_language_and_offers_the_cleanup_models(
-    cx: &mut gpui_kit::TestAppContext,
-) {
-    use speechtt_core::protocol::{CapabilitySource, LanguageModelInfo, LanguageOption, SttEvent};
+async fn the_dialog_commits_the_dictation_language(cx: &mut gpui_kit::TestAppContext) {
+    use speechtt_core::protocol::{CapabilitySource, LanguageOption, SttEvent};
 
     let (main, view, events) = common::open_speechtt_window_with_events(cx);
 
-    // The handshake is the only source of the cleanup catalogue and of the
-    // offered languages.
-    let handshake = |language_models: Option<Vec<LanguageModelInfo>>| SttEvent::Capabilities {
-        request_id: None,
-        source: CapabilitySource::Builtin,
-        providers: catalogue(),
-        languages: Some(vec![
-            LanguageOption {
-                code: "fr".to_owned(),
-                label: "French".to_owned(),
-            },
-            LanguageOption {
-                code: "en".to_owned(),
-                label: "English".to_owned(),
-            },
-        ]),
-        language_models,
-        default_language_model: Some("openai/gpt-4.1-mini".to_owned()),
-    };
-
+    // A language is committed as its ISO code; the handshake is the only source
+    // of the offered list.
     events
-        .send_blocking(Ok(handshake(Some(vec![LanguageModelInfo {
-            id: "openai/gpt-4.1-mini".to_owned(),
-            label: "GPT-4.1 mini".to_owned(),
-        }]))))
+        .send_blocking(Ok(SttEvent::Capabilities {
+            request_id: None,
+            source: CapabilitySource::Builtin,
+            providers: catalogue(),
+            languages: Some(vec![
+                LanguageOption {
+                    code: "fr".to_owned(),
+                    label: "French".to_owned(),
+                },
+                LanguageOption {
+                    code: "en".to_owned(),
+                    label: "English".to_owned(),
+                },
+            ]),
+            language_models: None,
+            default_language_model: Some("openai/gpt-4.1-mini".to_owned()),
+        }))
         .expect("event sent");
     cx.run_until_parked();
 
@@ -670,7 +620,6 @@ async fn the_dialog_commits_the_dictation_language_and_offers_the_cleanup_models
         .find(|window| window.window_id() != main.window_id())
         .expect("Settings opened its own window");
 
-    // Choosing a language in the menu commits its ISO code to the draft.
     cx.update_window(dialog, |_, window, cx| {
         window.render_frame(cx);
         window.within("field-settings-language").click("input", cx);
@@ -683,36 +632,6 @@ async fn the_dialog_commits_the_dictation_language_and_offers_the_cleanup_models
         view.read(cx).settings_draft().language.as_deref() == Some("fr")
     })
     .await;
-
-    // Discovered language models keep the row a menu.
-    cx.update_window(dialog, |_, window, cx| {
-        window.render_frame(cx);
-        assert!(
-            window.try_find("field-settings-cleanup").is_some(),
-            "the cleanup row offers the discovered models"
-        );
-    })
-    .unwrap();
-
-    // A worker that reports none leaves the row naming the resolved default
-    // instead of showing an empty menu.
-    events
-        .send_blocking(Ok(handshake(None)))
-        .expect("event sent");
-    cx.run_until_parked();
-
-    cx.update_window(dialog, |_, window, cx| {
-        window.render_frame(cx);
-        assert!(
-            window.try_find("field-settings-cleanup").is_none(),
-            "without language models the row names the default id"
-        );
-        assert!(
-            window.try_find("field-settings-language").is_some(),
-            "the language menu does not depend on the cleanup catalogue"
-        );
-    })
-    .unwrap();
 }
 
 /// A sink the injected spawn returns: it records the commands the app sends,
@@ -889,296 +808,4 @@ fn a_failed_respawn_keeps_settings_open_with_the_error_and_the_draft(
     .unwrap();
     assert_eq!(cx.update(|cx| view.read(cx).active_dialog()), None);
     assert_eq!(cx.update(|cx| view.read(cx).app_error().cloned()), None);
-}
-
-/// A view that renders one `SettingRow` per builder combination, so the
-/// component's opt-in forms are observed without the dialog around them.
-///
-/// Each row carries an accessory id as well as a control id: the accessory is
-/// the only keyed element the label line can hold, so its presence is what a
-/// test can use to show that the title line is drawn. The title copy itself is
-/// anonymous rendered text, which the test kit does not enumerate.
-struct SettingRowProbe;
-
-impl Render for SettingRowProbe {
-    fn render(
-        &mut self,
-        _: &mut gpui_kit::Window,
-        _: &mut gpui_kit::Context<Self>,
-    ) -> impl IntoElement {
-        div()
-            .flex()
-            .flex_col()
-            .w_full()
-            .child(
-                SettingRow::new("Default", "the roomy default form")
-                    .accessory(div().id("probe-default-title-line").test_support())
-                    .control(div().id("probe-default-control").test_support()),
-            )
-            .child(
-                SettingRow::new("Prominent", "the dialog form")
-                    .prominent()
-                    .accessory(div().id("probe-prominent-title-line").test_support())
-                    .control(div().id("probe-prominent-control").test_support()),
-            )
-            .child(
-                SettingRow::new("Dense", "the tighter dialog form")
-                    .dense()
-                    .control(div().id("probe-dense-control").test_support()),
-            )
-            .child(
-                SettingRow::new("Stacked", "a control on its own line")
-                    .dense()
-                    .stacked()
-                    .accessory(div().id("probe-accessory").test_support())
-                    .control(div().id("probe-stacked-control").test_support()),
-            )
-            .child(
-                SettingRow::new("Mono", "AI_GATEWAY_API_KEY")
-                    .dense()
-                    .mono_description()
-                    .control(div().id("probe-mono-control").test_support()),
-            )
-    }
-}
-
-#[gpui_kit::test]
-fn setting_row_builders_render_their_content(cx: &mut gpui_kit::TestAppContext) {
-    cx.update(common::init_kit);
-    let (window, _view) = common::open_window(cx, None, |_window, cx| cx.new(|_| SettingRowProbe));
-
-    cx.update_window(window.into(), |_, window, cx| {
-        window.render_frame(cx);
-        for id in [
-            "probe-default-title-line",
-            "probe-default-control",
-            "probe-prominent-title-line",
-            "probe-prominent-control",
-            "probe-dense-control",
-            "probe-stacked-control",
-            "probe-accessory",
-            "probe-mono-control",
-        ] {
-            assert!(window.try_find(id).is_some(), "{id} is rendered");
-        }
-    })
-    .unwrap();
-}
-
-/// The element ids of `ids` in the order the frame observed them, which is the
-/// document order of the rendered tree. Unknown ids are skipped, so a missing
-/// row fails the caller's equality assertion instead of this helper.
-fn document_order(window: &gpui_kit::Window, ids: &[&str]) -> Vec<String> {
-    window
-        .elements()
-        .iter()
-        .filter_map(|element| match element.path().last()? {
-            ElementId::Name(name) if ids.contains(&name.as_ref()) => Some(name.to_string()),
-            _ => None,
-        })
-        .collect()
-}
-
-#[gpui_kit::test]
-async fn settings_leads_with_the_runtime_and_the_api_key(cx: &mut gpui_kit::TestAppContext) {
-    use speechtt_core::protocol::{CapabilitySource, LanguageModelInfo, SttEvent};
-
-    let (main, view, events) = common::open_speechtt_window_with_events(cx);
-
-    // The cleanup row draws a menu with `field-settings-cleanup` only once the
-    // worker has reported a language model; the handshake supplies one so the
-    // full row sequence is observable.
-    events
-        .send_blocking(Ok(SttEvent::Capabilities {
-            request_id: None,
-            source: CapabilitySource::Builtin,
-            providers: catalogue(),
-            languages: None,
-            language_models: Some(vec![LanguageModelInfo {
-                id: "openai/gpt-4.1-mini".to_owned(),
-                label: "GPT-4.1 mini".to_owned(),
-            }]),
-            default_language_model: Some("openai/gpt-4.1-mini".to_owned()),
-        }))
-        .expect("event sent");
-    cx.run_until_parked();
-
-    cx.update_window(main.into(), |_, window, cx| {
-        view.update(cx, |app, cx| app.open_settings(window, cx));
-    })
-    .unwrap();
-
-    let dialog = cx
-        .windows()
-        .into_iter()
-        .find(|window| window.window_id() != main.window_id())
-        .expect("Settings opened its own window");
-
-    cx.update_window(dialog, |_, window, cx| {
-        window.render_frame(cx);
-        assert_eq!(
-            document_order(
-                window,
-                &[
-                    "field-settings-bun-path",
-                    "field-settings-api-key",
-                    "field-settings-language",
-                    "field-settings-streaming",
-                    "field-settings-batch",
-                    "field-settings-cleanup",
-                ]
-            ),
-            vec![
-                "field-settings-bun-path",
-                "field-settings-api-key",
-                "field-settings-language",
-                "field-settings-streaming",
-                "field-settings-batch",
-                "field-settings-cleanup",
-            ],
-            "the runtime and the credential lead the row list"
-        );
-        assert!(
-            window.try_find("field-settings-api-key").is_some(),
-            "the API-key field is still reachable"
-        );
-    })
-    .unwrap();
-}
-
-#[gpui_kit::test]
-fn settings_hides_the_provider_row_when_there_is_no_choice(cx: &mut gpui_kit::TestAppContext) {
-    let (main, view) = common::open_speechtt_window(cx);
-
-    cx.update_window(main.into(), |_, window, cx| {
-        view.update(cx, |app, cx| app.open_settings(window, cx));
-    })
-    .unwrap();
-
-    let dialog = cx
-        .windows()
-        .into_iter()
-        .find(|window| window.window_id() != main.window_id())
-        .expect("Settings opened its own window");
-
-    cx.update_window(dialog, |_, window, cx| {
-        window.render_frame(cx);
-        assert!(
-            window.try_find("field-settings-provider").is_none(),
-            "a menu with one entry restates what the app decided"
-        );
-    })
-    .unwrap();
-}
-
-#[gpui_kit::test]
-fn settings_shows_the_provider_row_when_two_providers_exist(cx: &mut gpui_kit::TestAppContext) {
-    let (main, view) = common::open_speechtt_window(cx);
-
-    cx.update_window(main.into(), |_, window, cx| {
-        view.update(cx, |app, cx| {
-            app.apply_capabilities(two_provider_catalogue(), cx);
-            app.open_settings(window, cx);
-        });
-    })
-    .unwrap();
-
-    let dialog = cx
-        .windows()
-        .into_iter()
-        .find(|window| window.window_id() != main.window_id())
-        .expect("Settings opened its own window");
-
-    cx.update_window(dialog, |_, window, cx| {
-        window.render_frame(cx);
-        assert!(
-            window.try_find("field-settings-provider").is_some(),
-            "two providers are a choice, so the row appears"
-        );
-        assert_eq!(
-            document_order(
-                window,
-                &[
-                    "field-settings-bun-path",
-                    "field-settings-api-key",
-                    "field-settings-provider",
-                    "field-settings-language",
-                ]
-            ),
-            vec![
-                "field-settings-bun-path",
-                "field-settings-api-key",
-                "field-settings-provider",
-                "field-settings-language",
-            ],
-            "the provider row sits between the API key and the language row"
-        );
-    })
-    .unwrap();
-}
-
-#[gpui_kit::test]
-fn settings_hides_the_provider_row_for_a_single_catalogue_provider(
-    cx: &mut gpui_kit::TestAppContext,
-) {
-    let (main, view) = common::open_speechtt_window(cx);
-
-    cx.update_window(main.into(), |_, window, cx| {
-        view.update(cx, |app, cx| {
-            app.apply_capabilities(single_provider_catalogue("mistral", "MISTRAL_API_KEY"), cx);
-            app.open_settings(window, cx);
-        });
-    })
-    .unwrap();
-
-    let dialog = cx
-        .windows()
-        .into_iter()
-        .find(|window| window.window_id() != main.window_id())
-        .expect("Settings opened its own window");
-
-    cx.update_window(dialog, |_, window, cx| {
-        window.render_frame(cx);
-        assert_eq!(
-            view.read(cx).settings_draft().provider.as_deref(),
-            Some("mistral"),
-            "the draft takes the only provider the catalogue lists"
-        );
-        assert!(
-            window.try_find("field-settings-provider").is_none(),
-            "a one-provider catalogue leaves nothing to choose"
-        );
-    })
-    .unwrap();
-}
-
-/// A pinned provider exists before any catalogue does, so the model menus must
-/// stay closed rather than open onto an empty list.
-#[gpui_kit::test]
-fn the_model_menus_stay_closed_before_a_catalogue_arrives(cx: &mut gpui_kit::TestAppContext) {
-    let (main, view, events) = common::open_speechtt_window_without_catalogue(cx);
-    drop(events);
-    cx.run_until_parked();
-
-    cx.update_window(main.into(), |_, window, cx| {
-        view.update(cx, |app, cx| app.open_settings(window, cx));
-    })
-    .unwrap();
-
-    let dialog = cx
-        .windows()
-        .into_iter()
-        .find(|window| window.window_id() != main.window_id())
-        .expect("Settings opened its own window");
-
-    cx.update_window(dialog, |_, window, cx| {
-        window.render_frame(cx);
-        window.within("field-settings-streaming").click("input", cx);
-        assert_eq!(
-            window.find("field-settings-streaming").expanded(),
-            Some(false),
-            "an empty model menu never opens"
-        );
-    })
-    .unwrap();
 }

@@ -1834,19 +1834,28 @@ impl SessionController {
         self.settings_connection_state() == ConnectionState::Connected
     }
 
+    /// Whether the backend reports the drafted provider as unavailable.
+    ///
+    /// False before a catalogue arrives: `provider_available` is unknown then,
+    /// and a provider the backend has not spoken about is not unavailable. The
+    /// Settings dialog draws its explanation note exactly while this is true, so
+    /// the decision is a function of the controller rather than of the view.
+    #[must_use]
+    pub fn settings_provider_unavailable(&self) -> bool {
+        self.settings_draft
+            .provider
+            .as_deref()
+            .and_then(|provider| self.provider_available(provider))
+            == Some(false)
+    }
+
     /// What the API-key badge may claim: unknown, connected or not connected.
     #[must_use]
     pub fn settings_connection_state(&self) -> ConnectionState {
         if !self.catalogue_loaded() {
             return ConnectionState::Unknown;
         }
-        let unavailable = self
-            .settings_draft
-            .provider
-            .as_deref()
-            .and_then(|provider| self.provider_available(provider))
-            == Some(false);
-        if self.settings_has_key() && !unavailable {
+        if self.settings_has_key() && !self.settings_provider_unavailable() {
             ConnectionState::Connected
         } else {
             ConnectionState::NotConnected
@@ -5219,6 +5228,34 @@ mod tests {
 
         controller.clear_backend_failure();
         assert!(!controller.backend_unavailable());
+    }
+
+    #[test]
+    fn the_provider_is_unavailable_only_while_the_catalogue_says_so() {
+        let mut controller = SessionController::new();
+        controller.open_settings_with(
+            Some("vercel-ai-gateway"),
+            Some("openai/gpt-realtime-whisper"),
+            Some("openai/gpt-4o-transcribe"),
+            true,
+        );
+
+        assert!(
+            !controller.settings_provider_unavailable(),
+            "no catalogue has spoken about the provider yet"
+        );
+
+        controller.set_capabilities(test_capabilities());
+        assert!(
+            controller.settings_provider_unavailable(),
+            "an unavailable provider is reported as such"
+        );
+
+        controller.set_capabilities(available_capabilities());
+        assert!(
+            !controller.settings_provider_unavailable(),
+            "an available provider has nothing to explain"
+        );
     }
 
     #[test]

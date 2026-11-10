@@ -1,8 +1,8 @@
 //! Settings dialog, per `mockups/dialogs/settings.png`.
 //!
-//! The rows read top to bottom: **Bun path**, the API key, **Dictation
-//! Language**, the two take defaults and **Cleanup Model**. **Transcription
-//! Service** sits between the key and the language rows only while the
+//! The rows read top to bottom: **Bun path**, the API key, the two take
+//! defaults, **Cleanup Model** and **Dictation Language**. **Transcription
+//! Service** sits between the key and the take defaults only while the
 //! catalogue offers more than one provider; with a single provider the
 //! controller pins it and the row would only restate the decision. Each
 //! dropdown is a component owned by `dialogs::window`; this file only
@@ -38,9 +38,8 @@ use gpui_kit::{AnyElement, Context, IntoElement};
 
 use crate::components::{
     ActionButton, AppFooter, InfoNote, Label, LanguageSelect, ModelSelect, ProviderSelect,
-    SettingRow, StatusBadge, StatusDot, TranscriptionModeBadge,
+    SettingRow, StatusBadge, StatusDot,
 };
-use speechtt_core::protocol::TranscriptionMode;
 
 use crate::controller::ConnectionState;
 use crate::dialogs::{DialogShell, DialogWindow};
@@ -50,8 +49,6 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
     let (
         has_provider,
         catalogue_loaded,
-        streaming_mode,
-        batch_mode,
         connection,
         valid,
         key_env,
@@ -72,17 +69,10 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
         let controller = app.controller();
         let has_provider = app.settings_draft().provider.is_some();
         let catalogue_loaded = controller.catalogue_loaded();
-        let unavailable = app
-            .settings_draft()
-            .provider
-            .as_deref()
-            .and_then(|provider| controller.provider_available(provider))
-            == Some(false);
+        let unavailable = controller.settings_provider_unavailable();
         (
             has_provider,
             catalogue_loaded,
-            controller.settings_streaming_model_mode(),
-            controller.settings_batch_model_mode(),
             controller.settings_connection_state(),
             controller.settings_can_save(),
             controller
@@ -126,15 +116,8 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
         .placeholder(model_placeholder)
         .disabled(model_menus_disabled);
 
-    let model_control = |select: AnyElement, mode: Option<TranscriptionMode>| {
-        let mut row = h_flex().gap_2().items_center().child(select);
-        if let Some(mode) = mode {
-            row = row.child(TranscriptionModeBadge::new(mode));
-        }
-        row.into_any_element()
-    };
-    let streaming_control = model_control(streaming_select.into_any_element(), streaming_mode);
-    let batch_control = model_control(batch_select.into_any_element(), batch_mode);
+    let streaming_control = streaming_select.into_any_element();
+    let batch_control = batch_select.into_any_element();
 
     let language_select =
         LanguageSelect::new("field-settings-language", dialog.selects().language());
@@ -215,17 +198,14 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
                 .on_click(cx.listener(|this, _event, window, cx| this.save(window, cx))),
         );
 
-    let bun_path_row = SettingRow::new(
-        "Bun path",
-        "The bun runtime the worker runs on; empty finds it automatically",
-    )
-    .prominent()
-    .dense()
-    .control(
-        Input::new(&bun_path_input)
-            .id("field-settings-bun-path")
-            .w_full(),
-    );
+    let bun_path_row = SettingRow::new("Bun path", "The bun runtime the worker runs on")
+        .prominent()
+        .dense()
+        .control(
+            Input::new(&bun_path_input)
+                .id("field-settings-bun-path")
+                .w_full(),
+        );
 
     let api_key_row = SettingRow::new("API key", key_env)
         .prominent()
@@ -251,16 +231,6 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
     }
 
     rows.push(
-        SettingRow::new(
-            "Dictation Language",
-            "The language you speak; improves accuracy",
-        )
-        .prominent()
-        .dense()
-        .control(language_select)
-        .into_any_element(),
-    );
-    rows.push(
         SettingRow::new("Default Streaming Model", "Used for live dictation")
             .prominent()
             .dense()
@@ -282,6 +252,16 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
         .prominent()
         .dense()
         .control(cleanup_control)
+        .into_any_element(),
+    );
+    rows.push(
+        SettingRow::new(
+            "Dictation Language",
+            "The language you speak; improves cleanup accuracy",
+        )
+        .prominent()
+        .dense()
+        .control(language_select)
         .into_any_element(),
     );
 

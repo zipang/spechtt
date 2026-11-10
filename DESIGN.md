@@ -622,12 +622,12 @@ separated by 1px `brand.secondary` hairlines. The rows read top to bottom:
 1. **Bun path** — the runtime the worker needs.
 2. **API key** — the credential, as a stacked row: status badge on the label
    line, masked field spanning the row below.
-3. **Dictation Language**
-4. **Default Streaming Model**
-5. **Default Batch Model**
-6. **Cleanup Model**
+3. **Default Streaming Model**
+4. **Default Batch Model**
+5. **Cleanup Model**
+6. **Dictation Language**
 
-**Transcription Service** sits between the API key and Dictation Language only
+**Transcription Service** sits between the API key and the take defaults only
 while the catalogue offers more than one provider. A catalogue with at most one
 provider puts that provider in the draft (`DEFAULT_PROVIDER` before any
 catalogue arrives, and the catalogue's own id once it does), so the absence of
@@ -648,8 +648,10 @@ settings draft: `components::ProviderSelect`, `components::ModelSelect` and
 `components::LanguageSelect`. The provider menu lists every catalogue provider,
 and its empty trigger reads `Choose provider`. Both default-model menus stay
 disabled until a catalogue has arrived: a pinned provider names no model on its
-own, and a menu with nothing in it must not open. The model rows and the field
-beside each menu show the model's `TranscriptionModeBadge`.
+own, and a menu with nothing in it must not open. Each default-model row is
+dedicated to one take mode, so the row carries no `TranscriptionModeBadge`
+beside its trigger; the badge stays inside the menu, where one list can mix both
+modes.
 
 Two states leave the dialog nothing to save, and each says so in an `InfoNote`
 under the rows: a catalogue that reports no provider at all names that fact, and
@@ -668,12 +670,12 @@ is resolved from the configured path, then `PATH`, then `~/.bun/bin/bun`,
 override, needed when a desktop launcher's `PATH` does not carry the directory a
 shell profile added. It is optional and never blocks Save.
 
-**Dictation Language** — _"The language you speak; improves accuracy"_; it
-follows the two load-bearing fields because it applies to the transcription
-itself, not to a model choice. Its first entry is **Auto (detect)**, whose value
-is the empty language; every other entry is an ISO-639-1 code the worker
-published, in the worker's order. An unset language therefore renders as Auto,
-never as a blank field. The menu is not searchable: one entry is a single word.
+**Dictation Language** — _"The language you speak; improves cleanup accuracy"_;
+it closes the list because it fine-tunes the cleanup pass rather than deciding
+the transcription. Its first entry is **Auto (detect)**, whose value is the
+empty language; every other entry is an ISO-639-1 code the worker published, in
+the worker's order. An unset language therefore renders as Auto, never as a
+blank field. The menu is not searchable: one entry is a single word.
 
 The two model rows are one default per take mode, each a `SettingRow` on its own
 line because two dropdowns do not fit side by side:

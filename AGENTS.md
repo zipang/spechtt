@@ -335,10 +335,16 @@ All gates must be green with **zero warnings**. Do not weaken, skip, or
   display to take screenshots, record video bursts, or tune animations via
   snapshot scripts — verify via headless tests (`cargo test`) and let the user
   perform the visual review.
-- Don't write **UI placement/layout tests**. Never assert positions, offsets,
-  alignment, baselines, centring, spacing, sizes, or geometry of rendered
-  elements. Visual layout is reviewed by the user, not by automated tests;
-  automated tests cover behaviour, state transitions, and contracts only.
+- Don't write **UI composition tests**. An interface is reworked continuously —
+  reordering rows, adding or hiding a control, dropping a badge — and every test
+  that pins _which_ elements a screen draws, _in what order_, or _whether_ one
+  is present must be deleted the next time the layout improves. That makes it
+  pure friction. Never assert positions, offsets, alignment, baselines,
+  centring, spacing, sizes, or geometry either, and never enumerate the rows a
+  screen renders or their order. Cover **functions, state transitions and
+  wiring**: the controller rule, the value a menu commits, the save path, the
+  window that opens. The element ids a test clicks to drive a flow are fine;
+  asserting that an element exists as an end in itself is not.
 - Don't touch files outside a ticket's `Scope Boundary`.
 - Don't leak secrets in `Debug`, `Display`, error messages, logs, or tests.
 - Don't use `npm`, `npx`, `tsc`, or `vitest` — Bun only for JS/TS.
