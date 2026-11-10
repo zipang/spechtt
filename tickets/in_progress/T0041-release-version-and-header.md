@@ -61,10 +61,12 @@ not advance the version twice.
 May create or modify:
 
 - `scripts/package.ts` — **modified**: `nextPatchVersion`, `bumpedManifest`,
-  `staleArtifacts`, the `listDir` seam, the `--no-bump` flag, the
-  bump-then-build order, the restore-on-failure path, the `--dry-run` lines
-  naming the next version and the files a run would discard, and the updated
-  `USAGE`.
+  `bumpedPackageJson`, `staleArtifacts`, `dirtyEntries`, the `listDir` seam, the
+  `--no-bump`, `--release` and `--allow-dirty` flags, the bump-then-build order,
+  the restore-on-failure path, the publish step, the `--dry-run` lines naming the
+  next version and the files a run would discard, and the updated `USAGE`.
+- `package.json` — **append-only**: one `"release"` script; its `version` field
+  is written by the bump.
 - `scripts/package.spec.ts` — **modified**: tests for every rule above, through
   the existing `CliDeps` seam. No test runs `cargo`, `bun build`, `fetch` or
   `gh`.
@@ -82,14 +84,17 @@ Out of scope — do **not** touch anything else, in particular:
 
 - No change to the release command shape, the `appimagetool` invocation, the
   AppDir layout, the worker bundle or the checksum format.
-- No CI, no tag creation, no `gh` execution from the script.
+- No CI. `gh release create` runs only under `--release`, and the script never
+  creates a tag itself: `gh release create v<version>` creates it as part of
+  publishing.
 - No new visual component or token: the header version is
   `components::Label` with `.mono().muted()`, the same treatment the Help footer
   already uses (Contract §3).
 - No version display in dialog windows: the Help footer already carries it, and
   showing it in that window's header too would duplicate it.
-- No `git` operations from the script: it edits the manifest and tells the user
-  what to commit.
+- No `git` operations from the script beyond reading `git status --porcelain`
+  for the release guard: it edits the manifests and tells the user what to
+  commit.
 - No purging of the tool cache or the worker bundle: `dist/tools/` is a download
   the next build would repeat, and `worker.js` is regenerated in place.
 
@@ -210,6 +215,80 @@ Rules:
   is a download the next build would otherwise repeat.
 - One line per removal, naming the file, so the run says what it discarded.
 
+### §6 — The `release` command
+
+`bun run package` builds. It must not publish: a build is also how the pipeline
+is checked, and a release is a public, effectively irreversible act. Publishing
+therefore gets its own entry point, run by hand when the change deserves one:
+
+```json
+"release": "bun run scripts/package.ts --release"
+```
+
+`--release` performs everything `bun run package` does, then creates the GitHub
+release for the artifact that run produced, through the same command the script
+has always printed:
+
+```ts
+gh release create v<version> dist/SpeechTT-<version>-<arch>.AppImage \
+  dist/SpeechTT-<version>-<arch>.AppImage.sha256 \
+  --title "SpeechTT <version>" --generate-notes
+```
+
+Rules:
+
+- `--release` is the **only** path that executes `gh`. A plain `bun run package`
+  keeps printing the command and touching nothing, so the existing rule that a
+  build never publishes still holds.
+- `gh` must be on `PATH` (`deps.has("gh")`); absent, the run exits `2` before
+  building rather than after, so a release never fails at the last step for a
+  missing tool.
+- `--release --dry-run` prints the command and publishes nothing.
+- If `gh` fails, the run exits `1` and names its stderr. The artifact and its
+  checksum stay on disk: the build succeeded, and deleting it would punish the
+  user for a network or authentication problem.
+- `--release` with `--no-build` is allowed: it republishes the existing artifact.
+- The release runs **after** the `dist/` cleanup, so the asset list is the
+  current pair and nothing else.
+
+**Integrity guard.** A release tags the current commit, so publishing from a
+tree with uncommitted source would tag a commit that does not contain the code
+the artifact was built from. `--release` therefore inspects
+`git status --porcelain` **before** it bumps anything:
+
+```ts
+/// Whether a working-tree status listing is clean enough to publish from.
+///
+/// Clean means empty: a release tags the commit the build came from, so any
+/// uncommitted change would make the tag describe code the artifact does not
+/// contain. `--allow-dirty` bypasses the check for a deliberate one-off.
+export function dirtyEntries(statusOutput: string): string[];
+```
+
+- Empty output → proceed.
+- Any entry → exit `2`, listing the paths, and name `--allow-dirty` as the
+  explicit override.
+- `--allow-dirty` skips the check, and the run says it did.
+- The check reads only; the script still runs no git command that changes the
+  repository.
+
+### §7 — `package.json` carries the release version
+
+`package.json` declares a `version` that nothing reads, and it had drifted two
+releases behind the workspace. Two version numbers in one repository always rot.
+The bump writes both files, from the same computed value:
+
+```ts
+/// `text` as a `package.json` whose `version` is `version`, formatting and key
+/// order preserved. Returns `null` when the file is not a JSON object.
+export function bumpedPackageJson(text: string, version: string): string | null;
+```
+
+- Written after `Cargo.toml`, restored with it on failure.
+- `--no-bump` and `--dry-run` leave it alone.
+- `package.json` is not a Cargo workspace member, so it does not affect
+  `cargo metadata` or the artifact name; it is kept in step for the reader.
+
 ## TDD Tasks
 
 - [x] **T41.1 — Version specs first**: red tests for `nextPatchVersion`
@@ -249,6 +328,24 @@ Rules:
 - [x] **T41.12 — Stale-artifact implementation**: `listDir` in `CliDeps` and its
       live implementation, `staleArtifacts` per §5, and the removal step after
       the checksum is written.
+- [ ] **T41.13 — `--release` specs first**: red tests for `dirtyEntries`
+      (empty output → empty list; one and several entries parsed; trailing
+      newline ignored) and for the CLI: `--release` runs `gh release create`
+      once, with the exact argv the printed command would use; a plain run never
+      calls `gh`; `gh` absent exits `2` before any build step; a failing `gh`
+      exits `1`, prints its stderr and leaves the artifact; `--release
+      --dry-run` prints the command and calls nothing; `--release
+      --no-build` still publishes; a dirty tree exits `2` naming the paths;
+      `--allow-dirty` proceeds and says so. Every test goes through the
+      `CliDeps` fakes.
+- [ ] **T41.14 — `--release` implementation**: the flag, the `gh` precondition,
+      the guard, the publish step after the cleanup, and `USAGE`.
+- [ ] **T41.15 — `package.json` version specs first**: red tests for
+      `bumpedPackageJson` — replaces only `version`, preserves tabs and key
+      order, returns `null` for a non-object; plus CLI: the bump writes it, a
+      failure restores it, `--no-bump` and `--dry-run` leave it alone.
+- [ ] **T41.16 — `package.json` implementation** and the `release` script entry
+      per §7.
 - [ ] **T41.8 — Gates**: `cargo fmt -- --check`,
       `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
       `bun check src/stt`, `bun check scripts/package.ts scripts/package.spec.ts`,
@@ -287,6 +384,14 @@ Rules:
     `tools/`, `worker.js` and `SpeechTT.AppDir` are untouched.
 11. A failed run deletes nothing, and `--dry-run` names what it would remove
     without removing it.
+12. `bun run release` builds and then creates the GitHub release for the artifact
+    it produced; `bun run package` never invokes `gh`.
+13. `--release` refuses to publish from a working tree with uncommitted changes,
+    naming the paths, and `--allow-dirty` is the explicit override.
+14. A missing `gh` fails before the build starts, and a failing `gh` leaves the
+    built artifact in place.
+15. `package.json`'s `version` follows the release version in the same run, and
+    is restored with `Cargo.toml` when the run fails.
 
 ## Implementation Notes
 
