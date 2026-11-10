@@ -319,22 +319,36 @@ network or a real user configuration directory. Write the failing test first.
 
 ## Releasing
 
-A release is one command, run from the repository root:
+Building and publishing are two commands, both run from the repository root:
 
 ```sh
-bun run package
+bun run package   # build and check the artifact
+bun run release   # build, then create the GitHub release
 ```
 
-The script advances the patch version in the `[workspace.package]` table of
-`Cargo.toml` **before** it builds: a rebuild is a patch-level change, and the
-minor number is reserved for a feature line a human decides on. It then reads
-the version back from `cargo metadata`, so the AppImage file name and the
-version the widget reports (`V<version>` in the header and in the Help footer)
-come from the same number.
-It bundles the worker, builds the release widget, stages and packages the
-AppDir, writes `dist/SpeechTT-<version>-<arch>.AppImage` with its `.sha256`
-companion, and prints the `gh release create` command. Commit `Cargo.toml` and
-`Cargo.lock` with the release; the script itself never runs `git` or `gh`.
+Both advance the patch version in the `[workspace.package]` table of `Cargo.toml`
+and the `version` in `package.json` **before** they build: a rebuild is a
+patch-level change, and the minor number is reserved for a feature line a human
+decides on. They then read the version back from `cargo metadata`, so the
+AppImage file name and the version the widget reports (`V<version>` in the header
+and in the Help footer) come from the same number.
+They bundle the worker, build the release widget, stage and package the AppDir,
+write `dist/SpeechTT-<version>-<arch>.AppImage` with its `.sha256` companion, and
+print the `gh release create` command. Commit `Cargo.toml`, `Cargo.lock` and
+`package.json` with the release.
+
+`bun run release` goes one step further and runs that command, so the artifact is
+published as a GitHub release titled `SpeechTT <version>`; `gh release create
+v<version>` creates the tag. It needs an authenticated `gh` on `PATH`, and it
+refuses to publish from a working tree with uncommitted changes, listing them:
+a release tags the commit the build came from, so a dirty tree would publish an
+artifact built from code the tag does not contain. Commit first, or pass
+`--allow-dirty` for a deliberate one-off. If `gh` fails, the run exits `1` and
+prints its stderr; the artifact and its checksum stay in `dist/`, so the publish
+can be retried.
+
+`bun run package` never publishes: it builds, checks and prints the command, so a
+pipeline check is never a public act.
 
 Once the artifact and its checksum are written, the run removes the other
 `SpeechTT-*.AppImage` files and their `.sha256` companions from `dist/`, so a
@@ -345,8 +359,8 @@ and the AppDir is replaced wholesale when it is staged. A run that fails before
 the checksum removes nothing, so a broken build never destroys the previous
 release.
 
-A build that fails after the bump restores `Cargo.toml`, so retrying after an
-error does not consume a second version.
+A build that fails after the bump restores `Cargo.toml`, `Cargo.lock` and
+`package.json`, so retrying after an error does not consume a second version.
 
 Opt out explicitly when the run is not a release:
 
@@ -355,8 +369,13 @@ Opt out explicitly when the run is not a release:
 - `--no-build` repackages the existing binary and worker and never bumps,
   because a new number would name an artifact whose binary reports the old one.
   Without `--no-bump` it prints one line saying the bump was skipped.
+- `--release` also runs `gh release create` for the artifact the run produced;
+  `--release --no-build` republishes the artifact already in `dist/`.
+- `--allow-dirty` skips the clean-tree check `--release` makes.
 - `--dry-run` prints the release version, the full plan and the files it would
-  discard from `dist/`, and writes nothing.
+  discard from `dist/`, and writes nothing. With `--release` it also reads the
+  clean-tree guard — reporting the paths a real release would refuse — and
+  prints the `gh release create` command, running nothing.
 
 ## Documentation map
 

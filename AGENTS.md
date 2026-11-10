@@ -226,20 +226,36 @@ it: the code, the tests and the ticket already hold the truth.
 
 ### Release builds
 
-`bun run package` is the release command. It advances the patch version in the
-`[workspace.package]` table of `Cargo.toml` **before** `cargo build` — a rebuild
-is a patch, and the minor number is reserved for a feature line a human decides
-on — then re-reads `cargo metadata`, so the artifact name and the version
-compiled into the binary (`env!("CARGO_PKG_VERSION")`) agree. A failure after the
-write restores the original manifest, so a retry does not consume a second
-version.
+`bun run package` builds and checks; `bun run release` builds and publishes. Both
+advance the patch version in the `[workspace.package]` table of `Cargo.toml` and
+the `version` in `package.json` **before** `cargo build` — a rebuild is a patch,
+and the minor number is reserved for a feature line a human decides on — then
+re-read `cargo metadata`, so the artifact name and the version compiled into the
+binary (`env!("CARGO_PKG_VERSION")`) agree. A failure after the write restores
+the manifest, the lock file and `package.json`, so a retry does not consume a
+second version.
 
+- `--release` is the only path that executes `gh`: it runs the
+  `gh release create v<version>` command every run prints, after the `dist/`
+  cleanup, so the published assets are the pair just built. A plain
+  `bun run package` prints that command and stops, so a build never publishes.
+- `--release` requires `gh` on `PATH` (checked before the build starts) and a
+  clean working tree: it runs `git status --porcelain` and exits `2`, listing the
+  paths, when anything is uncommitted. Publishing tags the commit the artifact
+  was built from. `--allow-dirty` is the explicit override. That status read is
+  the only `git` invocation the script makes.
+- A failing `gh` exits `1` and prints its stderr; the artifact and its checksum
+  stay in `dist/`, and the bumped version stays written, so the retry is a
+  republish at the same number.
 - `--no-bump` builds and packages the current version without writing the
-  manifest; use it when verifying the pipeline rather than cutting a release.
+  manifests; use it when verifying the pipeline rather than cutting a release.
 - `--no-build` never bumps: it repackages the binary compiled earlier, and a new
   number would name an artifact whose binary reports the old one. Without
-  `--no-bump` it prints one line saying the bump was skipped.
-- `--dry-run` prints the release version and the full plan and writes nothing.
+  `--no-bump` it prints one line saying the bump was skipped. With `--release`
+  it republishes the existing artifact.
+- `--dry-run` prints the release version and the full plan and writes nothing;
+  with `--release` it also reads the clean-tree guard, reports the paths a real
+  release would refuse, and prints the publish command without executing it.
 
 ### TypeScript / Bun
 
