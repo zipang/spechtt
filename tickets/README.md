@@ -129,15 +129,14 @@ Decisions, deviations, verification output.
 
 ### In Progress
 
-| Ticket                                                          | Title                                              | Track                      |
-| --------------------------------------------------------------- | -------------------------------------------------- | -------------------------- |
-| [T0040](in_progress/T0040-bun-runtime-and-settings-recovery.md) | Find `bun`, and never leave Settings as a dead end | Rust core + Rust UI + docs |
+_(none)_
 
 ### Review
 
-| Ticket                                               | Title                                                         | Track                           |
-| ---------------------------------------------------- | ------------------------------------------------------------- | ------------------------------- |
-| [T0016](review/T0016-dependency-bootstrap-script.md) | Dependency bootstrap for Bun and ffmpeg, and a welcome README | Tooling (TypeScript/Bun) + docs |
+| Ticket                                                     | Title                                                         | Track                           |
+| ---------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------- |
+| [T0016](review/T0016-dependency-bootstrap-script.md)       | Dependency bootstrap for Bun and ffmpeg, and a welcome README | Tooling (TypeScript/Bun) + docs |
+| [T0040](review/T0040-bun-runtime-and-settings-recovery.md) | Find `bun`, and never leave Settings as a dead end            | Rust core + Rust UI + docs      |
 
 ### Planned
 
