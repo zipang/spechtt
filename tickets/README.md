@@ -127,6 +127,7 @@ Decisions, deviations, verification output.
 | [T0037](done/T0037-launch-smoke-gate.md)                        | A gate that launches the built binary                                           | Rust UI (test infrastructure)                             |
 | [T0038](done/T0038-appimage-release-pipeline.md)                | Build an installable AppImage and publish it on GitHub Releases                 | Tooling (TypeScript/Bun) + Rust core + docs               |
 | [T0041](done/T0041-release-version-and-header.md)              | Version bump per release, the version in the header, and `bun run release`      | Tooling (TypeScript/Bun) + Rust UI + docs                 |
+| [T0042](done/T0042-settings-density-and-order.md) | Settings fits, leads with what matters, and drops the empty choice | Rust UI + design system |
 
 ### In Progress
 
@@ -138,7 +139,6 @@ _(none)_
 | ---------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------- |
 | [T0016](review/T0016-dependency-bootstrap-script.md)       | Dependency bootstrap for Bun and ffmpeg, and a welcome README | Tooling (TypeScript/Bun) + docs |
 | [T0040](review/T0040-bun-runtime-and-settings-recovery.md) | Find `bun`, and never leave Settings as a dead end            | Rust core + Rust UI + docs      |
-| [T0042](review/T0042-settings-density-and-order.md) | Settings fits, leads with what matters, and drops the empty choice | Rust UI + design system          |
 | [T0043](review/T0043-dialogs-are-windows-not-views.md) | Dialogs are their own windows, not views of the widget | Rust UI + design-system gate     |
 
 ### Planned

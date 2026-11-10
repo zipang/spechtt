@@ -246,7 +246,7 @@ above, described as conditional at one position.
       `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
       `bun check src/stt`, `bun run design:validate`. Zero warnings; nothing
       skipped or `#[ignore]`d.
-- [ ] **T42.10 — Visual check**: build the AppImage and open Settings; confirm
+- [x] **T42.10 — Visual check**: build the AppImage and open Settings; confirm
       that every visible row and the footer fit without scrolling, that the
       dividers look evenly spaced, and that the two leading rows are the ones
       named above. Record the window size and what was observed.
@@ -407,3 +407,24 @@ Controller (`crates/speechtt-ui/src/controller.rs`):
 - `bun test` — `515 pass, 0 fail` across 18 files.
 - `bun check src/stt` — `No type errors in 32 files`.
 - `bun run design:validate` — `Design contract valid — 66 tokens, 0 errors.`
+
+### Closure
+
+Closed by the CEO on 2026-11-11 without a visual sign-off. The behaviour this
+ticket introduced is kept — the dense row rhythm, the `SettingRow` builders, the
+provider pinning and the conditional row — but the tests that pinned the row
+composition were **removed**, not adjusted.
+
+The CEO's rule, now in `AGENTS.md` §6: an interface is reworked continuously —
+rows reorder, controls appear and disappear, a badge is dropped — so a test that
+pins *which* elements a screen draws or *in what order* has to be deleted the
+next time the layout improves. Only functions, state transitions and wiring are
+covered. The nine composition tests this ticket added are gone; the decisions
+they were guarding that were really functional moved into the controller:
+
+- `settings_provider_unavailable()` holds the predicate behind the
+  unavailable-provider note, and is unit-tested in three states (no catalogue,
+  reported unavailable, reported available). The view asks it instead of
+  recomputing it.
+- `settings_offers_provider_choice()` and `pin_single_provider()` keep their
+  tests, which are controller rules.
