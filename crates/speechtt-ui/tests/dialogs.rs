@@ -64,6 +64,17 @@ fn two_provider_catalogue() -> Vec<ProviderCapability> {
     providers
 }
 
+/// A catalogue holding exactly one provider, under an id the caller chooses.
+fn single_provider_catalogue(id: &str, key_env: &str) -> Vec<ProviderCapability> {
+    vec![ProviderCapability {
+        id: id.to_string(),
+        label: id.to_uppercase(),
+        available: true,
+        key_env_vars: vec![key_env.to_string()],
+        models: Vec::new(),
+    }]
+}
+
 fn settings_with_mixed_case_key() -> Settings {
     let mut settings = Settings {
         provider: "vercel-ai-gateway".to_string(),
@@ -237,7 +248,7 @@ fn pin_single_provider_uses_the_catalogue_entry_or_the_default() {
 }
 
 #[test]
-fn pin_single_provider_never_overwrites_or_pins_when_there_is_a_choice() {
+fn pin_single_provider_keeps_a_matching_provider_and_leaves_a_choice_alone() {
     let mut chosen = SessionController::new();
     install_catalogue(&mut chosen);
     chosen.open_settings_with(Some("vercel-ai-gateway"), None, None, false);
@@ -245,7 +256,7 @@ fn pin_single_provider_never_overwrites_or_pins_when_there_is_a_choice() {
     assert_eq!(
         chosen.settings_draft().provider.as_deref(),
         Some("vercel-ai-gateway"),
-        "an existing provider is left alone"
+        "a draft already on the catalogue's only provider keeps it"
     );
 
     let mut choice = SessionController::new();
@@ -295,6 +306,99 @@ fn a_fresh_install_without_a_catalogue_saves_with_a_path_and_a_key() {
     assert_eq!(change.provider, DEFAULT_PROVIDER);
     assert_eq!(change.bun_executable, "/home/ada/.bun/bin/bun");
     assert_eq!(change.api_key.as_deref(), Some("sk-fresh-install"));
+}
+
+#[test]
+fn pin_single_provider_replaces_the_guess_the_catalogue_does_not_list() {
+    let mut controller = SessionController::new();
+    controller.open_settings();
+    assert_eq!(
+        controller.settings_draft().provider.as_deref(),
+        Some(DEFAULT_PROVIDER),
+        "a draft without a catalogue starts on the fallback guess"
+    );
+    controller.set_settings_api_key("sk-stale-guess");
+
+    // The worker names one provider, and it is not the guess.
+    controller.set_capabilities(single_provider_catalogue("mistral", "MISTRAL_API_KEY"));
+
+    assert_eq!(
+        controller.settings_draft().provider.as_deref(),
+        Some("mistral"),
+        "an arrived catalogue outranks the guess made before it existed"
+    );
+    assert!(
+        controller.settings_provider_known(),
+        "the draft names a provider the catalogue lists"
+    );
+}
+
+#[test]
+fn pin_single_provider_clears_the_models_of_a_provider_it_replaces() {
+    let mut controller = SessionController::new();
+    install_catalogue(&mut controller);
+    controller.open_settings();
+    assert!(controller.set_settings_streaming_model("openai/gpt-realtime-whisper"));
+    assert!(controller.set_settings_batch_model("openai/gpt-4o-transcribe"));
+
+    // A second handshake lists one provider, and it is not the drafted one.
+    controller.set_capabilities(single_provider_catalogue("mistral", "MISTRAL_API_KEY"));
+
+    assert_eq!(
+        controller.settings_draft().provider.as_deref(),
+        Some("mistral")
+    );
+    assert_eq!(
+        controller.settings_draft().model_streaming,
+        None,
+        "the replaced provider's streaming default does not belong to the new one"
+    );
+    assert_eq!(
+        controller.settings_draft().model_batch,
+        None,
+        "the replaced provider's batch default does not belong to the new one"
+    );
+}
+
+#[test]
+fn pin_single_provider_leaves_the_draft_alone_without_a_usable_single_provider() {
+    let mut choice = SessionController::new();
+    choice.set_capabilities(two_provider_catalogue());
+    choice.open_settings();
+    choice.pin_single_provider();
+    assert_eq!(
+        choice.settings_draft().provider,
+        None,
+        "a real choice is never answered for the user"
+    );
+
+    let mut empty = SessionController::new();
+    empty.open_settings();
+    assert_eq!(
+        empty.settings_draft().provider.as_deref(),
+        Some(DEFAULT_PROVIDER)
+    );
+    empty.set_capabilities(Vec::new());
+    empty.pin_single_provider();
+    assert_eq!(
+        empty.settings_draft().provider.as_deref(),
+        Some(DEFAULT_PROVIDER),
+        "a catalogue with no provider has nothing to pin and leaves the draft alone"
+    );
+}
+
+#[test]
+fn an_empty_catalogue_says_it_reported_no_providers() {
+    let mut controller = SessionController::new();
+    assert_eq!(controller.settings_backend_note(), None);
+
+    controller.set_capabilities(Vec::new());
+
+    assert_eq!(
+        controller.settings_backend_note().as_deref(),
+        Some("The transcription backend reported no providers."),
+        "a catalogue with no provider explains the disabled Save instead of staying silent"
+    );
 }
 
 #[test]
@@ -789,6 +893,11 @@ fn a_failed_respawn_keeps_settings_open_with_the_error_and_the_draft(
 
 /// A view that renders one `SettingRow` per builder combination, so the
 /// component's opt-in forms are observed without the dialog around them.
+///
+/// Each row carries an accessory id as well as a control id: the accessory is
+/// the only keyed element the label line can hold, so its presence is what a
+/// test can use to show that the title line is drawn. The title copy itself is
+/// anonymous rendered text, which the test kit does not enumerate.
 struct SettingRowProbe;
 
 impl Render for SettingRowProbe {
@@ -803,11 +912,13 @@ impl Render for SettingRowProbe {
             .w_full()
             .child(
                 SettingRow::new("Default", "the roomy default form")
+                    .accessory(div().id("probe-default-title-line").test_support())
                     .control(div().id("probe-default-control").test_support()),
             )
             .child(
                 SettingRow::new("Prominent", "the dialog form")
                     .prominent()
+                    .accessory(div().id("probe-prominent-title-line").test_support())
                     .control(div().id("probe-prominent-control").test_support()),
             )
             .child(
@@ -839,7 +950,9 @@ fn setting_row_builders_render_their_content(cx: &mut gpui_kit::TestAppContext) 
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
         for id in [
+            "probe-default-title-line",
             "probe-default-control",
+            "probe-prominent-title-line",
             "probe-prominent-control",
             "probe-dense-control",
             "probe-stacked-control",
@@ -867,8 +980,28 @@ fn document_order(window: &gpui_kit::Window, ids: &[&str]) -> Vec<String> {
 }
 
 #[gpui_kit::test]
-fn settings_leads_with_the_runtime_and_the_api_key(cx: &mut gpui_kit::TestAppContext) {
-    let (main, view) = common::open_speechtt_window(cx);
+async fn settings_leads_with_the_runtime_and_the_api_key(cx: &mut gpui_kit::TestAppContext) {
+    use speechtt_core::protocol::{CapabilitySource, LanguageModelInfo, SttEvent};
+
+    let (main, view, events) = common::open_speechtt_window_with_events(cx);
+
+    // The cleanup row draws a menu with `field-settings-cleanup` only once the
+    // worker has reported a language model; the handshake supplies one so the
+    // full row sequence is observable.
+    events
+        .send_blocking(Ok(SttEvent::Capabilities {
+            request_id: None,
+            source: CapabilitySource::Builtin,
+            providers: catalogue(),
+            languages: None,
+            language_models: Some(vec![LanguageModelInfo {
+                id: "openai/gpt-4.1-mini".to_owned(),
+                label: "GPT-4.1 mini".to_owned(),
+            }]),
+            default_language_model: Some("openai/gpt-4.1-mini".to_owned()),
+        }))
+        .expect("event sent");
+    cx.run_until_parked();
 
     cx.update_window(main.into(), |_, window, cx| {
         view.update(cx, |app, cx| app.open_settings(window, cx));
@@ -892,6 +1025,7 @@ fn settings_leads_with_the_runtime_and_the_api_key(cx: &mut gpui_kit::TestAppCon
                     "field-settings-language",
                     "field-settings-streaming",
                     "field-settings-batch",
+                    "field-settings-cleanup",
                 ]
             ),
             vec![
@@ -900,6 +1034,7 @@ fn settings_leads_with_the_runtime_and_the_api_key(cx: &mut gpui_kit::TestAppCon
                 "field-settings-language",
                 "field-settings-streaming",
                 "field-settings-batch",
+                "field-settings-cleanup",
             ],
             "the runtime and the credential lead the row list"
         );
@@ -959,6 +1094,90 @@ fn settings_shows_the_provider_row_when_two_providers_exist(cx: &mut gpui_kit::T
         assert!(
             window.try_find("field-settings-provider").is_some(),
             "two providers are a choice, so the row appears"
+        );
+        assert_eq!(
+            document_order(
+                window,
+                &[
+                    "field-settings-bun-path",
+                    "field-settings-api-key",
+                    "field-settings-provider",
+                    "field-settings-language",
+                ]
+            ),
+            vec![
+                "field-settings-bun-path",
+                "field-settings-api-key",
+                "field-settings-provider",
+                "field-settings-language",
+            ],
+            "the provider row sits between the API key and the language row"
+        );
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn settings_hides_the_provider_row_for_a_single_catalogue_provider(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let (main, view) = common::open_speechtt_window(cx);
+
+    cx.update_window(main.into(), |_, window, cx| {
+        view.update(cx, |app, cx| {
+            app.apply_capabilities(single_provider_catalogue("mistral", "MISTRAL_API_KEY"), cx);
+            app.open_settings(window, cx);
+        });
+    })
+    .unwrap();
+
+    let dialog = cx
+        .windows()
+        .into_iter()
+        .find(|window| window.window_id() != main.window_id())
+        .expect("Settings opened its own window");
+
+    cx.update_window(dialog, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(
+            view.read(cx).settings_draft().provider.as_deref(),
+            Some("mistral"),
+            "the draft takes the only provider the catalogue lists"
+        );
+        assert!(
+            window.try_find("field-settings-provider").is_none(),
+            "a one-provider catalogue leaves nothing to choose"
+        );
+    })
+    .unwrap();
+}
+
+/// A pinned provider exists before any catalogue does, so the model menus must
+/// stay closed rather than open onto an empty list.
+#[gpui_kit::test]
+fn the_model_menus_stay_closed_before_a_catalogue_arrives(cx: &mut gpui_kit::TestAppContext) {
+    let (main, view, events) = common::open_speechtt_window_without_catalogue(cx);
+    drop(events);
+    cx.run_until_parked();
+
+    cx.update_window(main.into(), |_, window, cx| {
+        view.update(cx, |app, cx| app.open_settings(window, cx));
+    })
+    .unwrap();
+
+    let dialog = cx
+        .windows()
+        .into_iter()
+        .find(|window| window.window_id() != main.window_id())
+        .expect("Settings opened its own window");
+
+    cx.update_window(dialog, |_, window, cx| {
+        window.render_frame(cx);
+        window.within("field-settings-streaming").click("input", cx);
+        assert_eq!(
+            window.find("field-settings-streaming").expanded(),
+            Some(false),
+            "an empty model menu never opens"
         );
     })
     .unwrap();
