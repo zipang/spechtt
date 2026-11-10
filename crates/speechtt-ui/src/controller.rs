@@ -1580,22 +1580,30 @@ impl SessionController {
 
     /// Pins the draft's provider when the dialog offers no choice.
     ///
-    /// The catalogue's only provider when one has arrived, [`DEFAULT_PROVIDER`]
-    /// otherwise, so a fresh install still has a provider to save and the
-    /// backend-recovery state keeps a complete draft. A draft that already has
-    /// a provider is never overwritten, and a catalogue with a choice leaves
-    /// the menu empty for the user to answer.
+    /// [`DEFAULT_PROVIDER`] is a guess made before any catalogue exists, so an
+    /// arrived catalogue outranks it: a catalogue with exactly one provider puts
+    /// the draft on that id, replacing a guess the catalogue does not list and
+    /// clearing both mode defaults when the id changes. That replacement risks
+    /// no user choice, because this function only reaches it while none is on
+    /// screen — a catalogue with two or more providers returns untouched, and a
+    /// catalogue that lists none has nothing to pin.
     pub fn pin_single_provider(&mut self) {
-        if self.settings_draft.provider.is_some() || self.settings_offers_provider_choice() {
+        let Some(providers) = self.capabilities.as_ref() else {
+            // No catalogue yet: a fresh draft takes the guess so it can save
+            // once `Bun path` and a key are filled in.
+            if self.settings_draft.provider.is_none() {
+                self.settings_draft.provider = Some(DEFAULT_PROVIDER.to_owned());
+            }
             return;
+        };
+        let [only] = providers.as_slice() else {
+            return;
+        };
+        if self.settings_draft.provider.as_deref() != Some(only.id.as_str()) {
+            self.settings_draft.provider = Some(only.id.clone());
+            self.settings_draft.model_streaming = None;
+            self.settings_draft.model_batch = None;
         }
-        let provider = self
-            .capabilities
-            .as_ref()
-            .and_then(|providers| providers.first())
-            .map(|option| option.id.clone())
-            .unwrap_or_else(|| DEFAULT_PROVIDER.to_owned());
-        self.settings_draft.provider = Some(provider);
     }
 
     /// Streaming models the Settings provider offers.
@@ -1845,33 +1853,29 @@ impl SessionController {
         }
     }
 
-    /// The provider menu's placeholder for the current handshake state.
+    /// The provider menu's placeholder, in the state that draws the row.
     ///
-    /// "Loading providers…" is only honest while a backend can still answer.
-    /// Once the backend is known to be unavailable, the row states that instead
-    /// of implying progress that will never arrive.
+    /// The row is only composed when the catalogue offers a choice, so the menu
+    /// is past loading and its only prompt is the empty trigger's.
     #[must_use]
     pub fn settings_provider_placeholder(&self) -> &'static str {
-        if self.catalogue_loaded() {
-            "Choose provider"
-        } else if self.backend_unavailable() {
-            "Backend unavailable"
-        } else {
-            "Loading providers…"
-        }
+        "Choose provider"
     }
 
     /// The failure note the Settings dialog draws, or `None` when there is
     /// nothing to explain.
     ///
-    /// Present exactly while no catalogue has arrived and the backend is
-    /// unavailable. It carries paths from [`BackendFailure::BunMissing`],
-    /// [`BackendFailure::NotExecutable`] and [`BackendFailure::WorkerMissing`]
-    /// and nothing else: no key material and no stack detail.
+    /// Present while no catalogue has arrived and the backend is unavailable, and
+    /// while an arrived catalogue lists no provider at all. It carries paths from
+    /// [`BackendFailure::BunMissing`], [`BackendFailure::NotExecutable`] and
+    /// [`BackendFailure::WorkerMissing`] and nothing else: no key material and no
+    /// stack detail.
     #[must_use]
     pub fn settings_backend_note(&self) -> Option<String> {
-        if self.catalogue_loaded() {
-            return None;
+        if let Some(providers) = self.capabilities.as_ref() {
+            return providers
+                .is_empty()
+                .then(|| "The transcription backend reported no providers.".to_owned());
         }
         match self.backend_failure.as_ref()? {
             BackendFailure::BunMissing { searched } => {
@@ -5254,10 +5258,6 @@ mod tests {
     fn the_dialog_names_a_missing_runtime_only_while_no_catalogue_exists() {
         let mut controller = SessionController::new();
         assert_eq!(controller.settings_backend_note(), None);
-        assert_eq!(
-            controller.settings_provider_placeholder(),
-            "Loading providers…"
-        );
 
         controller.note_backend_failure(BackendFailure::BunMissing {
             searched: vec![
@@ -5271,16 +5271,6 @@ mod tests {
             .expect("the cause is named");
         assert!(note.contains("bun runtime was not found"), "{note}");
         assert!(note.contains("/home/ada/.bun/bin/bun"), "{note}");
-        assert_eq!(
-            controller.settings_provider_placeholder(),
-            "Backend unavailable"
-        );
-        assert!(
-            !controller
-                .settings_provider_placeholder()
-                .contains("Loading"),
-            "an unavailable backend has nothing to load"
-        );
 
         install_catalogue(&mut controller);
         assert_eq!(
@@ -5291,6 +5281,20 @@ mod tests {
         assert_eq!(
             controller.settings_provider_placeholder(),
             "Choose provider"
+        );
+    }
+
+    #[test]
+    fn a_catalogue_without_providers_says_so() {
+        let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
+        assert_eq!(controller.settings_backend_note(), None);
+
+        controller.set_capabilities(Vec::new());
+
+        assert_eq!(
+            controller.settings_backend_note().as_deref(),
+            Some("The transcription backend reported no providers.")
         );
     }
 

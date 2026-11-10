@@ -25,7 +25,8 @@
 //! `SettingsChange` through `SpeechTtApp::apply_settings_change`, which writes
 //! it to the Rust settings store.
 //!
-//! Rendered by `views::dialogs::window` for the `Dialog::Settings` window.
+//! Rendered by `views::dialogs::window`, which dispatches it as
+//! `settings::render` for the `Dialog::Settings` window.
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::button::Button;
@@ -87,7 +88,7 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
             controller
                 .settings_api_key_env()
                 .map(std::string::ToString::to_string)
-                .unwrap_or_else(|| "Select a provider to see its key".to_owned()),
+                .unwrap_or_else(|| "The credential your provider reads".to_owned()),
             unavailable,
             app.settings_key_revealed(),
             app.settings_api_key_input().clone(),
@@ -114,13 +115,16 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
     } else {
         "Choose provider first"
     };
+    // A pinned provider makes `has_provider` true before any catalogue arrives,
+    // and a menu with no models must not open: the catalogue is what fills it.
+    let model_menus_disabled = !has_provider || !catalogue_loaded;
     let streaming_select =
         ModelSelect::new("field-settings-streaming", dialog.selects().streaming())
             .placeholder(model_placeholder)
-            .disabled(!has_provider);
+            .disabled(model_menus_disabled);
     let batch_select = ModelSelect::new("field-settings-batch", dialog.selects().batch())
         .placeholder(model_placeholder)
-        .disabled(!has_provider);
+        .disabled(model_menus_disabled);
 
     let model_control = |select: AnyElement, mode: Option<TranscriptionMode>| {
         let mut row = h_flex().gap_2().items_center().child(select);

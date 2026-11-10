@@ -56,7 +56,7 @@ impl SettingRow {
     /// The row keeps `prominent`'s typography and hairline; only its vertical
     /// padding shrinks and becomes equal above and below the content, so a
     /// divider sits centred between two rows. Off unless called:
-    /// `views::session_setup` keeps the roomier default.
+    /// `views::session_setup` keeps the roomier prominent form.
     pub fn dense(mut self) -> Self {
         self.dense = true;
         self
