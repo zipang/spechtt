@@ -236,7 +236,7 @@ Rules:
       call site in `app.rs` that passes `env!("CARGO_PKG_VERSION")`.
 - [x] **T41.7 — Docs**: `README.md` per §4, `AGENTS.md`, `DESIGN.md`,
       `tickets/README.md`.
-- [ ] **T41.11 — Stale-artifact specs first**: red tests for
+- [x] **T41.11 — Stale-artifact specs first**: red tests for
       `staleArtifacts` — keeps the current artifact and its `.sha256` and
       returns every other `SpeechTT-*.AppImage`/`.sha256`; leaves `tools`,
       `worker.js`, `SpeechTT.AppDir` and an unrelated file alone; returns a
@@ -246,7 +246,7 @@ Rules:
       before packaging removes nothing; `--dry-run` lists them and removes
       nothing. `CliDeps` gains an injectable `listDir`, so no test reads a real
       directory.
-- [ ] **T41.12 — Stale-artifact implementation**: `listDir` in `CliDeps` and its
+- [x] **T41.12 — Stale-artifact implementation**: `listDir` in `CliDeps` and its
       live implementation, `staleArtifacts` per §5, and the removal step after
       the checksum is written.
 - [ ] **T41.8 — Gates**: `cargo fmt -- --check`,
@@ -534,3 +534,116 @@ $ bun run design:validate
   `0.5.2`; leaving it at `0.5.0` makes the next release `0.5.1`, which is the
   number the CEO decided. The tree therefore stays at `0.5.0` and the release
   lands on `0.5.1`.
+
+### Stale artifacts in `dist/` (T41.11–T41.12)
+
+- **What was added.** `staleArtifacts(entries, keep)` is pure and returns the
+  bare names to delete, sorted. `CliDeps` gained `listDir(path) -> string[]`,
+  returning bare entry names and an empty array for a missing directory; the
+  live `systemDeps` implements it with `fs.readdirSync` inside a `try`, so a
+  first run with no `dist/` cleans nothing instead of failing. A private
+  `discardStaleArtifacts(deps, keep, dryRun)` owns the one place the listing is
+  read, the one line of output per file (`removed: <path>`, or
+  `would remove: <path>` under `--dry-run`) and the `removePath` call.
+- **The rule.** Only `SpeechTT-*.AppImage` and `SpeechTT-*.AppImage.sha256` are
+  candidates (`^SpeechTT-.+\.AppImage(\.sha256)?$`). `keep` and
+  `keep + ".sha256"` are preserved; `tools/`, `worker.js`, `SpeechTT.AppDir`
+  and any unrelated file are left alone, because the AppDir is replaced when it
+  is staged and the tool cache is a download the next build would repeat. An
+  entry containing `/` or `\` is never returned, so a listing cannot escape
+  `dist/`, and a name that merely looks close (`SpeechTTX-…`) is not a
+  candidate.
+- **Safety ordering.** The cleanup runs after `writeFile(<artifact>.sha256)` and
+  before the `gh release create` line is printed, so the publish command stays
+  the last thing the user reads and a run that fails earlier (worker bundle,
+  `cargo build`, staging, download, `appimagetool`, checksum) removes nothing.
+  `--dry-run` takes the same branch with `dryRun = true`: it reads the listing,
+  prints the would-be removals, and calls `removePath` zero times. The existing
+  output order is otherwise unchanged; the two new lines sit immediately before
+  the release command.
+- **Docs.** `README.md`'s Releasing section states that a successful run leaves
+  `dist/` carrying only the artifact it just produced, what is kept, and that a
+  failed run deletes nothing; the `--dry-run` bullet mentions the would-be
+  removals.
+
+#### Tests added
+
+`staleArtifacts` (7): keeps the current artifact and its checksum and removes an
+older pair; leaves `tools`, `worker.js`, `SpeechTT.AppDir` and unrelated files
+alone; returns the names sorted whatever the listing order; never returns an
+entry carrying a path separator (`/`, `\`, absolute); empty listing removes
+nothing; a near name (`SpeechTTX-…`, `.zip`, `.asc`, lowercase) is not a
+candidate; the current checksum alone is kept. CLI through the `CliDeps` fakes
+(5): a successful run removes exactly the stale files the fake listing reported
+and prints one `removed:` line each; the cleanup lines follow the checksum line
+and precede the release command; a failing `appimagetool` removes nothing; a
+`--dry-run` names the four would-be removals and calls `removePath` zero times;
+`--no-build` also cleans after a successful repackage (keeping its own pair).
+No test reads a real directory, runs `cargo`, `bun build`, `fetch` or `gh`.
+
+#### Red → green
+
+| Group  | Red                                                                | Green            |
+| ------ | ------------------------------------------------------------------ | ---------------- |
+| T41.11 | `SyntaxError: Export named 'staleArtifacts' not found in module …` | 66 pass / 0 fail |
+| T41.12 | (implemented `listDir`, `staleArtifacts`, `discardStaleArtifacts`) | 66 pass / 0 fail |
+
+One spec was corrected while going green: `--no-build` repackages the current
+version, so the pair it keeps is the current one and the expectations name the
+older pair as the removed set.
+
+#### Gate output (stale-artifact round, version 0.5.0)
+
+```
+$ cargo fmt -- --check
+exit 0, no diff
+
+$ cargo clippy --all-targets -- -D warnings
+    Checking speechtt-core v0.5.0
+    Checking speechtt-ui v0.5.0
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.02s
+
+$ cargo test
+20 targets: 674 passed; 0 failed; 0 ignored
+
+$ bun test
+ 489 pass
+ 0 fail
+ 1632 expect() calls
+Ran 489 tests across 18 files.
+
+$ bun check src/stt
+✓ No type errors in 32 files
+
+$ bun check scripts/package.ts scripts/package.spec.ts
+✓ No type errors in 2 files
+
+$ bun run design:validate
+✓ Design contract valid — 66 tokens, 0 errors.
+```
+
+#### Dry run against the real `dist/`
+
+The real `dist/` held only the 0.5.1 pair, so the listing was exercised with
+two empty throwaway entries in place and removed afterwards:
+
+```
+$ bun run package --dry-run
+release version: 0.5.1
+would remove: dist/SpeechTT-0.4.0-x86_64.AppImage
+would remove: dist/SpeechTT-0.4.0-x86_64.AppImage.sha256
+gh release create v0.5.1 dist/SpeechTT-0.5.1-x86_64.AppImage dist/SpeechTT-0.5.1-x86_64.AppImage.sha256 --title "SpeechTT 0.5.1" --generate-notes
+```
+
+Both throwaway files were still present after the dry run (nothing was
+removed), and `dist/` afterwards holds `SpeechTT-0.5.1-x86_64.AppImage`,
+`SpeechTT-0.5.1-x86_64.AppImage.sha256`, `SpeechTT.AppDir`, `tools/` and
+`worker.js`. No release build was run, so `Cargo.toml` still reads
+`version = "0.5.0"` and the next `bun run package` produces 0.5.1.
+
+**Working-tree note.** The tree at dispatch carried an uncommitted bump of
+`Cargo.toml`/`Cargo.lock` to 0.5.1, left by an earlier verification run, which
+made the dry run project 0.5.2. With the CEO's approval those two files were
+restored to `HEAD` (`0.5.0`) — a copy of the discarded text is at
+`/tmp/opencode/t41-manifest-backup/` — so the tree now matches the manifest the
+next release must start from.
