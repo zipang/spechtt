@@ -1,8 +1,10 @@
 //! Settings dialog, per `mockups/dialogs/settings.png`.
 //!
-//! Seven rows, top to bottom: **Dictation Language** (Auto first — it is what the
-//! transcriber is told, so it leads the model rows), **Transcription Service**,
-//! the two take defaults, **Cleanup Model**, **Bun path** and the API key. Each
+//! The rows read top to bottom: **Bun path**, the API key, **Dictation
+//! Language**, the two take defaults and **Cleanup Model**. **Transcription
+//! Service** sits between the key and the language rows only while the
+//! catalogue offers more than one provider; with a single provider the
+//! controller pins it and the row would only restate the decision. Each
 //! dropdown is a component owned by `views::dialogs::window`; this file only
 //! composes the rows and passes the current values.
 //!
@@ -12,6 +14,12 @@
 //! an unavailable backend states its cause instead of implying that a catalogue
 //! is still loading, and the API-key badge reports `NOT VERIFIED` until a
 //! catalogue has arrived.
+//!
+//! All rows use [`SettingRow::dense`] and are passed to the shell as one
+//! gap-free child, so each divider has equal space above and below. The API key
+//! is [`SettingRow::stacked`] with its badge as the [`SettingRow::accessory`],
+//! because the masked field needs the full row width. The notes stay separate
+//! children of the shell and keep its gap.
 //!
 //! The dialog edits a draft (see `controller::SettingsDraft`); saving stages a
 //! `SettingsChange` through `SpeechTtApp::apply_settings_change`, which writes
@@ -23,12 +31,12 @@ use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::button::Button;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::Input;
-use gpui_kit::component::{ActiveTheme as _, Disableable as _, Sizable as _};
+use gpui_kit::component::{Disableable as _, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, Context, IntoElement};
 
 use crate::components::{
-    ActionButton, AppFooter, Body, InfoNote, Label, LanguageSelect, ModelSelect, ProviderSelect,
+    ActionButton, AppFooter, InfoNote, Label, LanguageSelect, ModelSelect, ProviderSelect,
     SettingRow, StatusBadge, StatusDot, TranscriptionModeBadge,
 };
 use speechtt_core::protocol::TranscriptionMode;
@@ -57,6 +65,7 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
         stored_key_hint,
         has_cleanup_models,
         resolved_cleanup_model,
+        offers_provider_choice,
     ) = {
         let app = dialog.app().read(cx);
         let controller = app.controller();
@@ -92,6 +101,7 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
             controller
                 .default_cleanup_model()
                 .map(std::string::ToString::to_string),
+            controller.settings_offers_provider_choice(),
         )
     };
 
@@ -175,41 +185,19 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
         reveal = reveal.disabled(true);
     }
 
-    let mut api_key = v_flex()
-        .w_full()
-        .gap_2()
-        .py_3()
-        .border_b_1()
-        .border_color(cx.theme().border)
-        .child(
-            h_flex()
-                .w_full()
-                .justify_between()
-                .items_center()
-                .gap_4()
-                .child(
-                    v_flex()
-                        .flex_shrink_1()
-                        .min_w_0()
-                        .gap_1()
-                        .child(Body::new("API key").bold())
-                        .child(Body::new(key_env).mono().muted()),
-                )
-                .child(badge),
-        )
-        .child(
-            Input::new(&api_key_input)
-                .id("field-settings-api-key")
-                .w_full()
-                .suffix(reveal),
-        );
+    let mut api_key_control = v_flex().w_full().gap_1().child(
+        Input::new(&api_key_input)
+            .id("field-settings-api-key")
+            .w_full()
+            .suffix(reveal),
+    );
 
     if let Some(stored_key) = stored_key_label {
         let mut stored = v_flex().gap_1().child(Label::new(stored_key).mono());
         if let Some(hint) = stored_key_hint {
             stored = stored.child(Label::new(hint).muted());
         }
-        api_key = api_key.child(stored);
+        api_key_control = api_key_control.child(stored);
     }
 
     let footer = AppFooter::new()
@@ -223,51 +211,77 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
                 .on_click(cx.listener(|this, _event, window, cx| this.save(window, cx))),
         );
 
-    let mut shell = DialogShell::new()
-        .body(
-            SettingRow::new(
-                "Dictation Language",
-                "The language you speak; improves accuracy",
-            )
-            .prominent()
-            .control(language_select),
-        )
-        .body(
+    let bun_path_row = SettingRow::new(
+        "Bun path",
+        "The bun runtime the worker runs on; empty finds it automatically",
+    )
+    .prominent()
+    .dense()
+    .control(
+        Input::new(&bun_path_input)
+            .id("field-settings-bun-path")
+            .w_full(),
+    );
+
+    let api_key_row = SettingRow::new("API key", key_env)
+        .prominent()
+        .dense()
+        .stacked()
+        .mono_description()
+        .accessory(badge)
+        .control(api_key_control);
+
+    let mut rows: Vec<AnyElement> = vec![
+        bun_path_row.into_any_element(),
+        api_key_row.into_any_element(),
+    ];
+
+    if offers_provider_choice {
+        rows.push(
             SettingRow::new("Transcription Service", "The default backend API provider")
                 .prominent()
-                .control(provider_select),
+                .dense()
+                .control(provider_select)
+                .into_any_element(),
+        );
+    }
+
+    rows.push(
+        SettingRow::new(
+            "Dictation Language",
+            "The language you speak; improves accuracy",
         )
-        .body(
-            SettingRow::new("Default Streaming Model", "Used for live dictation")
-                .prominent()
-                .control(streaming_control),
-        )
-        .body(
-            SettingRow::new("Default Batch Model", "Used for audio and video files")
-                .prominent()
-                .control(batch_control),
-        )
-        .body(
-            SettingRow::new(
-                "Cleanup Model",
-                "Repairs typos and broken sentences after transcription",
-            )
+        .prominent()
+        .dense()
+        .control(language_select)
+        .into_any_element(),
+    );
+    rows.push(
+        SettingRow::new("Default Streaming Model", "Used for live dictation")
             .prominent()
-            .control(cleanup_control),
-        )
-        .body(
-            SettingRow::new(
-                "Bun path",
-                "The bun runtime the worker runs on; empty finds it automatically",
-            )
+            .dense()
+            .control(streaming_control)
+            .into_any_element(),
+    );
+    rows.push(
+        SettingRow::new("Default Batch Model", "Used for audio and video files")
             .prominent()
-            .control(
-                Input::new(&bun_path_input)
-                    .id("field-settings-bun-path")
-                    .w_full(),
-            ),
+            .dense()
+            .control(batch_control)
+            .into_any_element(),
+    );
+    rows.push(
+        SettingRow::new(
+            "Cleanup Model",
+            "Repairs typos and broken sentences after transcription",
         )
-        .body(api_key);
+        .prominent()
+        .dense()
+        .control(cleanup_control)
+        .into_any_element(),
+    );
+
+    let mut shell = DialogShell::new().body(v_flex().w_full().children(rows));
 
     // The note explains why this provider cannot be used yet, so it is drawn
     // only while the worker reports the provider as unavailable: with the

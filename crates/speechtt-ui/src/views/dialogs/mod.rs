@@ -23,10 +23,11 @@ use crate::controller::Dialog;
 /// Fixed client size of both dialog windows, in logical pixels.
 pub(crate) const DIALOG_WIDTH: f32 = 600.;
 pub(crate) const HELP_DIALOG_HEIGHT: f32 = 520.;
-/// Taller than Help: Settings carries seven rows (language, provider, two
-/// defaults, cleanup model, bun path, API key), so the last control must not
-/// start below the fold of the scrolling body.
-pub(crate) const SETTINGS_DIALOG_HEIGHT: f32 = 700.;
+/// Sized for the six visible rows plus the footer. The rows lead with `Bun
+/// path` and the API key, `Transcription Service` appears only when the
+/// catalogue offers a choice, and every row uses the dense symmetric rhythm, so
+/// this height shows all of them and the footer without scrolling.
+pub(crate) const SETTINGS_DIALOG_HEIGHT: f32 = 660.;
 
 /// Title used by the OS window and its in-window header.
 pub(crate) fn window_title(dialog: Dialog) -> String {

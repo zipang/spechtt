@@ -31,7 +31,7 @@ use speechtt_core::protocol::{
     SecretString, SttCommand, SttEvent, TranscriptionMode,
 };
 use speechtt_core::session::{FinishedSession, SessionField, SessionMachine, SessionState};
-use speechtt_core::settings::{Settings, SettingsError};
+use speechtt_core::settings::{DEFAULT_PROVIDER, Settings, SettingsError};
 use speechtt_core::transcript::TranscriptBuffer;
 
 /// Mock audio source until device enumeration lands (Phase 3).
@@ -1567,6 +1567,37 @@ impl SessionController {
         self.capability_provider_options()
     }
 
+    /// Whether Settings offers a provider choice.
+    ///
+    /// False while the catalogue holds at most one provider: a menu with a
+    /// single entry only restates what the app already decided. Hiding the row
+    /// must not change the draft, so the same rule pins it (see
+    /// [`Self::pin_single_provider`]).
+    #[must_use]
+    pub fn settings_offers_provider_choice(&self) -> bool {
+        self.settings_provider_options().len() > 1
+    }
+
+    /// Pins the draft's provider when the dialog offers no choice.
+    ///
+    /// The catalogue's only provider when one has arrived, [`DEFAULT_PROVIDER`]
+    /// otherwise, so a fresh install still has a provider to save and the
+    /// backend-recovery state keeps a complete draft. A draft that already has
+    /// a provider is never overwritten, and a catalogue with a choice leaves
+    /// the menu empty for the user to answer.
+    pub fn pin_single_provider(&mut self) {
+        if self.settings_draft.provider.is_some() || self.settings_offers_provider_choice() {
+            return;
+        }
+        let provider = self
+            .capabilities
+            .as_ref()
+            .and_then(|providers| providers.first())
+            .map(|option| option.id.clone())
+            .unwrap_or_else(|| DEFAULT_PROVIDER.to_owned());
+        self.settings_draft.provider = Some(provider);
+    }
+
     /// Streaming models the Settings provider offers.
     ///
     /// Empty until a provider is chosen.
@@ -1993,6 +2024,9 @@ impl SessionController {
         self.migrate_legacy_default();
         if self.screen == Screen::Form {
             self.seed_draft_from_settings();
+        }
+        if self.active_dialog == Some(Dialog::Settings) {
+            self.pin_single_provider();
         }
     }
 
@@ -2658,9 +2692,10 @@ impl SessionController {
     /// Opens Settings with an empty draft.
     ///
     /// [`Self::open_settings_with`] seeds a draft explicitly (for example from
-    /// a future "edit current provider" entry point). The dialog deliberately
-    /// starts from "Choose provider" so changing a provider always starts from
-    /// the first catalogue entry, independent of any previously stored file.
+    /// the persisted settings). A catalogue that offers a choice leaves the
+    /// provider menu empty, so changing a provider starts from the catalogue's
+    /// first entry; a catalogue with at most one provider pins that provider
+    /// instead (see [`Self::pin_single_provider`]).
     pub fn open_settings(&mut self) {
         self.open_settings_with(None, None, None, false);
     }
@@ -2670,6 +2705,8 @@ impl SessionController {
     /// Unknown provider/model ids are ignored so corrupt state cannot make the
     /// dialog panic. `api_key_unchanged` means "a key is already stored";
     /// the field itself stays empty because the raw key never leaves the store.
+    /// The draft pins the only provider when the catalogue has no choice, so the
+    /// model rows are usable on an install that never chose one.
     pub fn open_settings_with(
         &mut self,
         provider: Option<&str>,
@@ -2710,6 +2747,7 @@ impl SessionController {
             .as_ref()
             .map(|settings| settings.bun_executable.clone())
             .unwrap_or_default();
+        self.pin_single_provider();
         self.active_dialog = Some(Dialog::Settings);
     }
 
@@ -2733,6 +2771,7 @@ impl SessionController {
             api_key: String::new(),
             api_key_unchanged: has_key,
         };
+        self.pin_single_provider();
         self.active_dialog = Some(Dialog::Settings);
     }
 
@@ -4554,7 +4593,11 @@ mod tests {
         let mut controller = SessionController::new();
         install_catalogue(&mut controller);
         controller.open_settings();
-        assert_eq!(controller.settings_api_key_env(), None);
+        assert_eq!(
+            controller.settings_api_key_env(),
+            Some("AI_GATEWAY_API_KEY"),
+            "the only provider is pinned, so its variable is known"
+        );
 
         assert!(controller.set_settings_provider("vercel-ai-gateway"));
         assert_eq!(
@@ -4776,11 +4819,8 @@ mod tests {
         let providers = controller.settings_provider_options();
         assert_eq!(providers.len(), 1);
         assert_eq!(providers[0].id, "vercel-ai-gateway");
-        assert!(controller.settings_streaming_model_options().is_empty());
-        assert!(controller.settings_batch_model_options().is_empty());
 
-        assert!(controller.set_settings_provider("vercel-ai-gateway"));
-
+        // The single catalogue provider is pinned, so both menus resolve it.
         let streaming = controller.settings_streaming_model_options();
         let streaming_ids: Vec<_> = streaming.iter().map(|option| option.id.as_str()).collect();
         assert_eq!(
