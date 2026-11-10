@@ -325,10 +325,12 @@ A release is one command, run from the repository root:
 bun run package
 ```
 
-The script advances the minor version in the `[workspace.package]` table of
-`Cargo.toml` **before** it builds, then reads the version back from
-`cargo metadata`, so the AppImage file name and the version the widget reports
-(`V<version>` in the header and in the Help footer) come from the same number.
+The script advances the patch version in the `[workspace.package]` table of
+`Cargo.toml` **before** it builds: a rebuild is a patch-level change, and the
+minor number is reserved for a feature line a human decides on. It then reads
+the version back from `cargo metadata`, so the AppImage file name and the
+version the widget reports (`V<version>` in the header and in the Help footer)
+come from the same number.
 It bundles the worker, builds the release widget, stages and packages the
 AppDir, writes `dist/SpeechTT-<version>-<arch>.AppImage` with its `.sha256`
 companion, and prints the `gh release create` command. Commit `Cargo.toml` and

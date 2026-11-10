@@ -226,11 +226,13 @@ it: the code, the tests and the ticket already hold the truth.
 
 ### Release builds
 
-`bun run package` is the release command. It advances the minor version in the
-`[workspace.package]` table of `Cargo.toml` **before** `cargo build`, then
-re-reads `cargo metadata`, so the artifact name and the version compiled into the
-binary (`env!("CARGO_PKG_VERSION")`) agree. A failure after the write restores
-the original manifest, so a retry does not consume a second version.
+`bun run package` is the release command. It advances the patch version in the
+`[workspace.package]` table of `Cargo.toml` **before** `cargo build` — a rebuild
+is a patch, and the minor number is reserved for a feature line a human decides
+on — then re-reads `cargo metadata`, so the artifact name and the version
+compiled into the binary (`env!("CARGO_PKG_VERSION")`) agree. A failure after the
+write restores the original manifest, so a retry does not consume a second
+version.
 
 - `--no-bump` builds and packages the current version without writing the
   manifest; use it when verifying the pipeline rather than cutting a release.

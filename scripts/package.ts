@@ -1,7 +1,7 @@
 /**
  * Builds the Linux AppImage release artifact for SpeechTT.
  *
- * The pipeline advances the workspace minor version in `Cargo.toml`, bundles the STT worker into
+ * The pipeline advances the workspace patch version in `Cargo.toml`, bundles the STT worker into
  * one file, compiles the release widget, stages a `SpeechTT.AppDir` exactly as the AppImage guide
  * describes, turns it into `dist/SpeechTT-<version>-<arch>.AppImage`, writes its `sha256sum`
  * companion and prints the `gh release create` command. It never publishes anything itself.
@@ -209,20 +209,21 @@ export function versionFromMetadata(raw: string): string {
 }
 
 /**
- * The next minor version: `0.5.0` → `0.6.0`.
+ * The next patch version: `0.5.0` → `0.5.1`.
  *
- * The patch component resets to zero because a minor bump starts a new feature line. A value that
- * is not `major.minor.patch` with numeric components throws a {@link UsageError} rather than
- * guessing.
+ * A packaging change is a patch-level change, and the minor number is reserved for a feature line a
+ * human decides on. Major and minor are preserved and only the patch advances. A value that is not
+ * `major.minor.patch` with numeric components throws a {@link UsageError} rather than guessing.
  */
-export function nextMinorVersion(version: string): string {
+export function nextPatchVersion(version: string): string {
 	const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
 	if (match === null) {
 		throw new UsageError(`not a major.minor.patch version: ${version}`);
 	}
 	const major = BigInt(match[1] as string);
 	const minor = BigInt(match[2] as string);
-	return `${major}.${minor + 1n}.0`;
+	const patch = BigInt(match[3] as string);
+	return `${major}.${minor}.${patch + 1n}`;
 }
 
 /**
@@ -505,7 +506,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
  * download or run, the checksum — and `2` a usage or environment error such as a missing tool, a
  * workspace version mismatch or an unsupported architecture.
  *
- * A full build advances the `[workspace.package]` minor version in `Cargo.toml` before `cargo
+ * A full build advances the `[workspace.package]` patch version in `Cargo.toml` before `cargo
  * build`, re-reads `cargo metadata`, and names the artifact from that answer. A failure after the
  * write restores the original manifest, so a retry does not consume a second version.
  *
@@ -548,7 +549,7 @@ async function runPipeline(argv: readonly string[], deps: CliDeps): Promise<numb
 	// A dry run writes nothing, but it names the version a release would produce. Repackaging and
 	// `--no-bump` keep the version already compiled into the artifacts they reuse.
 	const releaseVersion =
-		parsed.noBump || parsed.noBuild ? currentVersion : nextMinorVersion(currentVersion);
+		parsed.noBump || parsed.noBuild ? currentVersion : nextPatchVersion(currentVersion);
 	const plan = stagePlanLinux();
 
 	if (parsed.dryRun) {

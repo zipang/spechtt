@@ -17,7 +17,7 @@ import {
 	bumpedManifest,
 	checksumLine,
 	desktopEntryLinux,
-	nextMinorVersion,
+	nextPatchVersion,
 	releaseCommand,
 	runCli,
 	stagePlanLinux,
@@ -122,30 +122,27 @@ describe("versionFromMetadata", () => {
 	});
 });
 
-describe("nextMinorVersion", () => {
-	test("advances the minor and resets the patch", () => {
-		expect(nextMinorVersion("0.5.0")).toBe("0.6.0");
-		expect(nextMinorVersion("0.0.0")).toBe("0.1.0");
-		expect(nextMinorVersion("1.2.9")).toBe("1.3.0");
-	});
-
-	test("carries a multi-digit minor", () => {
-		expect(nextMinorVersion("1.9.3")).toBe("1.10.0");
+describe("nextPatchVersion", () => {
+	test("advances the patch and preserves major and minor", () => {
+		expect(nextPatchVersion("0.5.0")).toBe("0.5.1");
+		expect(nextPatchVersion("1.9.3")).toBe("1.9.4");
+		expect(nextPatchVersion("0.0.0")).toBe("0.0.1");
+		expect(nextPatchVersion("2.0.7")).toBe("2.0.8");
 	});
 
 	test("rejects anything that is not major.minor.patch", () => {
-		for (const invalid of ["1.2", "0.5.0-rc1", "x.y.z", "", "1.2.3.4"]) {
-			expect(() => nextMinorVersion(invalid)).toThrow(/version/i);
+		for (const invalid of ["1.2", "0.5.0-rc1", "x.y.z", ""]) {
+			expect(() => nextPatchVersion(invalid)).toThrow(/version/i);
 		}
 	});
 });
 
 describe("bumpedManifest", () => {
 	test("replaces only the workspace package version", () => {
-		const bumped = bumpedFixture("0.6.0");
+		const bumped = bumpedFixture("0.5.1");
 
 		expect(bumped).not.toBeNull();
-		expect(bumped).toContain('[workspace.package]\nedition = "2024"\nversion = "0.6.0"');
+		expect(bumped).toContain('[workspace.package]\nedition = "2024"\nversion = "0.5.1"');
 		expect(bumped).toContain('[workspace.dependencies]\ngpui-kit = "0.9.1"');
 		expect(bumped).toContain('[profile.dev]\ndebug = "line-tables-only"');
 		expect(bumped).not.toContain('version = "0.5.0"');
@@ -549,9 +546,9 @@ describe("runCli --dry-run", () => {
 		expect(lineMatches(fake.stdout, /dist\/SpeechTT\.AppDir\/usr\/bin\/speechtt-ui/)).toBe(
 			true
 		);
-		expect(lineMatches(fake.stdout, /^release version: 0\.6\.0$/)).toBe(true);
-		expect(lineMatches(fake.stdout, /SpeechTT-0\.6\.0-x86_64\.AppImage/)).toBe(true);
-		expect(lineMatches(fake.stdout, /^gh release create v0\.6\.0 /)).toBe(true);
+		expect(lineMatches(fake.stdout, /^release version: 0\.5\.1$/)).toBe(true);
+		expect(lineMatches(fake.stdout, /SpeechTT-0\.5\.1-x86_64\.AppImage/)).toBe(true);
+		expect(lineMatches(fake.stdout, /^gh release create v0\.5\.1 /)).toBe(true);
 	});
 
 	test("--no-bump prints and stages the current version", async () => {
@@ -571,11 +568,11 @@ describe("runCli --dry-run", () => {
 		const code = await runCli(["--dry-run", "--arch", "aarch64"], fake.deps);
 
 		expect(code).toBe(0);
-		expect(lineMatches(fake.stdout, /SpeechTT-0\.6\.0-aarch64\.AppImage/)).toBe(true);
+		expect(lineMatches(fake.stdout, /SpeechTT-0\.5\.1-aarch64\.AppImage/)).toBe(true);
 		expect(
 			lineMatches(
 				fake.stdout,
-				/^gh release create v0\.6\.0 dist\/SpeechTT-0\.6\.0-aarch64\.AppImage/
+				/^gh release create v0\.5\.1 dist\/SpeechTT-0\.5\.1-aarch64\.AppImage/
 			)
 		).toBe(true);
 	});
@@ -758,7 +755,7 @@ describe("runCli full run", () => {
 				"--appimage-extract-and-run",
 				"--no-appstream",
 				"dist/SpeechTT.AppDir",
-				"dist/SpeechTT-0.6.0-x86_64.AppImage"
+				"dist/SpeechTT-0.5.1-x86_64.AppImage"
 			]
 		]);
 		expect(fake.fetchCalls).toEqual([
@@ -771,17 +768,17 @@ describe("runCli full run", () => {
 		expect(fake.written.filter((file) => file.path === "Cargo.toml")).toEqual([
 			{
 				path: "Cargo.toml",
-				contents: bumpedFixture("0.6.0")
+				contents: bumpedFixture("0.5.1")
 			}
 		]);
-		expect(fake.manifest).toContain('version = "0.6.0"');
+		expect(fake.manifest).toContain('version = "0.5.1"');
 		// The lock file the commit carries follows the manifest: `cargo build --locked` would
 		// otherwise refuse to run against the bumped workspace.
-		expect(fake.lockfile).toBe(lockfileFor("0.6.0"));
+		expect(fake.lockfile).toBe(lockfileFor("0.5.1"));
 		expect(fake.written.filter((file) => file.path.endsWith(".sha256"))).toEqual([
 			{
-				path: "dist/SpeechTT-0.6.0-x86_64.AppImage.sha256",
-				contents: `${DIGEST}  SpeechTT-0.6.0-x86_64.AppImage\n`
+				path: "dist/SpeechTT-0.5.1-x86_64.AppImage.sha256",
+				contents: `${DIGEST}  SpeechTT-0.5.1-x86_64.AppImage\n`
 			}
 		]);
 	});
@@ -919,7 +916,7 @@ describe("runCli failures", () => {
 		expect(lineMatches(fake.stderr, /could not compile/)).toBe(true);
 		expect(fake.copied).toEqual([]);
 		expect(fake.written.filter((file) => file.path === "Cargo.toml")).toEqual([
-			{ path: "Cargo.toml", contents: bumpedFixture("0.6.0") },
+			{ path: "Cargo.toml", contents: bumpedFixture("0.5.1") },
 			{ path: "Cargo.toml", contents: MANIFEST }
 		]);
 		expect(fake.manifest).toBe(MANIFEST);
@@ -946,7 +943,7 @@ describe("runCli failures", () => {
 		expect(code).toBe(1);
 		expect(lineMatches(fake.stderr, /appimagetool: cannot build/)).toBe(true);
 		expect(fake.written.filter((file) => file.path === "Cargo.toml")).toEqual([
-			{ path: "Cargo.toml", contents: bumpedFixture("0.6.0") },
+			{ path: "Cargo.toml", contents: bumpedFixture("0.5.1") },
 			{ path: "Cargo.toml", contents: MANIFEST }
 		]);
 		expect(fake.manifest).toBe(MANIFEST);
