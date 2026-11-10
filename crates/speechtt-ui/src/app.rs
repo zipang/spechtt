@@ -2061,6 +2061,7 @@ impl gpui_kit::Render for SpeechTtApp {
 
         root = root.child(
             AppHeader::new(APP_TITLE)
+                .version(concat!("V", env!("CARGO_PKG_VERSION")))
                 .action(
                     IconButton::new("btn-help", IconName::CircleQuestionMark)
                         .label("Open help and shortcuts")
