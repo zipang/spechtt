@@ -4,6 +4,8 @@
 - **Wave**: 2 (integration — touches the release pipeline and a shared component)
 - **Depends on**: T0038 (the packaging pipeline and the `## Download` section this ticket extends), T0040 (the header's current content and the dialog it must not disturb)
 - **Blocks**: nothing
+- **Owner**: coding sub-agent, supervised by CTO
+- **Started**: 2026-11-10
 - **References**:
     - `AGENTS.md` §2 (component rule), §3 (documentation in code), §5 (quality gates), §6 (Do/Don't), §8 (working-tree hygiene)
     - `DESIGN.md` §"Settings panel" and the header/app-chrome section
