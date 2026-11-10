@@ -7,7 +7,7 @@
 //! does nothing. Model metadata comes from the capability handshake; nothing
 //! here performs I/O.
 //!
-//! Rendered by `views::dialogs::window` for the `Dialog::Help` window.
+//! Rendered by `dialogs::window` for the `Dialog::Help` window.
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::ActiveTheme as _;
@@ -23,9 +23,9 @@ use crate::components::{
     ActionButton, AppFooter, Body, KeyCap, Label, StatusDot, TranscriptionModeBadge,
 };
 use crate::controller::{HelpTab, pricing_lines};
+use crate::dialogs::{DialogShell, DialogWindow};
 use crate::shortcuts::{self, Binding};
 use crate::tokens::color;
-use crate::views::dialogs::{DialogShell, DialogWindow};
 
 pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> AnyElement {
     let (tab, provider_label, source, model_rows) = {

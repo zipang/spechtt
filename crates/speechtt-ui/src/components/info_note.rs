@@ -1,7 +1,7 @@
 //! A recessed note row: small info glyph plus one line of muted copy.
 //!
 //! Adds one line of context under the control it describes, without competing
-//! with the controls around it. Two screens use it: `views::dialogs::settings`
+//! with the controls around it. Two screens use it: `dialogs::settings`
 //! explains why a provider's API key cannot be used yet, and
 //! `views::session_setup` says why the model menu lists non-streaming models
 //! only.

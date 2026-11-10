@@ -4,7 +4,7 @@
 //! [`BINDINGS`] is the single source of truth for both halves of a keyboard
 //! command: [`bind_app_keys`] registers it on the application keymap at startup
 //! (`startup::init_app`), and the Help dialog's Shortcuts tab
-//! (`views::dialogs::help`) draws one row per entry. A command therefore cannot
+//! (`dialogs::help`) draws one row per entry. A command therefore cannot
 //! be advertised without being bound, or bound without being documented.
 //!
 //! [`bind_app_keys`] installs [`bind_keys`]'s table plus the transcript's copy
@@ -133,7 +133,7 @@ pub const BINDINGS: [Binding; 5] = [
 /// [`bind_keys`] reads it to choose [`Binding::mac_keys`] over
 /// [`Binding::keys`] on the application keymap, [`bind_app_keys`] reads it to
 /// choose `cmd-c` over `ctrl-c` for the copy shortcut, and
-/// `views::dialogs::help` reads it to draw the matching keycaps.
+/// `dialogs::help` reads it to draw the matching keycaps.
 /// `Binding::keystroke` and [`key_caps`] take the resulting `bool` rather than
 /// an `App`, so the formatting rules stay testable without an application
 /// context.

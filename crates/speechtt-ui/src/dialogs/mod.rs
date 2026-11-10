@@ -4,7 +4,9 @@
 //! the widget rather than drawn over it. The window uses the same Header +
 //! Body structure as the main widget ([`crate::components::AppHeader`]); the
 //! view-model state lives in `crate::controller`, and these modules only
-//! present it and forward intents.
+//! present it and forward intents. [`crate::app`] dispatches them: it opens the
+//! window for a [`crate::controller::Dialog`], and [`DialogWindow`] draws it by
+//! calling `help::render` or `settings::render`.
 
 pub(crate) mod help;
 pub(crate) mod settings;

@@ -85,11 +85,27 @@ fn only_the_text_scale_sets_font_size_or_weight() {
     );
 }
 
+/// The directories whose files may not choose a spacing, type or radius value.
+///
+/// Dialogs are not views of the widget window — they open their own — but they
+/// obey the same rule, so the gate walks both directories rather than `src` at
+/// large.
+fn styled_ui_dirs() -> Vec<PathBuf> {
+    vec![src_root().join("views"), src_root().join("dialogs")]
+}
+
+/// Every file the spacing gate reads, as paths relative to `src`.
+fn styled_ui_files() -> Vec<PathBuf> {
+    styled_ui_dirs()
+        .iter()
+        .flat_map(|dir| rust_files(dir))
+        .collect()
+}
+
 #[test]
-fn views_do_not_choose_spacing_type_or_radius() {
-    let views = src_root().join("views");
+fn views_and_dialogs_do_not_choose_spacing_type_or_radius() {
     let mut offenders = Vec::new();
-    for file in rust_files(&views) {
+    for file in styled_ui_files() {
         let name = relative(&file);
         let Ok(source) = std::fs::read_to_string(&file) else {
             continue;
@@ -109,11 +125,29 @@ fn views_do_not_choose_spacing_type_or_radius() {
 
     assert!(
         offenders.is_empty(),
-        "a view must not pick a spacing, type or radius value — pass a tokens::* \
-         constant to a component instead ({}) — see AGENTS.md §2 component rule:\n{}",
+        "a view or dialog must not pick a spacing, type or radius value — pass a \
+         tokens::* constant to a component instead ({}) — see AGENTS.md §2 \
+         component rule:\n{}",
         offenders.len(),
         offenders.join("\n")
     );
+}
+
+/// The spacing gate is only as wide as its scan root: a directory that leaves
+/// the set is exempted silently, with nothing turning red.
+#[test]
+fn the_spacing_gate_checks_the_dialogs_too() {
+    let names: Vec<String> = styled_ui_files()
+        .iter()
+        .map(|file| relative(file))
+        .collect();
+    for expected in ["dialogs/settings.rs", "views/session_setup.rs"] {
+        assert!(
+            names.iter().any(|name| name == expected),
+            "the spacing gate must read {expected}; it reads:\n{}",
+            names.join("\n")
+        );
+    }
 }
 
 /// The three roles are the whole scale: the tokens they resolve to must exist

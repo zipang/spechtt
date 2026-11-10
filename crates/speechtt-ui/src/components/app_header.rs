@@ -6,7 +6,7 @@
 //! the same Header + Body structure.
 //!
 //! The widget window adds its compiled version after the title through
-//! [`AppHeader::version`]; `views::dialogs::window` renders the same strip
+//! [`AppHeader::version`]; `dialogs::window` renders the same strip
 //! without it, because the Help footer already names the build.
 
 use gpui_kit::base::h_flex;

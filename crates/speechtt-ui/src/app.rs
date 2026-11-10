@@ -89,11 +89,10 @@ use crate::controller::{
     HelpTab, SAMPLE_RATE, SessionController, SessionMode, SettingsChange, SettingsDraft,
     StartupSettingsAction, SystemClock, ViewState,
 };
+use crate::dialogs;
+use crate::dialogs::{DIALOG_WIDTH, DialogWindow, HELP_DIALOG_HEIGHT, SETTINGS_DIALOG_HEIGHT};
 use crate::tokens::color;
 use crate::views;
-use crate::views::dialogs::{
-    DIALOG_WIDTH, DialogWindow, HELP_DIALOG_HEIGHT, SETTINGS_DIALOG_HEIGHT,
-};
 
 /// Application title shown in the header strip.
 pub const APP_TITLE: &str = "SpeechTT";
@@ -1436,7 +1435,7 @@ impl SpeechTtApp {
                 return;
             }
 
-            let title = views::dialogs::window_title(dialog);
+            let title = dialogs::window_title(dialog);
             let app_for_window = app.clone();
             let opened = shell_window.update(cx, |_, window, cx| {
                 let bounds = dialog_window_bounds(dialog, window, cx);

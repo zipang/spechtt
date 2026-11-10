@@ -1,7 +1,7 @@
 //! Provider and model dropdowns shared by the Session setup screen and the
 //! Settings dialog.
 //!
-//! Rendered by `views::session_setup` and `views::dialogs::settings`, which
+//! Rendered by `views::session_setup` and `dialogs::settings`, which
 //! compose [`ProviderSelect`] and [`ModelSelect`] into their form rows.
 //! `SpeechTtApp` owns one [`SelectFields`] pair for the setup form and refreshes
 //! it from a [`SelectSnapshot`]; `DialogWindow` owns the

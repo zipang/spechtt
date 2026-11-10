@@ -22,6 +22,7 @@ pub mod startup;
 pub mod theme;
 pub mod tokens;
 
+mod dialogs;
 mod views;
 
 use gpui_kit::{AppContext, Bounds, Pixels, Point, Size, point, px};

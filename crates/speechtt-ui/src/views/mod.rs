@@ -7,7 +7,6 @@
 //! the `SpeechTtApp` command methods. Shared fragments live in
 //! [`crate::components`], never in a sibling view file.
 
-pub(crate) mod dialogs;
 pub(crate) mod recording;
 pub(crate) mod session_end;
 pub(crate) mod session_setup;

@@ -1,7 +1,7 @@
 //! Dictation-language dropdown for the Settings dialog.
 //!
-//! Rendered by `views::dialogs::settings` inside its **Dictation Language**
-//! row. `views::dialogs::window` owns one [`LanguageSelect`] state through
+//! Rendered by `dialogs::settings` inside its **Dictation Language**
+//! row. `dialogs::window` owns one [`LanguageSelect`] state through
 //! [`crate::components::SettingsSelectFields`] and refreshes it from a
 //! [`crate::components::SettingsSnapshot`], so no view builds a select.
 //!

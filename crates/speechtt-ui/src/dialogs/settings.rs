@@ -5,7 +5,7 @@
 //! Service** sits between the key and the language rows only while the
 //! catalogue offers more than one provider; with a single provider the
 //! controller pins it and the row would only restate the decision. Each
-//! dropdown is a component owned by `views::dialogs::window`; this file only
+//! dropdown is a component owned by `dialogs::window`; this file only
 //! composes the rows and passes the current values.
 //!
 //! The `Bun path` row is a `SettingRow` with an `Input`: empty means the runtime
@@ -25,7 +25,7 @@
 //! `SettingsChange` through `SpeechTtApp::apply_settings_change`, which writes
 //! it to the Rust settings store.
 //!
-//! Rendered by `views::dialogs::window`, which dispatches it as
+//! Rendered by `dialogs::window`, which dispatches it as
 //! `settings::render` for the `Dialog::Settings` window.
 
 use gpui_kit::base::{h_flex, v_flex};
@@ -43,8 +43,8 @@ use crate::components::{
 use speechtt_core::protocol::TranscriptionMode;
 
 use crate::controller::ConnectionState;
+use crate::dialogs::{DialogShell, DialogWindow};
 use crate::tokens::color;
-use crate::views::dialogs::{DialogShell, DialogWindow};
 
 pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> AnyElement {
     let (

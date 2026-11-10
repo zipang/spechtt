@@ -25,8 +25,9 @@ NDJSON bridge. Visual fidelity is governed by `DESIGN.md` + `design-tokens.css`.
   (`actions`), clipboard/paste/file output, NDJSON bridge protocol, backend
   client.
 - **`crates/speechtt-ui`** — native `gpui-kit` application. Owns: window shell,
-  view model (`controller.rs`), screens (`views/`), reusable components,
-  theme/token mirror, dialogs, and the startup seam (`startup.rs`).
+  view model (`controller.rs`), the widget's screens (`views/`), the dialogs
+  that open their own OS windows (`dialogs/`), reusable components,
+  theme/token mirror, and the startup seam (`startup.rs`).
 - **`src/stt/`** — TypeScript/Bun worker. Runs as a subprocess; `stdout` is
   strictly NDJSON events, `stderr` is strictly human diagnostics.
 - **`scripts/` + `tests/` (TypeScript)** — design-system tooling only; run
@@ -39,18 +40,25 @@ NDJSON bridge. Visual fidelity is governed by `DESIGN.md` + `design-tokens.css`.
 
 **View rule**: each file under `crates/speechtt-ui/src/views/` exports exactly
 one screen renderer, named `render(app, cx)` and named for the screen it draws
-(`welcome.rs`, `session_setup.rs`, `recording.rs`, `stopped.rs`; dialogs under
-`views/dialogs/`). Never add a second screen or a shared fragment to a view
-file — fragments used by more than one screen are components.
+(`welcome.rs`, `session_setup.rs`, `recording.rs`, `stopped.rs`). Never add a
+second screen or a shared fragment to a view file — fragments used by more than
+one screen are components.
+
+**Dialog rule**: a dialog is not a view. Each file under
+`crates/speechtt-ui/src/dialogs/` draws a window of its own — its own OS window,
+header, size constants and keymap scope — opened beside the widget rather than
+drawn in it. Nothing under `src/views/` may draw a dialog, and nothing under
+`src/dialogs/` may draw a widget screen.
 
 **Component rule (design system)**: visual decisions live in
-`crates/speechtt-ui/src/components/` (guided by `DESIGN.md`), never in a view.
-Introducing new text sizes, weights, colors, spacing, radii, shadows, or ad-hoc
-styles directly in application/view code without Designer validation and explicit
-approval in `DESIGN.md` is strictly prohibited. A view (`crates/speechtt-ui/src/views/`)
-composes approved UI components and passes data plus intent; it must not choose
-a font size, a weight, a colour, a radius, a padding, or a shadow. When a screen
-needs a visual element or variant that does not exist yet:
+`crates/speechtt-ui/src/components/` (guided by `DESIGN.md`), never in a view or
+a dialog. Introducing new text sizes, weights, colors, spacing, radii, shadows,
+or ad-hoc styles directly in application code without Designer validation and
+explicit approval in `DESIGN.md` is strictly prohibited. A view or a dialog
+(`crates/speechtt-ui/src/views/`, `crates/speechtt-ui/src/dialogs/`) composes
+approved UI components and passes data plus intent; it must not choose a font
+size, a weight, a colour, a radius, a padding, or a shadow. When a screen needs
+a visual element or variant that does not exist yet:
 
 1. Discuss and get explicit approval from the Designer/CEO to document it in `DESIGN.md`.
 2. Implement it as a reusable component under `crates/speechtt-ui/src/components/` (with its own tests) — never by styling a raw `div` at the view call site.

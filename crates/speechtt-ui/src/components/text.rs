@@ -22,7 +22,7 @@
 //!
 //! Every screen: `views::welcome`, `views::session_setup`, `views::recording`,
 //! `views::session_end`, `views::session_transcription`, and the dialogs under
-//! `views::dialogs`. Every component that carries copy of its own:
+//! `dialogs`. Every component that carries copy of its own:
 //! [`crate::components::AppHeader`], [`crate::components::StatusBadge`],
 //! [`crate::components::InfoNote`], [`crate::components::KeyCap`],
 //! [`crate::components::ProgressBar`], [`crate::components::SettingRow`],

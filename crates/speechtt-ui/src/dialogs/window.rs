@@ -29,7 +29,7 @@ use crate::components::{
     SettingsSnapshot,
 };
 use crate::controller::{Dialog, HelpTab};
-use crate::views::dialogs::{help, settings, window_title};
+use crate::dialogs::{help, settings, window_title};
 
 pub(crate) struct DialogWindow {
     dialog: Dialog,
