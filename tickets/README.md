@@ -145,6 +145,7 @@ _(none)_
 | ------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------- | ---------- |
 | [T0032](planned/T0032-language-reach-honesty.md)  | Say honestly what the dictation language can reach | Cross-cutting (worker → core → UI)                | T0030      |
 | [T0039](planned/T0039-macos-windows-artifacts.md) | macOS and Windows artifacts                        | Tooling (TypeScript/Bun) + cross-cutting platform | T0038      |
+| [T0042](planned/T0042-settings-density-and-order.md) | Settings fits, leads with what matters, and drops the empty choice | Rust UI + design system | T0040      |
 
 **T0039 is blocked**: its contract §10 lists four decisions (signing, build
 machines, bundle identity, macOS architectures) that the CEO must answer before
