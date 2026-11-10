@@ -617,10 +617,27 @@ documentation, not decoration.
 ### Settings panel
 
 A 560px-wide card in `surface-card`, `rounded-lg`, `elevation-md`, with rows
-separated by 1px `brand.secondary` hairlines. Seven rows, top to bottom:
-Dictation Language, Transcription Service, the two default models, Cleanup
-Model, Bun path, and the masked API key field — then save/cancel actions. Labels
-in `mono` uppercase `--font-size-xs`; values in `base` `--font-size-sm`.
+separated by 1px `brand.secondary` hairlines. The rows read top to bottom:
+
+1. **Bun path** — the runtime the worker needs.
+2. **API key** — the credential, as a stacked row: status badge on the label
+   line, masked field spanning the row below.
+3. **Dictation Language**
+4. **Default Streaming Model**
+5. **Default Batch Model**
+6. **Cleanup Model**
+
+**Transcription Service** sits between the API key and Dictation Language only
+while the catalogue offers more than one provider. A catalogue with at most one
+provider pins that provider in the draft (`DEFAULT_PROVIDER` before any
+catalogue arrives), so hiding the row never leaves a fresh install without a
+provider to save. The row appears by itself as soon as a second provider exists.
+Labels in `mono` uppercase `--font-size-xs`; values in `base` `--font-size-sm`.
+
+Rows use the dense symmetric rhythm: one step tighter than the roomier setup
+form, with equal vertical padding above and below the content, so a divider sits
+centred between two rows. Consecutive rows are stacked without a gap; notes stay
+separate children of the dialog body and keep its gap.
 
 Every select uses the same components as the Session setup form, against the
 settings draft: `components::ProviderSelect`, `components::ModelSelect` and
@@ -640,19 +657,19 @@ availability is what the badge claims. With a catalogue it reads `CONNECTED`
 when a key is stored and the provider is not reported unavailable, and
 `NOT CONNECTED` otherwise.
 
-**Bun path** — a `SettingRow` with an `Input`, the same pair as the API-key row.
-Empty is the normal state: the runtime is resolved from the configured path,
-then `PATH`, then `~/.bun/bin/bun`, `/usr/local/bin/bun` and
-`/opt/bun/bin/bun`. A value is the user's explicit override, needed when a
-desktop launcher's `PATH` does not carry the directory a shell profile added. It
-is optional and never blocks Save.
+**Bun path** — a `SettingRow` with an `Input`, on the first row because the
+worker cannot start without the runtime. Empty is the normal state: the runtime
+is resolved from the configured path, then `PATH`, then `~/.bun/bin/bun`,
+`/usr/local/bin/bun` and `/opt/bun/bin/bun`. A value is the user's explicit
+override, needed when a desktop launcher's `PATH` does not carry the directory a
+shell profile added. It is optional and never blocks Save.
 
-**Dictation Language** — _"The language you speak; improves accuracy"_; it leads
-the list because it applies to the transcription itself, not to a model choice.
-Its first entry is **Auto (detect)**, whose value is the empty language; every
-other entry is an ISO-639-1 code the worker published, in the worker's order.
-An unset language therefore renders as Auto, never as a blank field. The menu is
-not searchable: one entry is a single word.
+**Dictation Language** — _"The language you speak; improves accuracy"_; it
+follows the two load-bearing fields because it applies to the transcription
+itself, not to a model choice. Its first entry is **Auto (detect)**, whose value
+is the empty language; every other entry is an ISO-639-1 code the worker
+published, in the worker's order. An unset language therefore renders as Auto,
+never as a blank field. The menu is not searchable: one entry is a single word.
 
 The two model rows are one default per take mode, each a `SettingRow` on its own
 line because two dropdowns do not fit side by side:
