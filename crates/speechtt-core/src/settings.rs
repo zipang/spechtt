@@ -1,7 +1,8 @@
 //! Typed user settings and their on-disk JSON representation.
 //!
 //! [`Settings`] holds the active provider, one default model per take mode,
-//! per-provider API keys and the window geometry. Shortcuts are not configurable:
+//! per-provider API keys, the optional `bun` executable override and the window
+//! geometry. Shortcuts are not configurable:
 //! the commands live in [`crate::actions`] and their keys in the UI's binding
 //! table, so the persisted `shortcuts` map is read for migration only. API keys
 //! are [`SecretString`]s: they serialize for persistence but never appear in
@@ -120,6 +121,16 @@ pub struct Settings {
     pub language: String,
     /// Provider id -> API key. Serialized, but never exposed by `Debug`.
     pub api_keys: BTreeMap<String, SecretString>,
+    /// Absolute path to the `bun` executable, or empty to resolve it
+    /// automatically.
+    ///
+    /// Empty is the normal state: the app resolves `bun` through `PATH` and the
+    /// well-known install locations. A value here is the user's explicit
+    /// override, needed when `bun` is installed somewhere neither lookup finds —
+    /// a desktop launcher, for instance, does not read the shell profile that
+    /// puts `~/.bun/bin` on `PATH`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub bun_executable: String,
     /// Action name -> shortcut string, written by releases that had rebindable
     /// global shortcuts. Kept so an older file still loads; cleared by
     /// [`Settings::normalize`] so the next save drops it. Nothing reads it.
@@ -142,6 +153,7 @@ impl Default for Settings {
             language_model: String::new(),
             language: String::new(),
             api_keys: BTreeMap::new(),
+            bun_executable: String::new(),
             shortcuts: BTreeMap::new(),
             auto_paste: true,
             window: None,
@@ -160,6 +172,7 @@ impl fmt::Debug for Settings {
             .field("language_model", &self.language_model)
             .field("language", &self.language)
             .field("api_keys", &"[REDACTED]")
+            .field("bun_executable", &self.bun_executable)
             .field("shortcuts", &self.shortcuts)
             .field("auto_paste", &self.auto_paste)
             .finish()
@@ -184,6 +197,7 @@ impl Settings {
     pub fn normalize(&mut self) {
         self.normalize_provider_ids();
         self.normalize_window_layout();
+        self.bun_executable = self.bun_executable.trim().to_owned();
         self.shortcuts.clear();
     }
 
@@ -546,6 +560,7 @@ mod tests {
                 DEFAULT_PROVIDER.to_owned(),
                 SecretString::new("sk-live-secret-123456"),
             )]),
+            bun_executable: String::new(),
             shortcuts: BTreeMap::new(),
             auto_paste: false,
             window: None,
@@ -846,6 +861,90 @@ mod tests {
             None,
             "a corrupt value must never reach a provider"
         );
+    }
+
+    // The bun executable override ----------------------------------------
+
+    #[test]
+    fn the_bun_executable_defaults_to_empty_so_resolution_is_automatic() {
+        assert!(Settings::default().bun_executable.is_empty());
+
+        let settings: Settings =
+            serde_json::from_str(r#"{"provider":"vercel-ai-gateway"}"#).expect("old file loads");
+        assert!(settings.bun_executable.is_empty());
+    }
+
+    #[test]
+    fn a_bun_executable_round_trips_through_save_and_load() {
+        let dir = TempDir::new("bun-executable");
+        let store = JsonFileStore::new(dir.join("settings.json"));
+        let settings = Settings {
+            bun_executable: "/home/ada/.bun/bin/bun".to_owned(),
+            ..sample_settings()
+        };
+
+        store.save(&settings).expect("save settings");
+        let loaded = store.load().expect("load settings");
+
+        assert_eq!(loaded.bun_executable, "/home/ada/.bun/bin/bun");
+        assert_eq!(loaded, settings);
+    }
+
+    #[test]
+    fn a_saved_bun_executable_is_written_under_its_snake_case_key() {
+        let dir = TempDir::new("bun-key");
+        let store = JsonFileStore::new(dir.join("settings.json"));
+        let settings = Settings {
+            bun_executable: "/opt/bun/bin/bun".to_owned(),
+            ..sample_settings()
+        };
+
+        store.save(&settings).expect("save settings");
+        let json = fs::read_to_string(store.path()).expect("read saved settings");
+
+        assert!(
+            json.contains(r#""bun_executable": "/opt/bun/bin/bun""#),
+            "{json}"
+        );
+    }
+
+    #[test]
+    fn an_empty_bun_executable_is_omitted_from_the_saved_file() {
+        let json = serde_json::to_string(&Settings::default()).expect("serialize settings");
+
+        assert!(!json.contains("bun_executable"), "{json}");
+    }
+
+    #[test]
+    fn normalize_trims_the_bun_executable_and_blank_becomes_empty() {
+        let mut padded = Settings {
+            bun_executable: "  /home/ada/.bun/bin/bun  ".to_owned(),
+            ..sample_settings()
+        };
+        padded.normalize();
+        assert_eq!(padded.bun_executable, "/home/ada/.bun/bin/bun");
+
+        let mut blank = Settings {
+            bun_executable: "   ".to_owned(),
+            ..sample_settings()
+        };
+        blank.normalize();
+        assert!(blank.bun_executable.is_empty());
+    }
+
+    #[test]
+    fn validate_accepts_an_empty_or_a_populated_bun_executable() {
+        let empty = Settings {
+            bun_executable: String::new(),
+            ..sample_settings()
+        };
+        assert!(empty.validate().is_ok());
+
+        let populated = Settings {
+            bun_executable: "/opt/bun/bin/bun".to_owned(),
+            ..sample_settings()
+        };
+        assert!(populated.validate().is_ok());
     }
 
     // T7.1 — the dead shortcut map ---------------------------------------

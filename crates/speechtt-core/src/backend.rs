@@ -10,6 +10,9 @@
 //!   spawns `bun run <worker>`, owns the child's `stdin` for commands, and
 //!   forwards parsed `stdout` events over an [`async_channel`]. Dropping it
 //!   closes `stdin`, which tells the worker to abort its session and exit.
+//!   [`bun_candidates`] and [`resolve_bun_in`] pick the runtime itself, so a
+//!   desktop launch whose `PATH` lacks the shell profile's `~/.bun/bin` still
+//!   finds an installation; the UI composition root is their caller.
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -56,6 +59,78 @@ pub fn resolve_worker_in(exe_dir: &Path, exists: impl Fn(&Path) -> bool) -> Opti
         .find(|candidate| exists(candidate))
 }
 
+/// Candidate `bun` executables, most specific first.
+///
+/// A single-component path means "resolve through `PATH`", which is how
+/// `Command` treats a bare program name. The well-known locations are listed
+/// because a desktop launcher's environment does not contain the directory a
+/// shell profile added to `PATH`: `~/.bun/bin` is on the `PATH` of a login shell
+/// only. Empty or whitespace-only `configured` and `home` values are skipped, so
+/// "auto" has exactly one representation.
+#[must_use]
+pub fn bun_candidates(configured: Option<&Path>, home: Option<&Path>) -> Vec<PathBuf> {
+    let mut candidates = Vec::with_capacity(5);
+    if let Some(configured) = configured.filter(|path| !path_is_blank(path)) {
+        candidates.push(configured.to_path_buf());
+    }
+    candidates.push(PathBuf::from("bun"));
+    if let Some(home) = home.filter(|path| !path_is_blank(path)) {
+        candidates.push(home.join(".bun/bin/bun"));
+    }
+    candidates.push(PathBuf::from("/usr/local/bin/bun"));
+    candidates.push(PathBuf::from("/opt/bun/bin/bun"));
+    candidates
+}
+
+/// True for an empty or whitespace-only path, the "resolve automatically" value.
+fn path_is_blank(path: &Path) -> bool {
+    path.as_os_str().to_string_lossy().trim().is_empty()
+}
+
+/// Picks the first candidate the injected lookups accept.
+///
+/// `which` resolves a bare name through `PATH`; `exists` accepts a path. Both
+/// are parameters, not `Command`'s own lookup, so the rule is testable without
+/// a filesystem, a `PATH`, or a `bun` installation. A `which` hit returns the
+/// path it resolved, not the bare name, so the caller spawns exactly the
+/// executable that was found. Returns `None` when nothing resolves; it never
+/// panics and never guesses.
+#[must_use]
+pub fn resolve_bun_in(
+    configured: Option<&Path>,
+    home: Option<&Path>,
+    which: impl Fn(&Path) -> Option<PathBuf>,
+    exists: impl Fn(&Path) -> bool,
+) -> Option<PathBuf> {
+    for candidate in bun_candidates(configured, home) {
+        if candidate.components().count() == 1 {
+            if let Some(resolved) = which(&candidate) {
+                return Some(resolved);
+            }
+        } else if exists(&candidate) {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+/// Resolves a bare program name through the process `PATH`, like `Command`
+/// does.
+///
+/// [`resolve_bun_in`] takes this rule as a parameter so it stays hermetic; this
+/// function is the production `which` the UI composition root passes in. A
+/// multi-component `program` is not a bare name and yields `None`.
+#[must_use]
+pub fn which_on_path(program: &Path) -> Option<PathBuf> {
+    if program.components().count() != 1 {
+        return None;
+    }
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|directory| directory.join(program))
+        .find(|candidate| candidate.is_file())
+}
+
 /// Events forwarded from a duplex backend. `Err` reports a transport or
 /// protocol failure; the stream ends (channel closed) when the worker exits.
 pub type SttEventReceiver = Receiver<Result<SttEvent, BackendError>>;
@@ -96,6 +171,10 @@ pub enum BackendError {
     },
     #[error("could not find the STT worker; looked in: {searched:?}")]
     WorkerMissing { searched: Vec<PathBuf> },
+    /// No `bun` executable resolved. `searched` is the candidate list the
+    /// resolution walked, so the UI can name every location it tried.
+    #[error("could not find the bun runtime; looked for: {searched:?}")]
+    BunMissing { searched: Vec<PathBuf> },
     #[error("the stt worker is no longer accepting commands")]
     Disconnected,
 }
@@ -184,6 +263,52 @@ impl BunSubprocess {
                 searched: candidates,
             })?;
         Self::spawn(&script)
+    }
+
+    /// Spawn `program run <script>` for the worker found next to this executable.
+    ///
+    /// `program` is the resolved `bun`, from [`resolve_bun_in`]. The worker
+    /// lookup is [`worker_candidates`]; a missing worker is
+    /// [`BackendError::WorkerMissing`] and a runtime the OS cannot start is
+    /// [`BackendError::BunMissing`], carrying the program path it tried. The
+    /// composition root resolves the runtime first, so its own `BunMissing`
+    /// names every candidate; this conversion is the safety net for a caller
+    /// that hands over a path directly.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BackendError::WorkerMissing`] when no candidate exists,
+    /// [`BackendError::BunMissing`] when the program cannot be started, and any
+    /// other error [`BunSubprocess::spawn_with`] reports.
+    pub fn spawn_default_with(
+        program: impl Into<String>,
+        worker_exists: impl Fn(&Path) -> bool,
+    ) -> Result<Self, BackendError> {
+        let program = program.into();
+        let exe_dir = std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(Path::to_path_buf));
+        let candidates = exe_dir
+            .as_deref()
+            .map(worker_candidates)
+            .unwrap_or_default();
+        let script = exe_dir
+            .as_deref()
+            .and_then(|dir| resolve_worker_in(dir, &worker_exists))
+            .ok_or(BackendError::WorkerMissing {
+                searched: candidates,
+            })?;
+
+        Self::spawn_with(program, &script).map_err(|error| match error {
+            BackendError::Spawn { program, source }
+                if source.kind() == std::io::ErrorKind::NotFound =>
+            {
+                BackendError::BunMissing {
+                    searched: vec![PathBuf::from(program)],
+                }
+            }
+            other => other,
+        })
     }
 
     /// Spawn `program run <script>`. `program` is injectable so tests can
@@ -503,6 +628,28 @@ mod tests {
             Err(other) => panic!("expected a spawn error, got {other:?}"),
             Ok(_) => panic!("the fake bun binary must not exist"),
         }
+    }
+
+    #[test]
+    fn a_missing_runtime_on_the_default_spawn_path_reports_bun_missing() {
+        let result =
+            BunSubprocess::spawn_default_with("speechtt-bun-binary-that-does-not-exist", |_| true);
+
+        match result {
+            Err(BackendError::BunMissing { searched }) => assert_eq!(
+                searched,
+                vec![PathBuf::from("speechtt-bun-binary-that-does-not-exist")]
+            ),
+            Err(other) => panic!("expected a missing runtime, got {other:?}"),
+            Ok(_) => panic!("the fake bun binary must not exist"),
+        }
+    }
+
+    #[test]
+    fn a_missing_worker_keeps_the_worker_missing_error() {
+        let result = BunSubprocess::spawn_default_with("bun", |_| false);
+
+        assert!(matches!(result, Err(BackendError::WorkerMissing { .. })));
     }
 
     #[test]
