@@ -121,10 +121,10 @@ Rules:
 
 ### 3. `views/session_transcription.rs`
 
-| Band | Content |
-|---|---|
-| Header | `StatusBadge::tone("TRANSCRIBING", BadgeTone::Transcribing)` while decoding; `StatusBadge::new("TRANSCRIBED")` once it has finished. |
-| Body | One `SurfaceBox` with the file's display name (`Body`, mono) and a `ProgressBar` from the controller's `progress()` reading. |
+| Band   | Content                                                                                                                                                                                                                                                                           |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Header | `StatusBadge::tone("TRANSCRIBING", BadgeTone::Transcribing)` while decoding; `StatusBadge::new("TRANSCRIBED")` once it has finished.                                                                                                                                              |
+| Body   | One `SurfaceBox` with the file's display name (`Body`, mono) and a `ProgressBar` from the controller's `progress()` reading.                                                                                                                                                      |
 | Footer | Leading: Back (`ScreenFooter::back`, `ArrowBigLeft`) → `cancel_take()`. Primary: Stop (`IconAction`, `Square`) → `finish_take()`, enabled only while decoding. Trailing: Continue (`IconAction`, `ArrowBigRight`) → `continue_to_end()`, enabled only once decoding has finished. |
 
 - The file name comes from `audio_source()`; the path is never shown.
@@ -267,7 +267,7 @@ views. `design-tokens.css`, `tokens.rs` and `theme.rs` are untouched, so
 
 1. **The pill is a progress report, not a state name.** `In progress` while the
    worker decodes (amber `action.warning` dot, muted label — the same
-   working-state treatment as `RECORDING`), then `Done` (success dot *and*
+   working-state treatment as `RECORDING`), then `Done` (success dot _and_
    success label). `BadgeTone::Transcribing` became `BadgeTone::InProgress` plus
    `BadgeTone::Done`; the blue `action.info` idea was dropped, so the pill reuses
    the two roles the live badges already use.
@@ -298,7 +298,7 @@ views. `design-tokens.css`, `tokens.rs` and `theme.rs` are untouched, so
 ### CEO revision — `STOPPED` for an interrupted take, no pill on the result
 
 1. **Stopping reports `STOPPED` in the danger role.** A new
-   `BadgeTone::Stopped` (danger dot *and* danger label) is shown when the user
+   `BadgeTone::Stopped` (danger dot _and_ danger label) is shown when the user
    ended the decode before the worker reached the end of the file, so an
    interrupted transcription never reads as a completed one. `Done` keeps the
    success green for a natural completion, and `In progress` keeps the working

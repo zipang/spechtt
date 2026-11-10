@@ -1,6 +1,6 @@
 /**
- * Recompute the derived `--color-on-*` contrast tokens in design-tokens.css
- * from the authored theme colors, using the WCAG 2.1 derivation rule.
+ * Recompute the derived `--color-on-*` contrast tokens in design-tokens.css from the authored theme
+ * colors, using the WCAG 2.1 derivation rule.
  *
  * Run: bun run design:contrast
  */

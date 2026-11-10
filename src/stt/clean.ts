@@ -1,19 +1,15 @@
 /**
  * Language-model cleanup of a finished transcript.
  *
- * The prompt asks a text model to repair the artefacts a streaming transcriber
- * leaves behind without rewriting what the speaker said. `worker.ts` calls
- * [`cleanTranscript`] for a `cleanTranscript` command and emits the result as
- * a `cleaned` event; the model call itself is injected so the worker owns
- * credentials and tests stay hermetic.
+ * The prompt asks a text model to repair the artefacts a streaming transcriber leaves behind
+ * without rewriting what the speaker said. `worker.ts` calls [`cleanTranscript`] for a
+ * `cleanTranscript` command and emits the result as a `cleaned` event; the model call itself is
+ * injected so the worker owns credentials and tests stay hermetic.
  */
 
 import { languageName } from "./languages";
 
-export {
-	FALLBACK_LANGUAGE_MODEL,
-	LANGUAGE_MODEL_ENV,
-} from "./registry";
+export { FALLBACK_LANGUAGE_MODEL, LANGUAGE_MODEL_ENV } from "./registry";
 
 /** Low enough that the pass repairs rather than improvises. */
 export const CLEANUP_TEMPERATURE = 0.1;
@@ -21,9 +17,8 @@ export const CLEANUP_TEMPERATURE = 0.1;
 /**
  * Fence around the transcript.
  *
- * A line of angle brackets and capitals is not something dictation produces,
- * so the model cannot mistake the transcript for the instructions that
- * precede it.
+ * A line of angle brackets and capitals is not something dictation produces, so the model cannot
+ * mistake the transcript for the instructions that precede it.
  */
 const TRANSCRIPT_START = "<<<TRANSCRIPT>>>";
 const TRANSCRIPT_END = "<<<END TRANSCRIPT>>>";
@@ -52,13 +47,13 @@ export interface CleanRequest {
 	/** The transcript to repair, exactly as displayed. */
 	readonly text: string;
 	/**
-	 * ISO-639-1 language of the transcript. Absent means "follow the
-	 * transcript's own language": the prompt then omits the language clause.
+	 * ISO-639-1 language of the transcript. Absent means "follow the transcript's own language":
+	 * the prompt then omits the language clause.
 	 */
 	readonly language?: string;
 	/**
-	 * Provider key resolved by the caller. The injected `generate` decides how
-	 * to authenticate, so this module never sends it anywhere itself.
+	 * Provider key resolved by the caller. The injected `generate` decides how to authenticate, so
+	 * this module never sends it anywhere itself.
 	 */
 	readonly apiKey?: string;
 }
@@ -73,11 +68,10 @@ export interface CleanDeps {
 }
 
 /**
- * The clause that pins the transcript's language, or an empty string when no
- * language is declared.
+ * The clause that pins the transcript's language, or an empty string when no language is declared.
  *
- * With no language the model follows the transcript instead of guessing one
- * from nothing, so the instruction is omitted rather than reworded.
+ * With no language the model follows the transcript instead of guessing one from nothing, so the
+ * instruction is omitted rather than reworded.
  */
 function languageClause(language: string | undefined): string {
 	const code = language?.trim().toLowerCase();
@@ -94,21 +88,17 @@ function buildPrompt(text: string, language: string | undefined): string {
 }
 
 /**
- * Repairs typos and fragment joins. Never returns an empty string: when the
- * model answers with nothing usable, the input is returned unchanged.
+ * Repairs typos and fragment joins. Never returns an empty string: when the model answers with
+ * nothing usable, the input is returned unchanged.
  *
- * The caller decides what to do with the text; this function performs no I/O
- * beyond the injected `generate`. A transcript that is already clean comes back
- * identical (trailing whitespace aside).
+ * The caller decides what to do with the text; this function performs no I/O beyond the injected
+ * `generate`. A transcript that is already clean comes back identical (trailing whitespace aside).
  */
-export async function cleanTranscript(
-	request: CleanRequest,
-	deps: CleanDeps,
-): Promise<string> {
+export async function cleanTranscript(request: CleanRequest, deps: CleanDeps): Promise<string> {
 	const { text } = await deps.generate({
 		model: request.model,
 		prompt: buildPrompt(request.text, request.language),
-		temperature: CLEANUP_TEMPERATURE,
+		temperature: CLEANUP_TEMPERATURE
 	});
 	const cleaned = typeof text === "string" ? text.trim() : "";
 	return cleaned.length > 0 ? cleaned : request.text.trim();

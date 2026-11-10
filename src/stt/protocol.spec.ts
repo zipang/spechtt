@@ -5,7 +5,7 @@ import {
 	type OutboundEvent,
 	parseInboundLine,
 	redactCommand,
-	serializeOutboundEvent,
+	serializeOutboundEvent
 } from "./protocol";
 
 const startLine = (overrides: Record<string, unknown> = {}) =>
@@ -15,14 +15,12 @@ const startLine = (overrides: Record<string, unknown> = {}) =>
 		provider: "mistral",
 		model: "voxtral-mini-transcribe-3-0",
 		sampleRate: 16000,
-		...overrides,
+		...overrides
 	});
 
 describe("parseInboundLine", () => {
 	test("parses a start command with an API key", () => {
-		const result = parseInboundLine(
-			startLine({ apiKey: "sk-secret" }),
-		);
+		const result = parseInboundLine(startLine({ apiKey: "sk-secret" }));
 
 		expect(result).toEqual({
 			ok: true,
@@ -32,8 +30,8 @@ describe("parseInboundLine", () => {
 				provider: "mistral",
 				model: "voxtral-mini-transcribe-3-0",
 				sampleRate: 16000,
-				apiKey: "sk-secret",
-			},
+				apiKey: "sk-secret"
+			}
 		});
 	});
 
@@ -47,43 +45,35 @@ describe("parseInboundLine", () => {
 			sessionId: "session-1",
 			provider: "mistral",
 			model: "voxtral-mini-transcribe-3-0",
-			sampleRate: 16000,
+			sampleRate: 16000
 		});
 		expect("apiKey" in result.command).toBe(false);
 	});
 
 	test("parses audio, pause, resume and stop commands", () => {
-		const audio = parseInboundLine(
-			JSON.stringify({ type: "audio", pcm16Base64: "AAAA" }),
-		);
+		const audio = parseInboundLine(JSON.stringify({ type: "audio", pcm16Base64: "AAAA" }));
 		expect(audio).toEqual({
 			ok: true,
-			command: { type: "audio", pcm16Base64: "AAAA" },
+			command: { type: "audio", pcm16Base64: "AAAA" }
 		});
 
 		for (const type of ["pause", "resume", "stop"] as const) {
 			expect(parseInboundLine(JSON.stringify({ type }))).toEqual({
 				ok: true,
-				command: { type },
+				command: { type }
 			});
 		}
 	});
 
 	test("accepts an empty audio payload as zero bytes", () => {
-		expect(
-			parseInboundLine(
-				JSON.stringify({ type: "audio", pcm16Base64: "" }),
-			),
-		).toEqual({
+		expect(parseInboundLine(JSON.stringify({ type: "audio", pcm16Base64: "" }))).toEqual({
 			ok: true,
-			command: { type: "audio", pcm16Base64: "" },
+			command: { type: "audio", pcm16Base64: "" }
 		});
 	});
 
 	test("treats unexpected extra fields as non-fatal", () => {
-		const result = parseInboundLine(
-			JSON.stringify({ type: "stop", extra: true }),
-		);
+		const result = parseInboundLine(JSON.stringify({ type: "stop", extra: true }));
 
 		expect(result).toEqual({ ok: true, command: { type: "stop" } });
 	});
@@ -106,9 +96,7 @@ describe("parseInboundLine", () => {
 	});
 
 	test("rejects unknown command types", () => {
-		const result = parseInboundLine(
-			JSON.stringify({ type: "flush" }),
-		);
+		const result = parseInboundLine(JSON.stringify({ type: "flush" }));
 
 		expect(result.ok).toBe(false);
 		if (result.ok) return;
@@ -139,7 +127,7 @@ describe("parseInboundLine", () => {
 			{ sampleRate: -16000 },
 			{ sampleRate: 16000.5 },
 			{ sampleRate: "16000" },
-			{ apiKey: 42 },
+			{ apiKey: 42 }
 		];
 
 		for (const overrides of invalid) {
@@ -155,7 +143,7 @@ describe("parseInboundLine", () => {
 			{ type: "audio" },
 			{ type: "audio", pcm16Base64: 42 },
 			{ type: "audio", pcm16Base64: "not base64!" },
-			{ type: "audio", pcm16Base64: "AAA" },
+			{ type: "audio", pcm16Base64: "AAA" }
 		];
 
 		for (const payload of invalid) {
@@ -172,7 +160,7 @@ describe("serializeOutboundEvent", () => {
 		const event: OutboundEvent = {
 			type: "partial",
 			sessionId: "session-1",
-			text: "hello",
+			text: "hello"
 		};
 
 		const line = serializeOutboundEvent(event);
@@ -194,12 +182,12 @@ describe("serializeOutboundEvent", () => {
 				type: "error",
 				sessionId: "s",
 				code: "stream_failed",
-				message: "boom",
+				message: "boom"
 			},
 			{
 				type: "error",
 				code: "invalid_protocol",
-				message: "bad line",
+				message: "bad line"
 			},
 			{
 				type: "capabilities",
@@ -217,17 +205,17 @@ describe("serializeOutboundEvent", () => {
 								label: "gpt-realtime-whisper",
 								mode: "streaming",
 								description: null,
-								pricing: {},
-							},
-						],
-					},
-				],
+								pricing: {}
+							}
+						]
+					}
+				]
 			},
 			{
 				type: "capabilities",
 				source: "discovered",
-				providers: [],
-			},
+				providers: []
+			}
 		];
 
 		for (const event of events) {
@@ -244,14 +232,14 @@ describe("redactCommand", () => {
 			provider: "vercel",
 			model: "openai/gpt-realtime-whisper",
 			sampleRate: 24000,
-			apiKey: "sk-super-secret",
+			apiKey: "sk-super-secret"
 		};
 
 		const redacted = redactCommand(command);
 
 		expect(redacted).toEqual({
 			...command,
-			apiKey: "[REDACTED]",
+			apiKey: "[REDACTED]"
 		});
 		expect(command.apiKey).toBe("sk-super-secret");
 		expect(JSON.stringify(redacted)).not.toContain("sk-super-secret");
@@ -263,7 +251,7 @@ describe("redactCommand", () => {
 			sessionId: "session-1",
 			provider: "mistral",
 			model: "voxtral-mini-transcribe-3-0",
-			sampleRate: 16000,
+			sampleRate: 16000
 		};
 
 		expect(redactCommand(command)).toEqual(command);
@@ -274,7 +262,7 @@ describe("redactCommand", () => {
 			{ type: "audio", pcm16Base64: "AAAA" },
 			{ type: "pause" },
 			{ type: "resume" },
-			{ type: "stop" },
+			{ type: "stop" }
 		] as InboundCommand[]) {
 			expect(redactCommand(command)).toEqual(command);
 		}
@@ -283,9 +271,7 @@ describe("redactCommand", () => {
 
 describe("capabilities parsing", () => {
 	test("parses a capabilities request without optional fields", () => {
-		const result = parseInboundLine(
-			JSON.stringify({ type: "capabilities" }),
-		);
+		const result = parseInboundLine(JSON.stringify({ type: "capabilities" }));
 
 		expect(result).toEqual({ ok: true, command: { type: "capabilities" } });
 		if (!result.ok) return;
@@ -298,8 +284,8 @@ describe("capabilities parsing", () => {
 			JSON.stringify({
 				type: "capabilities",
 				requestId: "cap-1",
-				apiKey: "sk-secret",
-			}),
+				apiKey: "sk-secret"
+			})
 		);
 
 		expect(result).toEqual({
@@ -307,15 +293,13 @@ describe("capabilities parsing", () => {
 			command: {
 				type: "capabilities",
 				requestId: "cap-1",
-				apiKey: "sk-secret",
-			},
+				apiKey: "sk-secret"
+			}
 		});
 	});
 
 	test("treats unexpected extra fields as non-fatal", () => {
-		const result = parseInboundLine(
-			JSON.stringify({ type: "capabilities", extra: true }),
-		);
+		const result = parseInboundLine(JSON.stringify({ type: "capabilities", extra: true }));
 
 		expect(result).toEqual({ ok: true, command: { type: "capabilities" } });
 	});
@@ -327,13 +311,11 @@ describe("capabilities parsing", () => {
 			{ requestId: "" },
 			{ apiKey: 42 },
 			{ apiKey: null },
-			{ apiKey: ["sk-secret"] },
+			{ apiKey: ["sk-secret"] }
 		];
 
 		for (const overrides of invalid) {
-			const result = parseInboundLine(
-				JSON.stringify({ type: "capabilities", ...overrides }),
-			);
+			const result = parseInboundLine(JSON.stringify({ type: "capabilities", ...overrides }));
 			expect(result.ok).toBe(false);
 			if (result.ok) continue;
 			expect(result.code).toBe("invalid_protocol");
@@ -343,7 +325,7 @@ describe("capabilities parsing", () => {
 
 	test("never echoes an api key in a parse error", () => {
 		const result = parseInboundLine(
-			JSON.stringify({ type: "capabilities", requestId: 7, apiKey: "sk-leak" }),
+			JSON.stringify({ type: "capabilities", requestId: 7, apiKey: "sk-leak" })
 		);
 
 		expect(result.ok).toBe(false);
@@ -370,18 +352,18 @@ describe("capabilities serialization", () => {
 							label: "gpt-realtime-whisper",
 							mode: "streaming",
 							description: null,
-							pricing: {},
+							pricing: {}
 						},
 						{
 							id: "openai/gpt-4o-transcribe",
 							label: "GPT-4o Transcribe",
 							mode: "segmented",
 							description: null,
-							pricing: {},
-						},
-					],
-				},
-			],
+							pricing: {}
+						}
+					]
+				}
+			]
 		};
 
 		const line = serializeOutboundEvent(event);
@@ -403,19 +385,19 @@ describe("capabilities serialization", () => {
 								label: "gpt-realtime-whisper",
 								mode: "streaming",
 								description: null,
-								pricing: {},
+								pricing: {}
 							},
 							{
 								id: "openai/gpt-4o-transcribe",
 								label: "GPT-4o Transcribe",
 								mode: "segmented",
 								description: null,
-								pricing: {},
-							},
-						],
-					},
-				],
-			})}\n`,
+								pricing: {}
+							}
+						]
+					}
+				]
+			})}\n`
 		);
 		expect(line.endsWith("\n")).toBe(true);
 		expect(line.split("\n").filter(Boolean)).toHaveLength(1);
@@ -428,13 +410,13 @@ describe("capabilities serialization", () => {
 			const line = serializeOutboundEvent({
 				type: "capabilities",
 				source,
-				providers: [],
+				providers: []
 			});
 
 			expect(JSON.parse(line)).toEqual({
 				type: "capabilities",
 				source,
-				providers: [],
+				providers: []
 			});
 			expect(line).toContain(`"source":"${source}"`);
 		}
@@ -444,12 +426,10 @@ describe("capabilities serialization", () => {
 		const line = serializeOutboundEvent({
 			type: "capabilities",
 			source: "builtin",
-			providers: [],
+			providers: []
 		});
 
-		expect(line).toBe(
-			'{"type":"capabilities","source":"builtin","providers":[]}\n',
-		);
+		expect(line).toBe('{"type":"capabilities","source":"builtin","providers":[]}\n');
 	});
 });
 
@@ -458,7 +438,7 @@ describe("redactCommand capabilities", () => {
 		const command: CapabilitiesCommand = {
 			type: "capabilities",
 			requestId: "cap-1",
-			apiKey: "sk-capability-secret",
+			apiKey: "sk-capability-secret"
 		};
 
 		const redacted = redactCommand(command);
@@ -471,7 +451,7 @@ describe("redactCommand capabilities", () => {
 	test("leaves capabilities commands without a key untouched", () => {
 		const command: CapabilitiesCommand = {
 			type: "capabilities",
-			requestId: "cap-1",
+			requestId: "cap-1"
 		};
 
 		expect(redactCommand(command)).toEqual(command);
@@ -486,7 +466,7 @@ describe("transcribeFile", () => {
 			provider: "vercel-ai-gateway",
 			model: "openai/gpt-4o-transcribe",
 			path: "/home/user/recordings/meeting.mp4",
-			...overrides,
+			...overrides
 		});
 
 	test("parses a file command with an API key", () => {
@@ -498,8 +478,8 @@ describe("transcribeFile", () => {
 				provider: "vercel-ai-gateway",
 				model: "openai/gpt-4o-transcribe",
 				path: "/home/user/recordings/meeting.mp4",
-				apiKey: "sk-secret",
-			},
+				apiKey: "sk-secret"
+			}
 		});
 	});
 
@@ -555,7 +535,7 @@ describe("transcribeFile", () => {
 			provider: "vercel-ai-gateway",
 			model: "openai/gpt-4o-transcribe",
 			path: "/tmp/a.wav",
-			apiKey: "sk-file-secret",
+			apiKey: "sk-file-secret"
 		};
 
 		const redacted = redactCommand(command);
@@ -571,7 +551,7 @@ describe("progress events", () => {
 			type: "progress",
 			sessionId: "session-1",
 			processedSeconds: 12.5,
-			totalSeconds: 340.25,
+			totalSeconds: 340.25
 		};
 
 		expect(JSON.parse(serializeOutboundEvent(event))).toEqual(event);
@@ -582,11 +562,11 @@ describe("progress events", () => {
 			type: "progress",
 			sessionId: "session-1",
 			processedSeconds: 3,
-			totalSeconds: null,
+			totalSeconds: null
 		};
 
 		expect(serializeOutboundEvent(event)).toBe(
-			'{"type":"progress","sessionId":"session-1","processedSeconds":3,"totalSeconds":null}\n',
+			'{"type":"progress","sessionId":"session-1","processedSeconds":3,"totalSeconds":null}\n'
 		);
 	});
 });
@@ -616,13 +596,16 @@ describe("dictation language on transcription commands", () => {
 				provider: "vercel-ai-gateway",
 				model: "openai/gpt-4o-transcribe",
 				path: "/tmp/a.wav",
-				language: "fr",
-			}),
+				language: "fr"
+			})
 		);
 
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
-		expect(result.command).toMatchObject({ type: "transcribeFile", language: "fr" });
+		expect(result.command).toMatchObject({
+			type: "transcribeFile",
+			language: "fr"
+		});
 	});
 
 	test("omits the language key when the file command has none", () => {
@@ -632,8 +615,8 @@ describe("dictation language on transcription commands", () => {
 				sessionId: "session-1",
 				provider: "vercel-ai-gateway",
 				model: "openai/gpt-4o-transcribe",
-				path: "/tmp/a.wav",
-			}),
+				path: "/tmp/a.wav"
+			})
 		);
 
 		expect(result.ok).toBe(true);
@@ -649,19 +632,17 @@ describe("dictation language on transcription commands", () => {
 							sessionId: "session-1",
 							provider: "mistral",
 							model: "voxtral-mini-transcribe-3-0",
-							sampleRate: 16000,
+							sampleRate: 16000
 						}
 					: {
 							sessionId: "session-1",
 							provider: "vercel-ai-gateway",
 							model: "openai/gpt-4o-transcribe",
-							path: "/tmp/a.wav",
+							path: "/tmp/a.wav"
 						};
 
 			for (const language of ["", "   ", 42, null, ["fr"]]) {
-				const result = parseInboundLine(
-					JSON.stringify({ type, ...base, language }),
-				);
+				const result = parseInboundLine(JSON.stringify({ type, ...base, language }));
 
 				expect(result.ok).toBe(false);
 				if (result.ok) return;
@@ -680,13 +661,11 @@ describe("cleanTranscript", () => {
 			provider: "vercel-ai-gateway",
 			model: "openai/gpt-4.1-mini",
 			text: "Bonjour, je d'une idée.",
-			...overrides,
+			...overrides
 		});
 
 	test("parses the command with a language and an API key", () => {
-		expect(
-			parseInboundLine(cleanLine({ language: "fr", apiKey: "sk-secret" })),
-		).toEqual({
+		expect(parseInboundLine(cleanLine({ language: "fr", apiKey: "sk-secret" }))).toEqual({
 			ok: true,
 			command: {
 				type: "cleanTranscript",
@@ -695,8 +674,8 @@ describe("cleanTranscript", () => {
 				model: "openai/gpt-4.1-mini",
 				text: "Bonjour, je d'une idée.",
 				language: "fr",
-				apiKey: "sk-secret",
-			},
+				apiKey: "sk-secret"
+			}
 		});
 	});
 
@@ -743,7 +722,7 @@ describe("cleanTranscript", () => {
 
 	test("never echoes the transcript or the API key in a parse error", () => {
 		const result = parseInboundLine(
-			cleanLine({ requestId: 7, apiKey: "sk-leak", text: "secret transcript" }),
+			cleanLine({ requestId: 7, apiKey: "sk-leak", text: "secret transcript" })
 		);
 
 		expect(result.ok).toBe(false);
@@ -759,7 +738,7 @@ describe("cleanTranscript", () => {
 			provider: "vercel-ai-gateway",
 			model: "openai/gpt-4.1-mini",
 			text: "Bonjour.",
-			apiKey: "sk-clean-secret",
+			apiKey: "sk-clean-secret"
 		};
 
 		const redacted = redactCommand(command);
@@ -775,11 +754,11 @@ describe("cleaned and correlated error events", () => {
 		const event: OutboundEvent = {
 			type: "cleaned",
 			requestId: "clean-1",
-			text: "Bonjour, j'ai une idée.",
+			text: "Bonjour, j'ai une idée."
 		};
 
 		expect(serializeOutboundEvent(event)).toBe(
-			'{"type":"cleaned","requestId":"clean-1","text":"Bonjour, j\'ai une idée."}\n',
+			'{"type":"cleaned","requestId":"clean-1","text":"Bonjour, j\'ai une idée."}\n'
 		);
 	});
 
@@ -788,7 +767,7 @@ describe("cleaned and correlated error events", () => {
 			type: "error",
 			requestId: "clean-1",
 			code: "cleanup_failed",
-			message: "Cleanup failed",
+			message: "Cleanup failed"
 		};
 
 		expect(JSON.parse(serializeOutboundEvent(event))).toEqual(event);
@@ -799,11 +778,11 @@ describe("cleaned and correlated error events", () => {
 			type: "error",
 			sessionId: "session-1",
 			code: "stream_failed",
-			message: "boom",
+			message: "boom"
 		};
 
 		expect(serializeOutboundEvent(event)).toBe(
-			'{"type":"error","sessionId":"session-1","code":"stream_failed","message":"boom"}\n',
+			'{"type":"error","sessionId":"session-1","code":"stream_failed","message":"boom"}\n'
 		);
 	});
 });
@@ -816,7 +795,7 @@ describe("capabilities with the cleanup and language fields", () => {
 			providers: [],
 			languages: [{ code: "fr", label: "French" }],
 			languageModels: [{ id: "openai/gpt-4.1-mini", label: "GPT-4.1 mini" }],
-			defaultLanguageModel: "openai/gpt-4.1-mini",
+			defaultLanguageModel: "openai/gpt-4.1-mini"
 		};
 
 		expect(JSON.parse(serializeOutboundEvent(event))).toEqual(event);
@@ -824,7 +803,11 @@ describe("capabilities with the cleanup and language fields", () => {
 
 	test("omits all three when the worker does not report them", () => {
 		expect(
-			serializeOutboundEvent({ type: "capabilities", source: "builtin", providers: [] }),
+			serializeOutboundEvent({
+				type: "capabilities",
+				source: "builtin",
+				providers: []
+			})
 		).toBe('{"type":"capabilities","source":"builtin","providers":[]}\n');
 	});
 });

@@ -7,11 +7,11 @@
 - **Owner**: two coding sub-agents (reducer, capture regression), supervised by CTO
 - **Started**: 2026-11-05
 - **References**:
-  - `AGENTS.md` §5 (gates), §6 (Do: tests are the contract)
-  - `DESIGN.md` § "Transcript well"
-  - `src/stt/transcript-merge.ts` — the existing junction-merge policy for
-    segmented takes, whose overlap rule this ticket mirrors for live windows
-  - Observed event stream from MAI Transcribe 2 Streaming (below)
+    - `AGENTS.md` §5 (gates), §6 (Do: tests are the contract)
+    - `DESIGN.md` § "Transcript well"
+    - `src/stt/transcript-merge.ts` — the existing junction-merge policy for
+      segmented takes, whose overlap rule this ticket mirrors for live windows
+    - Observed event stream from MAI Transcribe 2 Streaming (below)
 
 ## Context & Goal
 
@@ -52,7 +52,7 @@ compares the new text against the tail **verbatim**:
 
 A windowing provider violates both assumptions:
 
-1. It **slides**: the new hypothesis starts with the *suffix* of the previous
+1. It **slides**: the new hypothesis starts with the _suffix_ of the previous
    one (`ée avec le modèle MAI.` → `le modèle MAI.`), not with its whole prefix.
 2. It **re-tokenizes**: the same words come back with different spacing
    (`d'une` → `d 'une`, `dictée` → `dict ée`, `MAI` → `MA I`, `Transcribe` →
@@ -104,21 +104,21 @@ increment**: it carries the whole take (117 characters), re-punctuated.
 
 So:
 
-| Model | Partials are | Deltas are | Rewrites its past |
-|---|---|---|---|
-| ElevenLabs | the whole take | absent | yes (guillemets) |
-| MAI | a sliding fragment | increments, mid-word | no |
-| Gemini | the whole take | the whole take, once | yes (language, word, punctuation) |
+| Model      | Partials are       | Deltas are           | Rewrites its past                 |
+| ---------- | ------------------ | -------------------- | --------------------------------- |
+| ElevenLabs | the whole take     | absent               | yes (guillemets)                  |
+| MAI        | a sliding fragment | increments, mid-word | no                                |
+| Gemini     | the whole take     | the whole take, once | yes (language, word, punctuation) |
 
 ### What the shipped reducer does with that data
 
 Simulated faithfully, deltas included:
 
-| Take | Authoritative text | Shipped reducer, worst frame | Settles |
-|---|---|---|---|
-| ElevenLabs | 241 chars (no final: provider failed) | 1 755 chars | 12 |
-| MAI | 185 chars | 1 049 chars mid-take | 32 |
-| Gemini | 117 chars | — | every retroactive fix settles |
+| Take       | Authoritative text                    | Shipped reducer, worst frame | Settles                       |
+| ---------- | ------------------------------------- | ---------------------------- | ----------------------------- |
+| ElevenLabs | 241 chars (no final: provider failed) | 1 755 chars                  | 12                            |
+| MAI        | 185 chars                             | 1 049 chars mid-take         | 32                            |
+| Gemini     | 117 chars                             | —                            | every retroactive fix settles |
 
 Both smear while dictating. MAI ends correct only because a non-empty `stopped`
 replaces everything; the damage is confined to the live view. The ElevenLabs take
@@ -127,13 +127,13 @@ is left with.
 
 ### Root cause, precisely
 
-The reducer treats **every** `Partial` as a possible new window and *settles* the
+The reducer treats **every** `Partial` as a possible new window and _settles_ the
 previous tail into `committed` when the text is not a prefix of it. Three measured
 behaviours defeat that test: a retroactive rewrite (no seam to compare), a sliding
 fragment (never was a prefix), and a language switch mid-take.
 
 The second half of the bug is that the `Delta` channel is discarded: deltas are
-appended to the *live tail*, which the next partial overwrites. For MAI that
+appended to the _live tail_, which the next partial overwrites. For MAI that
 throws away the one channel that reconstructs the take exactly.
 
 ### Decision — channel split
@@ -141,13 +141,13 @@ throws away the one channel that reconstructs the take exactly.
 **Deltas accumulate verbatim; partials preview; the two are joined at a word
 seam.**
 
-| Event | What it is | What the buffer does |
-|---|---|---|
-| `Delta` | incremental text, or the whole take again | append **verbatim**; replace when it is cumulative; ignore an exact duplicate |
-| `Partial` | a preview of the current window | replace `live` — never settle |
-| `Committed` | the provider closed an utterance | commit, clear `live` |
-| `Stopped` with text | the authoritative take | replace both |
-| `Stopped` empty | a take that died | fold `live` into `committed` at the seam |
+| Event               | What it is                                | What the buffer does                                                          |
+| ------------------- | ----------------------------------------- | ----------------------------------------------------------------------------- |
+| `Delta`             | incremental text, or the whole take again | append **verbatim**; replace when it is cumulative; ignore an exact duplicate |
+| `Partial`           | a preview of the current window           | replace `live` — never settle                                                 |
+| `Committed`         | the provider closed an utterance          | commit, clear `live`                                                          |
+| `Stopped` with text | the authoritative take                    | replace both                                                                  |
+| `Stopped` empty     | a take that died                          | fold `live` into `committed` at the seam                                      |
 
 Deltas concatenate **without inserting a separator**: MAI's ` Trans` + `cribe` is
 one word, and the provider already supplies its own leading spaces.
@@ -167,8 +167,8 @@ inspection: MAI repeats a single word at two joints (`découvrir` then
 preview restates the word and continues. With a flat two-word threshold the
 display overshoots to 193 characters against a 185-character take — a violation
 of the acceptance criterion, on a run the two-word repetition check does not even
-see. The clause reads: *a preview that restates the end of the committed text and
-then continues is a continuation, not a repetition*. A preview that **ends** at
+see. The clause reads: _a preview that restates the end of the committed text and
+then continues is a continuation, not a repetition_. A preview that **ends** at
 the shared word is handled by rule 1 and adds nothing.
 
 `très très` survives because the repeated word is inside one hypothesis, which is
@@ -177,11 +177,11 @@ keeps going is a sliding window.
 
 Measured against all three captures, at **every** frame:
 
-| Take | Worst displayed frame | Real text | Repeated 2-word runs | Final exact |
-|---|---|---|---|---|
-| ElevenLabs | 241 chars | 241 | **0** | yes |
-| MAI | 185 chars | 185 | **0** | yes |
-| Gemini | 117 chars | 117 | **0** | yes |
+| Take       | Worst displayed frame | Real text | Repeated 2-word runs | Final exact |
+| ---------- | --------------------- | --------- | -------------------- | ----------- |
+| ElevenLabs | 241 chars             | 241       | **0**                | yes         |
+| MAI        | 185 chars             | 185       | **0**                | yes         |
+| Gemini     | 117 chars             | 117       | **0**                | yes         |
 
 ### Why this beats the strategies the ticket started with
 
@@ -191,7 +191,7 @@ Measured against all three captures, at **every** frame:
   there is nothing to key on.
 - **B — show only the newest hypothesis.** It discards MAI's delta channel and
   would end that take on the fragment ` session.` instead of 185 characters.
-- **Channel split** gives MAI a transcript that *grows*, reconstructed exactly
+- **Channel split** gives MAI a transcript that _grows_, reconstructed exactly
   from its deltas, and gives the two cumulative providers their clean preview.
   No model is special-cased: the split follows what the two SDK channels mean.
 
@@ -233,12 +233,15 @@ export function partialsTraceEnabled(env?: Record<string, string | undefined>): 
 /** One-line JSON record for `event`, or `null` for an event with no transcript. */
 export function formatPartialRecord(event: unknown, seq: number): string | null;
 /**
- * Describes the take the dump belongs to. Two models land in one log, so the
- * header is what makes the comparison possible.
+ * Describes the take the dump belongs to. Two models land in one log, so the header is what makes
+ * the comparison possible.
  */
 export function formatSessionHeader(details: {
-  provider: string; model: string; language?: string;
-  sampleRate?: number; kind: "live" | "file";
+	provider: string;
+	model: string;
+	language?: string;
+	sampleRate?: number;
+	kind: "live" | "file";
 }): string;
 ```
 
@@ -265,13 +268,13 @@ Rules:
 export type Transition = "identical" | "extend" | "shrink" | "slide" | "new";
 
 export interface PairClassification {
-  readonly kind: Transition;
-  readonly overlapWords: number;
-  /** Characters of `next` the seam already showed, i.e. shown twice. */
-  readonly overlapChars: number;
-  readonly newWords: number;
-  /** `true` when the seam only matched after folding whitespace away. */
-  readonly retokenized: boolean;
+	readonly kind: Transition;
+	readonly overlapWords: number;
+	/** Characters of `next` the seam already showed, i.e. shown twice. */
+	readonly overlapChars: number;
+	readonly newWords: number;
+	/** `true` when the seam only matched after folding whitespace away. */
+	readonly retokenized: boolean;
 }
 
 export function classifyPair(previous: string, next: string): PairClassification;
@@ -334,7 +337,7 @@ fn seam_join(committed: &str, live: &str) -> String;
 
 `TranscriptBuffer` keeps its two fields and changes what they hold:
 
-- `committed` — text the provider *committed*: every `Delta`, every `Committed`
+- `committed` — text the provider _committed_: every `Delta`, every `Committed`
   payload, and the `Stopped` text when non-empty.
 - `live` — the current partial preview.
 
@@ -342,13 +345,13 @@ fn seam_join(committed: &str, live: &str) -> String;
 
 ### 2. The event rules
 
-| Event | Rule |
-|---|---|
-| `Delta` | append verbatim to `committed`; replace when `delta.starts_with(committed)` (cumulative); ignore when `committed.ends_with(delta)` (duplicate) |
-| `Partial` | `live = text.trim()`, `live_segment = segment`. No settle, no comparison with the previous preview |
-| `Committed` | seam-join its text into `committed`, clear `live` |
-| `Stopped` non-empty | `committed = full_text`, `live` cleared — authoritative |
-| `Stopped` empty | `committed = seam_join(committed, live)`, then clear `live` |
+| Event               | Rule                                                                                                                                           |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Delta`             | append verbatim to `committed`; replace when `delta.starts_with(committed)` (cumulative); ignore when `committed.ends_with(delta)` (duplicate) |
+| `Partial`           | `live = text.trim()`, `live_segment = segment`. No settle, no comparison with the previous preview                                             |
+| `Committed`         | seam-join its text into `committed`, clear `live`                                                                                              |
+| `Stopped` non-empty | `committed = full_text`, `live` cleared — authoritative                                                                                        |
+| `Stopped` empty     | `committed = seam_join(committed, live)`, then clear `live`                                                                                    |
 
 Nothing else changes: `clear()`, the public accessors and every caller of
 `full_text()` keep their contracts.
@@ -391,7 +394,7 @@ not of the reducer, and the test states it rather than hiding it.
 
 The channel split assumes the preview is **at or after** the committed text, which
 is what all three measured providers do. A provider that sends a delta
-*continuing an open preview* (`Partial "audio"` then `Delta " capture"`) reverses
+_continuing an open preview_ (`Partial "audio"` then `Delta " capture"`) reverses
 that order, and the display would show `capture audio`.
 
 No measured provider does this, and every guard tried against the captures broke
@@ -434,8 +437,6 @@ tests that used the old order are the place to start.
 
 **Not selected.** Recorded only so the analysis is not repeated from scratch if a
 future provider forces it.
-
-
 
 Everything below describes the overlap-aware reducer. It is **not** a commitment:
 it is written out so that choosing A after the measurements costs an
@@ -523,7 +524,7 @@ swallowed and a repeated two-word run (`le modèle` → `le modèle MAI`) is.
 ### 4. Invariants (tests pin these)
 
 - `committed` never shrinks and never re-appends text it already ends with.
-- A genuine repeated two-word run inside one hypothesis is *not* lost:
+- A genuine repeated two-word run inside one hypothesis is _not_ lost:
   `très très` stays `très très` (an intra-word run is not a tail overlap).
 - A new utterance with a matching opening still starts a new window:
   `Et ensuite le workflow va consister` followed by `Et` keeps the first
@@ -551,35 +552,35 @@ the next change to the reducer has to keep this take readable.
 ## TDD Tasks
 
 - [x] **T31.0 — Instrument.** `trace.ts` + spec: off unless
-  `SPEECHTT_STT_PARTIALS` is exactly `1`, one line per event, JSON-safe newlines,
-  only transcript-bearing types, header naming provider/model/language.
-  `worker.ts` wraps `emit` once.
+      `SPEECHTT_STT_PARTIALS` is exactly `1`, one line per event, JSON-safe newlines,
+      only transcript-bearing types, header naming provider/model/language.
+      `worker.ts` wraps `emit` once.
 - [x] **T31.1 — Classify.** `trace-analyze.ts` + spec: `classifyPair` covers
-  extend, shrink, identical, a two-word slide, a re-spaced seam and a single
-  shared word that must stay `new`. **Partials and deltas are analysed on separate
-  channels**, because an increment compared against a hypothesis describes
-  nothing. Reports are grouped by model and the duplication factor is measured
-  against the `stopped` text, the only ground truth in a dump.
+      extend, shrink, identical, a two-word slide, a re-spaced seam and a single
+      shared word that must stay `new`. **Partials and deltas are analysed on separate
+      channels**, because an increment compared against a hypothesis describes
+      nothing. Reports are grouped by model and the duplication factor is measured
+      against the `stopped` text, the only ground truth in a dump.
 - [x] **T31.2 — Collect.** Three takes, three shapes:
-  `elevenlabs/scribe-v2-realtime` (cumulative, rewrites its past, no delta),
-  `microsoft/mai-transcribe-2-streaming` (sliding partials + incremental deltas)
-  and `google/gemini-3.5-transcribe-live` (cumulative, whole-take delta). Reports
-  in `### Measurements`.
+      `elevenlabs/scribe-v2-realtime` (cumulative, rewrites its past, no delta),
+      `microsoft/mai-transcribe-2-streaming` (sliding partials + incremental deltas)
+      and `google/gemini-3.5-transcribe-live` (cumulative, whole-take delta). Reports
+      in `### Measurements`.
 - [x] **T31.3 — Decide.** **Channel split**, from the measurement that MAI's 24
-  deltas concatenate to its `stopped` text exactly while its 79 partials are
-  previews.
+      deltas concatenate to its `stopped` text exactly while its 79 partials are
+      previews.
 - [x] **T31.4 — Implement.** `apply_partial` replaces the preview; `apply_delta`
-  appends to `committed`; `full_text()` becomes `seam_join`. Replay both captures
-  as tests, rewrite the pre-existing settle tests to the new contract.
+      appends to `committed`; `full_text()` becomes `seam_join`. Replay both captures
+      as tests, rewrite the pre-existing settle tests to the new contract.
 - [x] **T31.5 — Verify against a third model.** `google/gemini-3.5-transcribe-live`
-  measured, and it forced two contract changes: its delta is the **whole take**,
-  not an increment, and its preview duplicates that delta entirely — hence the
-  "preview already contained at the end of the committed text" rule. Deltas also
-  concatenate **without a separator** (` Trans` + `cribe`), which the MAI capture
-  proves and an inserted space would break.
+      measured, and it forced two contract changes: its delta is the **whole take**,
+      not an increment, and its preview duplicates that delta entirely — hence the
+      "preview already contained at the end of the committed text" rule. Deltas also
+      concatenate **without a separator** (` Trans` + `cribe`), which the MAI capture
+      proves and an inserted space would break.
 - [x] **T31.6 — Docs and gates.** Module headers per `AGENTS.md` §3, then
-  `cargo fmt -- --check`, `cargo clippy --all-targets -- -D warnings`,
-  `cargo test`, `bun test`, `bun check src/stt`, `bun run design:validate`.
+      `cargo fmt -- --check`, `cargo clippy --all-targets -- -D warnings`,
+      `cargo test`, `bun test`, `bun check src/stt`, `bun run design:validate`.
 
 ## Acceptance Criteria
 
@@ -653,14 +654,14 @@ instrument that would reveal such a provider.
 
 ### Gates (repository root, zero warnings, no skipped tests)
 
-| Command | Result |
-|---|---|
-| `cargo fmt -- --check` | clean |
-| `cargo clippy --all-targets -- -D warnings` | clean |
-| `cargo test` | **583 passed, 0 failed** |
-| `bun test` | 348 passed, 0 failed |
-| `bun check src/stt` | 32 files, no type errors |
-| `bun run design:validate` | 66 tokens, 0 errors |
+| Command                                     | Result                   |
+| ------------------------------------------- | ------------------------ |
+| `cargo fmt -- --check`                      | clean                    |
+| `cargo clippy --all-targets -- -D warnings` | clean                    |
+| `cargo test`                                | **583 passed, 0 failed** |
+| `bun test`                                  | 348 passed, 0 failed     |
+| `bun check src/stt`                         | 32 files, no type errors |
+| `bun run design:validate`                   | 66 tokens, 0 errors      |
 
 ### Left for the user
 
@@ -684,8 +685,8 @@ lands. Recorded above rather than papered over.
 
 ## Validation
 
-Closed after two field dictations. The user's report: *"tout n'est pas forcément
-stable lors de la dictée mais globalement le contenu est préservé."*
+Closed after two field dictations. The user's report: _"tout n'est pas forcément
+stable lors de la dictée mais globalement le contenu est préservé."_
 
 That is the contract this ticket set out to satisfy. Live text can still shift as
 a provider re-punctuates its own window or opens a new utterance, and one word at

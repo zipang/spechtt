@@ -1,7 +1,7 @@
 /**
- * Resolved color-contrast tokens. For each colored role, pick the theme text color with
- * the higher WCAG 2.1 contrast against the role's background, or a black/white ink when
- * neither text token reaches AA. The result is the `--color-on-*` contract tokens.
+ * Resolved color-contrast tokens. For each colored role, pick the theme text color with the higher
+ * WCAG 2.1 contrast against the role's background, or a black/white ink when neither text token
+ * reaches AA. The result is the `--color-on-*` contract tokens.
  */
 
 import type { Rgb } from "./color-contrast";
@@ -17,9 +17,9 @@ interface ContrastRole {
 }
 
 /**
- * The eleven contrast pairs. Order defines the emitted order and matches the token tables
- * in the design-system-tokens skill. `tertiary` and `card` resolve through the background
- * variable, which already carries its own documented fallback.
+ * The eleven contrast pairs. Order defines the emitted order and matches the token tables in the
+ * design-system-tokens skill. `tertiary` and `card` resolve through the background variable, which
+ * already carries its own documented fallback.
  */
 const ROLES: ContrastRole[] = [
 	{ on: "--color-on-primary", background: "--color-brand-primary" },
@@ -50,8 +50,8 @@ const WHITE: Rgb = { r: 255, g: 255, b: 255 };
 const VARIABLE_REFERENCE = /var\(\s*(--[\w-]+)(?:\s*,\s*([^)]+))?\s*\)/g;
 
 /**
- * Resolve `var(--x)` references against a token list so an alias compares equal to the
- * literal it points to. Depth is bounded to avoid reference cycles.
+ * Resolve `var(--x)` references against a token list so an alias compares equal to the literal it
+ * points to. Depth is bounded to avoid reference cycles.
  */
 const resolve = (value: string, list: TokenList, depth = 0): string => {
 	if (depth > 8 || !value.includes("var(")) {
@@ -75,9 +75,9 @@ const colorOf = (list: TokenList, variable: string): Rgb | null =>
 	parseHex(resolve(list[variable] ?? "", list));
 
 /**
- * Pick the foreground for one background: the theme text token with the higher contrast,
- * a tie going to the on-dark token. When neither reaches AA, fall back to pure black or
- * white so the label stays legible.
+ * Pick the foreground for one background: the theme text token with the higher contrast, a tie
+ * going to the on-dark token. When neither reaches AA, fall back to pure black or white so the
+ * label stays legible.
  */
 const resolveOn = (background: Rgb, textBase: Rgb, textOnDark: Rgb): string => {
 	const baseRatio = contrastRatio(textBase, background);
@@ -95,11 +95,11 @@ const resolveOn = (background: Rgb, textBase: Rgb, textOnDark: Rgb): string => {
 };
 
 /**
- * Return a copy of `tokenList` with the eleven `--color-on-*` contrast tokens recomputed
- * from its color values. `var()` references resolve against the list itself. The input is
- * not mutated. A role whose background is not a parseable color falls back to the
- * documented default `var(--color-text)`; when either text color is unparseable the list
- * is returned unchanged.
+ * Return a copy of `tokenList` with the eleven `--color-on-*` contrast tokens recomputed from its
+ * color values. `var()` references resolve against the list itself. The input is not mutated. A
+ * role whose background is not a parseable color falls back to the documented default
+ * `var(--color-text)`; when either text color is unparseable the list is returned unchanged.
+ *
  * @param tokenList - The token list whose color values drive the derivation.
  * @returns A copy with the eleven `--color-on-*` tokens recomputed.
  */

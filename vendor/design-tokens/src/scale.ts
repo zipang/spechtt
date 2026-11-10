@@ -17,14 +17,16 @@ const remString = (rem: number): string => `${Number(rem.toFixed(4))}rem`;
 
 /**
  * Format a pixel value as a `rem` string, trimming trailing zeros.
+ *
  * @param px - The pixel value to convert.
  * @returns The equivalent `rem` string.
  */
 export const formatRem = (px: number): string => remString(px / 16);
 
 /**
- * Compute the type scale from a geometric ratio. The base step is always `1rem`, so
- * `md` is `1rem` and each other step is `ratio ** offset`.
+ * Compute the type scale from a geometric ratio. The base step is always `1rem`, so `md` is `1rem`
+ * and each other step is `ratio ** offset`.
+ *
  * @param ratio - The geometric ratio between adjacent steps.
  * @returns Each step name mapped to its `rem` value.
  */
@@ -53,8 +55,8 @@ export const SPACE_STEP_UNITS: Record<SpaceStepName, number> = {
 };
 
 /**
- * Step offsets from `base` for a geometric scale. The linear multipliers are not a
- * geometric progression, so a geometric scale spaces the steps evenly around `base`.
+ * Step offsets from `base` for a geometric scale. The linear multipliers are not a geometric
+ * progression, so a geometric scale spaces the steps evenly around `base`.
  */
 export const SPACE_STEP_OFFSETS: Record<SpaceStepName, number> = {
 	xs: -3,
@@ -77,6 +79,7 @@ export const SPACE_MULTIPLIER_DEFAULT = 1.5;
 
 /**
  * Compute the linear spacing scale from a unit in `rem`; `base` is four units.
+ *
  * @param unitRem - The linear unit in `rem`; defaults to {@link SPACE_UNIT_DEFAULT}.
  * @returns Each spacing step name mapped to its `rem` value.
  */
@@ -93,8 +96,9 @@ export const linearSpacingScaleRem = (
 };
 
 /**
- * Compute the geometric spacing scale from a seed and a multiplier. The seed lands on
- * `base`, so the other steps grow outward as `seed * multiplier ** offset`.
+ * Compute the geometric spacing scale from a seed and a multiplier. The seed lands on `base`, so
+ * the other steps grow outward as `seed * multiplier ** offset`.
+ *
  * @param seedRem - The `rem` value at `base`; defaults to {@link SPACE_SEED_DEFAULT}.
  * @param multiplier - The ratio between steps; defaults to {@link SPACE_MULTIPLIER_DEFAULT}.
  * @returns Each spacing step name mapped to its `rem` value.

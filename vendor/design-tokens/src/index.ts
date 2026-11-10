@@ -1,9 +1,9 @@
 /**
  * Public API of the Applied Design Systems token contract.
  *
- * This entry is pure: it imports no React, no DOM, and no filesystem. Consumers parse,
- * serialize, validate, and derive contrast for a `DESIGN.md` + `design-tokens.css` pair
- * with it. Every module here is also the single source of truth the Theme Editor uses.
+ * This entry is pure: it imports no React, no DOM, and no filesystem. Consumers parse, serialize,
+ * validate, and derive contrast for a `DESIGN.md` + `design-tokens.css` pair with it. Every module
+ * here is also the single source of truth the Theme Editor uses.
  */
 
 // Contrast: the Rgb API is the validator's; the hex helpers are a display convenience.

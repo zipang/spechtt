@@ -8,33 +8,33 @@ name: SpeechTT Sensor
 # designer overrides their stylesheet fallback.
 # ============================================================================
 colors:
-  # Brand — primary and accent are required; secondary and tertiary are optional.
-  brand:
-    primary:   "#ea5514"   # --color-brand-primary   (record button, waveform, highlights)
-    accent:    "#ff8a3d"   # --color-brand-accent    (live text, active glow)
-    secondary: "#2a2a32"   # --color-brand-secondary (raised chrome, inactive bars)
-    # tertiary: omitted → --color-brand-tertiary: var(--color-brand-primary)
+    # Brand — primary and accent are required; secondary and tertiary are optional.
+    brand:
+        primary: "#ea5514" # --color-brand-primary   (record button, waveform, highlights)
+        accent: "#ff8a3d" # --color-brand-accent    (live text, active glow)
+        secondary: "#2a2a32" # --color-brand-secondary (raised chrome, inactive bars)
+        # tertiary: omitted → --color-brand-tertiary: var(--color-brand-primary)
 
-  # Action — all four are required
-  action:
-    success: "#35c48b"     # --color-action-success  (saved, connected)
-    info:    "#4d9dff"     # --color-action-info     (neutral notices)
-    warning: "#f0a82e"     # --color-action-warning  (paused state)
-    danger:  "#e5484d"     # --color-action-danger   (errors, stop)
+    # Action — all four are required
+    action:
+        success: "#35c48b" # --color-action-success  (saved, connected)
+        info: "#4d9dff" # --color-action-info     (neutral notices)
+        warning: "#f0a82e" # --color-action-warning  (paused state)
+        danger: "#e5484d" # --color-action-danger   (errors, stop)
 
-  # Text  (drop-.base rule: colors.text.base -> --color-text)
-  text:
-    base:    "#f2efeb"     # --color-text
-    accent:  "#ff8a3d"     # --color-text-accent (streaming / highlighted words)
-    muted:   "#9c9aa3"     # --color-text-muted
-    ondark:  "#f2efeb"     # --color-text-ondark
+    # Text  (drop-.base rule: colors.text.base -> --color-text)
+    text:
+        base: "#f2efeb" # --color-text
+        accent: "#ff8a3d" # --color-text-accent (streaming / highlighted words)
+        muted: "#9c9aa3" # --color-text-muted
+        ondark: "#f2efeb" # --color-text-ondark
 
-  # Surface  (drop-.base rule: colors.surface.base -> --color-surface)
-  surface:
-    base:  "#17171b"       # --color-surface      (floating panel body)
-    alt:   "#202027"       # --color-surface-alt  (inset transcript well, inputs)
-    dark:  "#0e0e11"       # --color-surface-dark (top info strip, modal backdrop)
-    card:  "#1c1c22"       # --color-surface-card (settings card)
+    # Surface  (drop-.base rule: colors.surface.base -> --color-surface)
+    surface:
+        base: "#17171b" # --color-surface      (floating panel body)
+        alt: "#202027" # --color-surface-alt  (inset transcript well, inputs)
+        dark: "#0e0e11" # --color-surface-dark (top info strip, modal backdrop)
+        card: "#1c1c22" # --color-surface-card (settings card)
 
 # ============================================================================
 # TYPOGRAPHY  —  entries are objects;
@@ -42,54 +42,57 @@ colors:
 # preset values from design-tokens.css (CSS variables)
 # ============================================================================
 typography:
-  base: {
-    fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif',
-    fontWeight: "var(--font-weight-regular)",
-    lineHeight: "var(--line-height-regular)"
-  }
-  display: {
-    fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif',
-    fontWeight: "var(--font-weight-extrabold)",
-    lineHeight: "var(--line-height-tight)",
-    letterSpacing: "var(--letter-spacing-tight)"
-  }
-  mono: {
-    fontFamily: 'ui-monospace, "DejaVu Sans Mono", "Courier New", monospace',
-    fontWeight: "var(--font-weight-thin)",
-    lineHeight: "var(--line-height-regular)",
-    letterSpacing: "var(--letter-spacing-wide)"
-  }
+    base:
+        {
+            fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif',
+            fontWeight: "var(--font-weight-regular)",
+            lineHeight: "var(--line-height-regular)"
+        }
+    display:
+        {
+            fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif',
+            fontWeight: "var(--font-weight-extrabold)",
+            lineHeight: "var(--line-height-tight)",
+            letterSpacing: "var(--letter-spacing-tight)"
+        }
+    mono:
+        {
+            fontFamily: 'ui-monospace, "DejaVu Sans Mono", "Courier New", monospace',
+            fontWeight: "var(--font-weight-thin)",
+            lineHeight: "var(--line-height-regular)",
+            letterSpacing: "var(--letter-spacing-wide)"
+        }
 
 # ============================================================================
 # ROUNDED  —  corner radius presets (all five are required)
 # ============================================================================
 rounded:
-  none: "0"
-  sm:   "0.375rem"
-  md:   "0.75rem"
-  lg:   "1.25rem"
-  full: "100%"
+    none: "0"
+    sm: "0.375rem"
+    md: "0.75rem"
+    lg: "1.25rem"
+    full: "100%"
 
 # ============================================================================
 # SPACING  —  spatial rhythm scale, 4px linear (all required)
 # ============================================================================
 spacing:
-  xs:   "0.25rem"
-  sm:   "0.5rem"
-  md:   "0.75rem"
-  base: "1rem"
-  lg:   "1.25rem"
-  xl:   "2rem"
-  xxl:  "3rem"
+    xs: "0.25rem"
+    sm: "0.5rem"
+    md: "0.75rem"
+    base: "1rem"
+    lg: "1.25rem"
+    xl: "2rem"
+    xxl: "3rem"
 
 # ============================================================================
 # ELEVATION  —  custom top-level family (shadow presets; optional, default none)
 # Tuned for a dark UI: deep, soft, slightly warm-neutral black shadows.
 # ============================================================================
 elevation:
-  sm: "0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.25)"
-  md: "0 4px 10px -2px rgba(0, 0, 0, 0.45), 0 10px 24px rgba(0, 0, 0, 0.35)"
-  lg: "0 8px 20px -4px rgba(0, 0, 0, 0.5), 0 24px 48px rgba(0, 0, 0, 0.45)"
+    sm: "0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.25)"
+    md: "0 4px 10px -2px rgba(0, 0, 0, 0.45), 0 10px 24px rgba(0, 0, 0, 0.35)"
+    lg: "0 8px 20px -4px rgba(0, 0, 0, 0.5), 0 24px 48px rgba(0, 0, 0, 0.45)"
 
 # ============================================================================
 # BORDER  —  custom top-level family (border WIDTHS; all required)
@@ -97,9 +100,9 @@ elevation:
 # pick them under `components`.
 # ============================================================================
 border:
-  sm: "1px"
-  md: "2px"
-  lg: "4px"
+    sm: "1px"
+    md: "2px"
+    lg: "4px"
 ---
 
 ## Overview
@@ -182,11 +185,11 @@ The type scale is geometric with ratio 1.25 (Major Third):
 rendered by one of three components, so a role always looks the same on every
 screen:
 
-| Component | Role                       | Token            | Size   | Weight   |
-|-----------|----------------------------|------------------|--------|----------|
-| `Title`   | screen and card titles      | `--font-size-lg` | 20 px  | semibold |
-| `Body`    | body copy, settings rows    | `--font-size-md` | 16 px  | regular  |
-| `Label`   | captions, badges, hints     | `--font-size-sm` | 12.8 px| medium   |
+| Component | Role                     | Token            | Size    | Weight   |
+| --------- | ------------------------ | ---------------- | ------- | -------- |
+| `Title`   | screen and card titles   | `--font-size-lg` | 20 px   | semibold |
+| `Body`    | body copy, settings rows | `--font-size-md` | 16 px   | regular  |
+| `Label`   | captions, badges, hints  | `--font-size-sm` | 12.8 px | medium   |
 
 A view never passes a size or a weight: it picks the role, and may add only
 `.muted()`, `.tone(..)`, `.mono()`, `.bold()` (the single emphasis step above
@@ -305,8 +308,8 @@ The form opens already seeded from the Settings defaults: a live take starts fro
 **Default Streaming Model** and a file take from **Default Batch Model**, so the
 two fields are filled and Continue is enabled without a visit to the menus.
 
-In **file** mode the body is preceded by an `InfoNote` reading *"Files are
-transcribed in batches, so only non-streaming models are listed."*, because a
+In **file** mode the body is preceded by an `InfoNote` reading _"Files are
+transcribed in batches, so only non-streaming models are listed."_, because a
 file take cannot use a streaming model; the model menu then lists only
 **Batch** entries. The note uses the existing component as-is: no new tone, size
 or spacing. Both menus take their rows from the handshake catalogue, so no
@@ -322,11 +325,11 @@ The take screen uses it for its record button, at the same 56 px diameter as
 every round button. That button speaks the language of **capture**, not of
 playback — the glyph is always the microphone, never a play, pause or square:
 
-| Take state | Control | Face | Motion |
-|---|---|---|---|
-| idle | **off** | `surface` fill, `brand.secondary` outline (`RoundTone::Secondary`), `--color-text` mic | none |
-| recording | **on** | `brand.primary` fill and outline (`RoundTone::Primary`), `--color-text` mic | pulse + repeating wave |
-| paused | **off** | as idle | none |
+| Take state | Control | Face                                                                                   | Motion                 |
+| ---------- | ------- | -------------------------------------------------------------------------------------- | ---------------------- |
+| idle       | **off** | `surface` fill, `brand.secondary` outline (`RoundTone::Secondary`), `--color-text` mic | none                   |
+| recording  | **on**  | `brand.primary` fill and outline (`RoundTone::Primary`), `--color-text` mic            | pulse + repeating wave |
+| paused     | **off** | as idle                                                                                | none                   |
 
 The control uses the two tones §Round button defines and introduces no colour of
 its own; "off" is the same resting dark face as the chooser's file card. "Inert"
@@ -348,12 +351,12 @@ is completely still. The press wave still fires on every click, unchanged.
 
 The take screen's footer puts this control in the centre zone:
 
-| Zone | Action | Behaviour |
-|---|---|---|
-| Leading | `ArrowBigLeft`, "Cancel" | discards an open take, stops capture, returns to the mode chooser |
-| Primary | `ToggleRoundButton` (mic) | off → starts or resumes; on → pauses |
-| Trailing | `RotateCcw`, "Reset" | clears the take and stays on the screen; dimmed when idle or for a file take |
-| Trailing | `ArrowBigRight`, "Stop" | ends the take and shows the session end screen; live whenever a take is open, no pause first |
+| Zone     | Action                    | Behaviour                                                                                    |
+| -------- | ------------------------- | -------------------------------------------------------------------------------------------- |
+| Leading  | `ArrowBigLeft`, "Cancel"  | discards an open take, stops capture, returns to the mode chooser                            |
+| Primary  | `ToggleRoundButton` (mic) | off → starts or resumes; on → pauses                                                         |
+| Trailing | `RotateCcw`, "Reset"      | clears the take and stays on the screen; dimmed when idle or for a file take                 |
+| Trailing | `ArrowBigRight`, "Stop"   | ends the take and shows the session end screen; live whenever a take is open, no pause first |
 
 The trailing Stop is a **forward arrow**, the mirror of the footer's back arrow:
 ending the take is going forward, to the transcript. No playback glyph (play,
@@ -372,15 +375,15 @@ chosen on the setup form and never changes.
 The model is a **picker** while the session can still change it, and plain text
 once it cannot:
 
-| Session state | Trailing model | Why |
-|---|---|---|
-| `Ready` — before the first recorded frame | `LiveModelSelect` dropdown, opened on the take's model | the user may still change engines without leaving the screen |
-| `Recording` / `Paused` | muted `Label` with the model name | the machine freezes its configuration from the first frame, so a control would be a lie |
-| no catalogue, or no model resolves | nothing | the clock still shows |
+| Session state                             | Trailing model                                         | Why                                                                                     |
+| ----------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `Ready` — before the first recorded frame | `LiveModelSelect` dropdown, opened on the take's model | the user may still change engines without leaving the screen                            |
+| `Recording` / `Paused`                    | muted `Label` with the model name                      | the machine freezes its configuration from the first frame, so a control would be a lie |
+| no catalogue, or no model resolves        | nothing                                                | the clock still shows                                                                   |
 
 The picker is **take-scoped**: it changes the model of the take about to be
 recorded and never rewrites the Settings default. A live take may use a
-*segmented* model — which batches the microphone audio — and `model_streaming`
+_segmented_ model — which batches the microphone audio — and `model_streaming`
 accepts only a streaming one, so writing the choice back would break the default
 seeding the Settings panel guarantees.
 
@@ -393,11 +396,11 @@ header names the engine without repeating the chip.
 A file take has no microphone and no live transcript, so it gets its own screen
 instead of the take screen. One quiet report, and three actions:
 
-| Band | Content |
-|---|---|
+| Band   | Content                                                                                                                                                                                                                                                                                                                                  |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Header | `In progress` pill — `action.warning` dot, muted label — while the worker decodes; `Done` pill — `action.success` dot and label — once it has finished; `STOPPED` pill — `action.danger` dot and label — when the user ended the decode early. Trailing: the elapsed `mm:ss` read-out, in the same place and style as on the take screen |
-| Body | One `SurfaceBox` with the transcribed file's name (`Label`, mono) and a `ProgressBar` |
-| Footer | Back (left) → mode chooser · Stop (centre) → end the decode early · Continue (right) → the session end screen |
+| Body   | One `SurfaceBox` with the transcribed file's name (`Label`, mono) and a `ProgressBar`                                                                                                                                                                                                                                                    |
+| Footer | Back (left) → mode chooser · Stop (centre) → end the decode early · Continue (right) → the session end screen                                                                                                                                                                                                                            |
 
 The corner read-out times the **take**, not the file: the clock starts when the
 transcription starts and stops when the worker finishes, exactly like a live
@@ -484,19 +487,19 @@ dot plus an uppercase `mono` label at `--font-size-xs`,
 state (recording, decoding) keeps its label muted beside a coloured dot, so the
 pill reads as one signal without shouting.
 
-| State | Dot | Label |
-|---|---|---|
-| idle (take screen, ready to record) | `action.success` (mint) | `action.success` |
-| recording | `action.danger` (red) | `text.muted` |
-| paused | `action.warning` (amber) | `action.warning` |
-| decoding a file | `action.warning` (amber) | `text.muted` |
-| file decoded | `action.success` (mint) | `action.success` |
-| file take ended early | `action.danger` (red) | `action.danger` |
+| State                               | Dot                      | Label            |
+| ----------------------------------- | ------------------------ | ---------------- |
+| idle (take screen, ready to record) | `action.success` (mint)  | `action.success` |
+| recording                           | `action.danger` (red)    | `text.muted`     |
+| paused                              | `action.warning` (amber) | `action.warning` |
+| decoding a file                     | `action.warning` (amber) | `text.muted`     |
+| file decoded                        | `action.success` (mint)  | `action.success` |
+| file take ended early               | `action.danger` (red)    | `action.danger`  |
 
 Green says "the microphone is free, press it" or "the file is transcribed"; red
 is capture, amber is a held or working state. No colour is invented for this: the
-mint is the existing `--color-action-success` role that also means *saved* and
-*connected*. Colour is never the only signal — the label spells the state out.
+mint is the existing `--color-action-success` role that also means _saved_ and
+_connected_. Colour is never the only signal — the label spells the state out.
 
 ### Action buttons
 
@@ -513,11 +516,11 @@ Every widget screen with actions renders the same footer, built by
 `title_bar`, a 1px `title_bar_border` hairline on top, `--space-lg` horizontal
 padding — split into three zones:
 
-| Zone | Meaning |
-|---|---|
-| Leading | **Back**, one step towards the mode chooser |
-| Primary | The screen's main action, centred on the footer's own axis |
-| Trailing | Secondary actions, left to right in insertion order |
+| Zone     | Meaning                                                    |
+| -------- | ---------------------------------------------------------- |
+| Leading  | **Back**, one step towards the mode chooser                |
+| Primary  | The screen's main action, centred on the footer's own axis |
+| Trailing | Secondary actions, left to right in insertion order        |
 
 The side zones are equal flexible columns, so the primary action stays centred
 whether a side is empty or full. Back is an `IconAction` (34 px, the same
@@ -530,13 +533,13 @@ forward on the right, the same square, the same glyph family, opposite
 directions. That pairing says "you are between two steps" without a label, and
 forward is dimmed until the step is complete.
 
-| View | Leading | Primary | Trailing |
-|---|---|---|---|
-| `welcome` (mode chooser) | — | — | — (no footer) |
-| `session_setup` | Back → mode chooser (drops the draft and any pending file) | — | Forward (`ArrowBigRight`, disabled until the draft is complete) → starts the take |
-| `recording` (live take) | Back → mode chooser | take control | Stop |
-| `session_end` | Back → mode chooser | — | Clean up + Copy + Save, or Open file |
-| `session_transcription` | Back → mode chooser | Stop | Continue |
+| View                     | Leading                                                    | Primary      | Trailing                                                                          |
+| ------------------------ | ---------------------------------------------------------- | ------------ | --------------------------------------------------------------------------------- |
+| `welcome` (mode chooser) | —                                                          | —            | — (no footer)                                                                     |
+| `session_setup`          | Back → mode chooser (drops the draft and any pending file) | —            | Forward (`ArrowBigRight`, disabled until the draft is complete) → starts the take |
+| `recording` (live take)  | Back → mode chooser                                        | take control | Stop                                                                              |
+| `session_end`            | Back → mode chooser                                        | —            | Clean up + Copy + Save, or Open file                                              |
+| `session_transcription`  | Back → mode chooser                                        | Stop         | Continue                                                                          |
 
 Back means the same thing everywhere: one step towards the mode chooser, with
 no stale draft, pending file, finished take, output status or error strip left
@@ -549,18 +552,18 @@ Save.
 The cleanup is **one** button, not two. Its glyph and label name the action it
 will take next, so a single slot carries the whole gesture:
 
-| Screen shows | Icon | Label | Effect |
-|---|---|---|---|
-| no repair yet | `WandSparkles` | "Clean up text" | runs the pass |
-| a repair running | `WandSparkles` | "Cleaning up…" | disabled |
-| the repaired text | `RotateCcw` | "Show original text" | shows the pre-repair text |
-| the original, with a repair cached | `WandSparkles` | "Show cleaned text" | shows the repaired text again |
+| Screen shows                       | Icon           | Label                | Effect                        |
+| ---------------------------------- | -------------- | -------------------- | ----------------------------- |
+| no repair yet                      | `WandSparkles` | "Clean up text"      | runs the pass                 |
+| a repair running                   | `WandSparkles` | "Cleaning up…"       | disabled                      |
+| the repaired text                  | `RotateCcw`    | "Show original text" | shows the pre-repair text     |
+| the original, with a repair cached | `WandSparkles` | "Show cleaned text"  | shows the repaired text again |
 
-| Action | Icon | Label | Enabled when |
-|---|---|---|---|
+| Action         | Icon                         | Label     | Enabled when                                                                         |
+| -------------- | ---------------------------- | --------- | ------------------------------------------------------------------------------------ |
 | Cleanup toggle | `WandSparkles` / `RotateCcw` | see above | the take has text, and either a cleanup model resolves or a repair is already cached |
-| Copy | `Copy` | "Copy" | the take has text |
-| Save | `HardDriveDownload` | "Save" | the take has text |
+| Copy           | `Copy`                       | "Copy"    | the take has text                                                                    |
+| Save           | `HardDriveDownload`          | "Save"    | the take has text                                                                    |
 
 The toggle is a secondary `IconAction` like Copy and Save — same 34 px square,
 same `secondary` surface. It carries no accent colour: the repair it starts is
@@ -609,7 +612,7 @@ settings draft: `components::ProviderSelect`, `components::ModelSelect` and
 arrives, and both default-model menus until a provider is chosen. The model rows
 and the field beside each menu show the model's `TranscriptionModeBadge`.
 
-**Dictation Language** — *"The language you speak; improves accuracy"*; it leads
+**Dictation Language** — _"The language you speak; improves accuracy"_; it leads
 the list because it applies to the transcription itself, not to a model choice.
 Its first entry is **Auto (detect)**, whose value is the empty language; every
 other entry is an ISO-639-1 code the worker published, in the worker's order.
@@ -619,16 +622,16 @@ not searchable: one entry is a single word.
 The two model rows are one default per take mode, each a `SettingRow` on its own
 line because two dropdowns do not fit side by side:
 
-- **Default Streaming Model** — *"Used for live dictation"*; lists only
+- **Default Streaming Model** — _"Used for live dictation"_; lists only
   `Streaming` models.
-- **Default Batch Model** — *"Used for audio and video files"*; lists only
+- **Default Batch Model** — _"Used for audio and video files"_; lists only
   `Segmented` models.
 
 Both are required to save, so every take starts from a model of its own mode. The
 provider menu lists every catalogue provider; an arriving catalogue refreshes the
 open dialog.
 
-**Cleanup Model** — *"Repairs typos and broken sentences after transcription"*,
+**Cleanup Model** — _"Repairs typos and broken sentences after transcription"_,
 below the two model rows because it never transcribes: it repairs a finished
 transcript. It lists the text models the worker discovered, with the placeholder
 "Use DEFAULT_LANGUAGE_MODEL" while nothing is stored. A worker that reported no

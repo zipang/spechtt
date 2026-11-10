@@ -12,6 +12,7 @@ const channel = (hex: string, start: number): number => {
 
 /**
  * Relative luminance of a `#rgb` or `#rrggbb` color. Returns 0 for invalid input.
+ *
  * @param hex - The color string to measure.
  * @returns The relative luminance, or 0 when the color is invalid.
  */
@@ -38,6 +39,7 @@ export const relativeLuminance = (hex: string): number => {
 
 /**
  * WCAG contrast ratio between two colors, rounded to two decimals.
+ *
  * @param a - The first color string.
  * @param b - The second color string.
  * @returns The contrast ratio, rounded to two decimals.
@@ -52,6 +54,7 @@ export const contrastRatio = (a: string, b: string): number => {
 
 /**
  * Map a contrast ratio to its WCAG level.
+ *
  * @param ratio - The contrast ratio to classify.
  * @returns The highest WCAG level the ratio satisfies.
  */
@@ -73,6 +76,7 @@ export const contrastLevel = (ratio: number): ContrastLevel => {
 
 /**
  * True when a color is light enough that dark text should sit on top of it.
+ *
  * @param hex - The color string to test.
  * @returns True when dark text should sit on top of the color.
  */

@@ -1,14 +1,13 @@
 /**
  * Local media decoding for file transcription.
  *
- * The worker never receives audio bytes for a file session: it receives a path
- * and decodes the file itself with **ffmpeg**, so any container ffmpeg can
- * demux (audio or video) is supported. Output is canonicalised to 16 kHz mono
- * PCM16 on `stdout`, and every segment is later WAV-framed for the gateway —
- * the one container every transcription model accepts.
+ * The worker never receives audio bytes for a file session: it receives a path and decodes the file
+ * itself with **ffmpeg**, so any container ffmpeg can demux (audio or video) is supported. Output
+ * is canonicalised to 16 kHz mono PCM16 on `stdout`, and every segment is later WAV-framed for the
+ * gateway — the one container every transcription model accepts.
  *
- * `stderr` is diagnostic only and is truncated before it reaches an error
- * message. Nothing here writes to `stdout`.
+ * `stderr` is diagnostic only and is truncated before it reaches an error message. Nothing here
+ * writes to `stdout`.
  */
 
 import type { SttErrorCode } from "./protocol";
@@ -44,13 +43,12 @@ function nonEmpty(value: string | undefined): string | undefined {
  * - `SPEECHTT_FFMPEG` / `SPEECHTT_FFPROBE` win when set and non-blank.
  * - Otherwise each binary is looked up on `PATH` independently.
  *
- * Returns `undefined` when either binary is missing: a file session cannot
- * report progress without `ffprobe`, and cannot decode at all without
- * `ffmpeg`.
+ * Returns `undefined` when either binary is missing: a file session cannot report progress without
+ * `ffprobe`, and cannot decode at all without `ffmpeg`.
  */
 export function findFfmpeg(
 	env: Record<string, string | undefined> = process.env,
-	which: (binary: string) => string | null = defaultWhich,
+	which: (binary: string) => string | null = defaultWhich
 ): FfmpegTools | undefined {
 	const ffmpeg = nonEmpty(env.SPEECHTT_FFMPEG) ?? which("ffmpeg");
 	const ffprobe = nonEmpty(env.SPEECHTT_FFPROBE) ?? which("ffprobe");
@@ -71,7 +69,7 @@ export interface ProcessResult {
 /** Executes one command to completion. Injectable for tests. */
 export type ExecFn = (
 	argv: readonly string[],
-	options?: { signal?: AbortSignal },
+	options?: { signal?: AbortSignal }
 ) => Promise<ProcessResult>;
 
 /** A long-running decoder process. Injectable for tests. */
@@ -95,7 +93,7 @@ const defaultExec: ExecFn = async (argv, options) => {
 		cmd: [...argv],
 		stdin: "ignore",
 		stdout: "pipe",
-		stderr: "pipe",
+		stderr: "pipe"
 	});
 	const onAbort = (): void => {
 		process.kill("SIGTERM");
@@ -106,7 +104,7 @@ const defaultExec: ExecFn = async (argv, options) => {
 		const [stdout, stderr, exitCode] = await Promise.all([
 			readStreamText(process.stdout as ReadableStream<Uint8Array>),
 			readStreamText(process.stderr as ReadableStream<Uint8Array>),
-			process.exited,
+			process.exited
 		]);
 		return { exitCode, stdout, stderr };
 	} finally {
@@ -114,9 +112,7 @@ const defaultExec: ExecFn = async (argv, options) => {
 	}
 };
 
-function toAsyncIterable(
-	stream: ReadableStream<Uint8Array>,
-): AsyncIterable<Uint8Array> {
+function toAsyncIterable(stream: ReadableStream<Uint8Array>): AsyncIterable<Uint8Array> {
 	return {
 		async *[Symbol.asyncIterator]() {
 			const reader = stream.getReader();
@@ -133,15 +129,13 @@ function toAsyncIterable(
 			} finally {
 				reader.releaseLock();
 			}
-		},
+		}
 	};
 }
 
 function truncateTail(text: string): string {
 	const trimmed = text.trim();
-	return trimmed.length <= STDERR_TAIL_LENGTH
-		? trimmed
-		: trimmed.slice(-STDERR_TAIL_LENGTH);
+	return trimmed.length <= STDERR_TAIL_LENGTH ? trimmed : trimmed.slice(-STDERR_TAIL_LENGTH);
 }
 
 const defaultSpawn: SpawnFn = (argv) => {
@@ -149,18 +143,16 @@ const defaultSpawn: SpawnFn = (argv) => {
 		cmd: [...argv],
 		stdin: "ignore",
 		stdout: "pipe",
-		stderr: "pipe",
+		stderr: "pipe"
 	});
 
 	return {
 		stdout: toAsyncIterable(process.stdout as ReadableStream<Uint8Array>),
 		exited: process.exited,
-		stderr: readStreamText(
-			process.stderr as ReadableStream<Uint8Array>,
-		).then(truncateTail),
+		stderr: readStreamText(process.stderr as ReadableStream<Uint8Array>).then(truncateTail),
 		kill: (signal) => {
 			process.kill(signal);
-		},
+		}
 	};
 };
 
@@ -174,7 +166,7 @@ export type FileDecodeErrorCode = Extract<
 export class FileDecodeError extends Error {
 	constructor(
 		readonly code: FileDecodeErrorCode,
-		message: string,
+		message: string
 	) {
 		super(message);
 		this.name = "FileDecodeError";
@@ -185,7 +177,7 @@ const NOT_FOUND_PATTERNS: readonly RegExp[] = [
 	/no such file or directory/i,
 	/is a directory/i,
 	/permission denied/i,
-	/error opening input/i,
+	/error opening input/i
 ];
 
 const UNSUPPORTED_PATTERNS: readonly RegExp[] = [
@@ -195,7 +187,7 @@ const UNSUPPORTED_PATTERNS: readonly RegExp[] = [
 	/moov atom not found/i,
 	/could not find codec parameters/i,
 	/unknown input format/i,
-	/unsupported codec/i,
+	/unsupported codec/i
 ];
 
 function classifyDecodeFailure(stderr: string): FileDecodeErrorCode {
@@ -208,7 +200,7 @@ function classifyDecodeFailure(stderr: string): FileDecodeErrorCode {
 	return "decode_failed";
 }
 
-/** argv that decodes the first audio stream to 16 kHz mono PCM16 on stdout. */
+/** Argv that decodes the first audio stream to 16 kHz mono PCM16 on stdout. */
 export function decodeArgs(path: string, ffmpeg: string): string[] {
 	return [
 		ffmpeg,
@@ -228,11 +220,11 @@ export function decodeArgs(path: string, ffmpeg: string): string[] {
 		"s16le",
 		"-acodec",
 		"pcm_s16le",
-		"pipe:1",
+		"pipe:1"
 	];
 }
 
-/** argv that reads only the container duration. */
+/** Argv that reads only the container duration. */
 export function probeArgs(path: string, ffprobe: string): string[] {
 	return [
 		ffprobe,
@@ -242,27 +234,26 @@ export function probeArgs(path: string, ffprobe: string): string[] {
 		"format=duration",
 		"-of",
 		"default=noprint_wrappers=1:nokey=1",
-		path,
+		path
 	];
 }
 
 /**
  * Reads the container duration in seconds.
  *
- * Best effort by design: every failure (missing tool, unparsable output,
- * non-zero exit, abort) resolves to `null`, because progress reporting must
- * never block a transcription.
+ * Best effort by design: every failure (missing tool, unparsable output, non-zero exit, abort)
+ * resolves to `null`, because progress reporting must never block a transcription.
  */
 export async function probeDuration(
 	path: string,
 	ffprobe: string,
-	options: { exec?: ExecFn; signal?: AbortSignal } = {},
+	options: { exec?: ExecFn; signal?: AbortSignal } = {}
 ): Promise<number | null> {
 	const exec = options.exec ?? defaultExec;
 
 	try {
 		const result = await exec(probeArgs(path, ffprobe), {
-			signal: options.signal,
+			signal: options.signal
 		});
 		if (result.exitCode !== 0) {
 			return null;
@@ -285,17 +276,16 @@ function concatBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
 /**
  * Streams 16 kHz mono PCM16 little-endian bytes decoded from `path`.
  *
- * Chunks are always even-length (PCM16 sample aligned); a trailing odd byte is
- * carried into the next chunk and a final stray byte is dropped.
+ * Chunks are always even-length (PCM16 sample aligned); a trailing odd byte is carried into the
+ * next chunk and a final stray byte is dropped.
  *
- * A non-zero ffmpeg exit after audio was already produced throws
- * [`FileDecodeError`] **after** the yielded chunks, so the caller can keep the
- * transcript it already built. An aborted signal kills the process and ends
- * the iterator silently.
+ * A non-zero ffmpeg exit after audio was already produced throws [`FileDecodeError`] **after** the
+ * yielded chunks, so the caller can keep the transcript it already built. An aborted signal kills
+ * the process and ends the iterator silently.
  */
 export async function* decodeFileToPcm16(
 	path: string,
-	options: { ffmpeg: string; spawn?: SpawnFn; signal?: AbortSignal },
+	options: { ffmpeg: string; spawn?: SpawnFn; signal?: AbortSignal }
 ): AsyncIterable<Uint8Array> {
 	const spawn = options.spawn ?? defaultSpawn;
 	const signal = options.signal;
@@ -325,8 +315,7 @@ export async function* decodeFileToPcm16(
 				carry = chunk.slice(chunk.length - 1);
 			}
 
-			const aligned =
-				carry === undefined ? chunk : chunk.subarray(0, chunk.length - 1);
+			const aligned = carry === undefined ? chunk : chunk.subarray(0, chunk.length - 1);
 			if (aligned.length > 0) {
 				yield aligned;
 			}
@@ -350,6 +339,6 @@ export async function* decodeFileToPcm16(
 	const tail = truncateTail(stderr);
 	throw new FileDecodeError(
 		classifyDecodeFailure(stderr),
-		`ffmpeg exited with code ${exitCode}${tail.length === 0 ? "" : `: ${tail}`}`,
+		`ffmpeg exited with code ${exitCode}${tail.length === 0 ? "" : `: ${tail}`}`
 	);
 }

@@ -1,18 +1,12 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import {
-	describeError,
-	logFailure,
-	sanitizeDiagnostic,
-} from "./diagnostics";
+import { describeError, logFailure, sanitizeDiagnostic } from "./diagnostics";
 
 /** Captures everything a call writes to stderr. */
 function captureStderr(run: () => void): string[] {
 	const lines: string[] = [];
-	const spy = spyOn(console, "error").mockImplementation(
-		(...args: unknown[]) => {
-			lines.push(args.map(String).join(" "));
-		},
-	);
+	const spy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+		lines.push(args.map(String).join(" "));
+	});
 	try {
 		run();
 	} finally {
@@ -39,12 +33,8 @@ describe("sanitizeDiagnostic", () => {
 	});
 
 	test("redacts credentials", () => {
-		expect(sanitizeDiagnostic("authorization: Bearer abc.def")).not.toContain(
-			"abc.def",
-		);
-		expect(sanitizeDiagnostic("key=sk-secret-value")).not.toContain(
-			"sk-secret-value",
-		);
+		expect(sanitizeDiagnostic("authorization: Bearer abc.def")).not.toContain("abc.def");
+		expect(sanitizeDiagnostic("key=sk-secret-value")).not.toContain("sk-secret-value");
 	});
 
 	test("bounds the length", () => {
@@ -55,7 +45,7 @@ describe("sanitizeDiagnostic", () => {
 describe("describeError", () => {
 	test("reads an Error message", () => {
 		expect(describeError(new Error("model does not support streaming"), "fallback")).toBe(
-			"model does not support streaming",
+			"model does not support streaming"
 		);
 	});
 
@@ -67,14 +57,14 @@ describe("describeError", () => {
 		// The AI SDK may reject with a record rather than an Error; reading only
 		// `.message` on an Error collapsed every such failure to "…failed".
 		expect(
-			describeError({ name: "AI_APICallError", message: "unsupported option" }, "fallback"),
+			describeError({ name: "AI_APICallError", message: "unsupported option" }, "fallback")
 		).toBe("unsupported option");
 	});
 
 	test("reads a wrapper that carries the real error one level down", () => {
-		expect(
-			describeError({ error: { message: "gateway rejected language" } }, "fallback"),
-		).toBe("gateway rejected language");
+		expect(describeError({ error: { message: "gateway rejected language" } }, "fallback")).toBe(
+			"gateway rejected language"
+		);
 	});
 
 	test("serializes an object it cannot otherwise read", () => {
@@ -85,16 +75,16 @@ describe("describeError", () => {
 
 	test("falls back only when nothing can be read", () => {
 		expect(describeError(undefined, "Transcription stream failed")).toBe(
-			"Transcription stream failed",
+			"Transcription stream failed"
 		);
 		expect(describeError({}, "Transcription stream failed")).toBe(
-			"Transcription stream failed",
+			"Transcription stream failed"
 		);
 	});
 
 	test("appends an Error cause", () => {
 		const error = new Error("stream failed", {
-			cause: new Error("socket closed"),
+			cause: new Error("socket closed")
 		});
 		const described = describeError(error, "fallback");
 		expect(described).toContain("stream failed");
@@ -107,9 +97,13 @@ describe("logFailure", () => {
 		const lines = captureStderr(() => {
 			logFailure(
 				"stream start",
-				{ provider: "vercel-ai-gateway", model: "google/gemini-3.5-transcribe-live", language: "fr" },
+				{
+					provider: "vercel-ai-gateway",
+					model: "google/gemini-3.5-transcribe-live",
+					language: "fr"
+				},
 				new Error("Unsupported provider option: gateway.language"),
-				"Transcription stream failed",
+				"Transcription stream failed"
 			);
 		});
 

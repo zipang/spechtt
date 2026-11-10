@@ -7,15 +7,15 @@
 - **Owner**: two coding sub-agents (Bun worker track, Rust track), supervised by CTO
 - **Started**: 2026-11-05
 - **References**:
-  - `AGENTS.md` §2 (component/view rules), §5 (gates), §6 (official documentation), §9 (secret safety)
-  - `DESIGN.md` § "Action buttons", § "Icon buttons", § "Screen footer", § "Settings panel"
-  - Vercel AI SDK `generateText`: <https://ai-sdk.dev/docs/reference/ai-sdk-core/generate-text.md>
-  - Vercel AI SDK `transcribe`: <https://ai-sdk.dev/docs/reference/ai-sdk-core/transcribe.md>
-  - Vercel AI SDK streaming transcription (`experimental_streamTranscribe`):
-    <https://ai-sdk.dev/llms.txt> § "Streaming Transcription"
-  - AI SDK documentation index: <https://ai-sdk.dev/llms.txt>
-  - gpui-kit icons and assets: <https://gpui-kit.com/docs/assets.md>, <https://gpui-kit.com/component/icon.md>
-  - gpui-kit component index: <https://gpui-kit.com/llms.txt>
+    - `AGENTS.md` §2 (component/view rules), §5 (gates), §6 (official documentation), §9 (secret safety)
+    - `DESIGN.md` § "Action buttons", § "Icon buttons", § "Screen footer", § "Settings panel"
+    - Vercel AI SDK `generateText`: <https://ai-sdk.dev/docs/reference/ai-sdk-core/generate-text.md>
+    - Vercel AI SDK `transcribe`: <https://ai-sdk.dev/docs/reference/ai-sdk-core/transcribe.md>
+    - Vercel AI SDK streaming transcription (`experimental_streamTranscribe`):
+      <https://ai-sdk.dev/llms.txt> § "Streaming Transcription"
+    - AI SDK documentation index: <https://ai-sdk.dev/llms.txt>
+    - gpui-kit icons and assets: <https://gpui-kit.com/docs/assets.md>, <https://gpui-kit.com/component/icon.md>
+    - gpui-kit component index: <https://gpui-kit.com/llms.txt>
 
 ## Context & Goal
 
@@ -177,10 +177,10 @@ option:
 // https://ai-sdk.dev/docs/reference/ai-sdk-core/transcribe.md (providerOptions)
 // https://ai-sdk.dev/llms.txt § "Streaming Transcription"
 experimental_streamTranscribe({
-  model,
-  audio,
-  inputAudioFormat: { type: "audio/pcm", rate },
-  providerOptions: { openai: { language: "fr" } },
+	model,
+	audio,
+	inputAudioFormat: { type: "audio/pcm", rate },
+	providerOptions: { openai: { language: "fr" } }
 });
 ```
 
@@ -191,15 +191,17 @@ through `result.warnings`. The worker's rule is:
   by `sessionConfigFromStart`.
 - `src/stt/languages.ts` exports one helper used by both adapters:
 
-  ```ts
-  /** `providerOptions` carrying the dictation language, or `undefined` when no
-   * language is set. The inner key is the provider package name the resolved
-   * model belongs to (`openai`, `mistral`, `xai`, `elevenlabs`, `gateway`). */
-  export function languageProviderOptions(
-    provider: string,
-    language: string | undefined,
-  ): Record<string, { language: string }> | undefined;
-  ```
+    ```ts
+    /**
+     * `providerOptions` carrying the dictation language, or `undefined` when no language is set.
+     * The inner key is the provider package name the resolved model belongs to (`openai`,
+     * `mistral`, `xai`, `elevenlabs`, `gateway`).
+     */
+    export function languageProviderOptions(
+    	provider: string,
+    	language: string | undefined
+    ): Record<string, { language: string }> | undefined;
+    ```
 
 - `VercelAiSdkAdapter` passes the result as `providerOptions` on
   `streamTranscribe`; `MistralAdapter` passes it on `transcribe`. Both merge it
@@ -221,27 +223,26 @@ export const LANGUAGE_MODEL_ENV = "DEFAULT_LANGUAGE_MODEL";
 export const CLEANUP_TEMPERATURE = 0.1;
 
 export interface CleanRequest {
-  readonly provider: string;
-  readonly model: string;
-  readonly text: string;
-  readonly apiKey?: string;
+	readonly provider: string;
+	readonly model: string;
+	readonly text: string;
+	readonly apiKey?: string;
 }
 
 export interface CleanDeps {
-  /** Injected for tests; production passes the AI SDK `generateText`. */
-  generate(args: {
-    model: string;
-    prompt: string;
-    temperature: number;
-  }): Promise<{ text: string }>;
+	/** Injected for tests; production passes the AI SDK `generateText`. */
+	generate(args: {
+		model: string;
+		prompt: string;
+		temperature: number;
+	}): Promise<{ text: string }>;
 }
 
-/** Repairs typos and fragment joins. Never returns an empty string: when the
- * model answers with nothing usable, the input is returned unchanged. */
-export async function cleanTranscript(
-  request: CleanRequest,
-  deps: CleanDeps,
-): Promise<string>;
+/**
+ * Repairs typos and fragment joins. Never returns an empty string: when the model answers with
+ * nothing usable, the input is returned unchanged.
+ */
+export async function cleanTranscript(request: CleanRequest, deps: CleanDeps): Promise<string>;
 ```
 
 `cleanTranscript` builds one prompt from two parts and returns
@@ -261,7 +262,7 @@ artefacts, and an enumeration would be wrong for the next one. The categories:
    `dict ée` → `dictée`), letter sequences that spell a word the speaker clearly
    said (`Trans cribe to Stream` → `Transcribe to Streaming`), doubled
    punctuation, and capitalisation at sentence starts. The instruction names the
-   *symptom* a reader would notice rather than the byte pattern that produced it.
+   _symptom_ a reader would notice rather than the byte pattern that produced it.
 2. **Fragment joins** — a live transcriber commits windows that overlap, so a
    phrase can appear twice end to end or be cut mid-sentence. The instruction is
    to produce one continuous, correctly punctuated text.
@@ -312,9 +313,9 @@ Production deps call the documented AI SDK API — the only authority for it:
 import { generateText } from "ai";
 
 const { text } = await generateText({
-  model,
-  prompt,
-  temperature: CLEANUP_TEMPERATURE, // exported constant, 0.1
+	model,
+	prompt,
+	temperature: CLEANUP_TEMPERATURE // exported constant, 0.1
 });
 ```
 
@@ -351,10 +352,10 @@ export const LANGUAGE_MODEL_ENV = "DEFAULT_LANGUAGE_MODEL";
 export function defaultLanguageModel(env: Env = process.env): string;
 
 export function listCapabilities(options): {
-  providers: ProviderCapabilityInfo[];
-  /** `null` when discovery returned none: the UI then offers free text. */
-  languageModels: readonly { id: string; label: string }[] | null;
-  defaultLanguageModel: string;
+	providers: ProviderCapabilityInfo[];
+	/** `null` when discovery returned none: the UI then offers free text. */
+	languageModels: readonly { id: string; label: string }[] | null;
+	defaultLanguageModel: string;
 };
 ```
 
@@ -405,14 +406,16 @@ reuses it:
 ```ts
 /** One selectable dictation language. */
 export interface LanguageOption {
-  /** ISO-639-1 code, e.g. `fr`. */
-  readonly code: string;
-  /** English name shown in the menu, e.g. `French`. */
-  readonly label: string;
+	/** ISO-639-1 code, e.g. `fr`. */
+	readonly code: string;
+	/** English name shown in the menu, e.g. `French`. */
+	readonly label: string;
 }
 
-/** Languages the picker offers, sorted by label. Empty `code` is not in this
- * list: "Auto" is a UI entry the Rust side represents as an empty setting. */
+/**
+ * Languages the picker offers, sorted by label. Empty `code` is not in this list: "Auto" is a UI
+ * entry the Rust side represents as an empty setting.
+ */
 export const LANGUAGE_OPTIONS: readonly LanguageOption[];
 ```
 
@@ -532,7 +535,7 @@ so a wrong name is a compile error, not a blank icon — if it does not exist, u
 
 `views/dialogs/settings.rs` — one more `SettingRow`, below the two model rows:
 
-- **Cleanup Model** — *"Repairs typos and broken sentences after transcription"*,
+- **Cleanup Model** — _"Repairs typos and broken sentences after transcription"_,
   control: `ModelSelect` with id `field-settings-cleanup`, listing the worker's
   discovered language models.
 - When the worker reports no language models, the row shows a `Label` with the
@@ -553,7 +556,7 @@ existing sync rule applies unchanged.
 One more `SettingRow`, **above** the two model rows because it applies to the
 transcription itself:
 
-- **Dictation Language** — *"The language you speak; improves accuracy"*, control:
+- **Dictation Language** — _"The language you speak; improves accuracy"_, control:
   a `LanguageSelect` component (same shape as `ProviderSelect`, non-searchable,
   ids `field-settings-language`).
 - Its first entry is the **Auto** option: label `"Auto (detect)"`, value the
@@ -573,76 +576,77 @@ choice, not a per-take field.
 ## TDD Tasks
 
 - [x] **T30.1 — Red: protocol.** Failing tests in `protocol.rs` for the
-  `CleanTranscript` round-trip (with and without `language`), the `Cleaned` event
-  parse, `Error` with and without `request_id` (absent key stays absent), the
-  `language` field on `Start` and `TranscribeFile` (absent key stays absent), and
-  a `Capabilities` payload with and without the three new fields (`languages`,
-  `language_models`, `default_language_model`). Then implement.
+      `CleanTranscript` round-trip (with and without `language`), the `Cleaned` event
+      parse, `Error` with and without `request_id` (absent key stays absent), the
+      `language` field on `Start` and `TranscribeFile` (absent key stays absent), and
+      a `Capabilities` payload with and without the three new fields (`languages`,
+      `language_models`, `default_language_model`). Then implement.
 - [x] **T30.2 — Red: settings.** Failing tests for `language_model` and
-  `language` (defaults empty, JSON round-trip, `Debug` shows both,
-  `validate()` requires neither, `Settings::language()` lowercases and trims and
-  rejects a non-ISO-639-1 value). Then implement.
+      `language` (defaults empty, JSON round-trip, `Debug` shows both,
+      `validate()` requires neither, `Settings::language()` lowercases and trims and
+      rejects a non-ISO-639-1 value). Then implement.
 - [x] **T30.2b — Red: languages list.** Failing `languages.spec.ts` cases:
-  `LANGUAGE_OPTIONS` codes are unique, lowercase and two letters; labels are
-  non-empty and unique; the required core languages are present; the list is
-  sorted by label. Then implement `languages.ts`.
+      `LANGUAGE_OPTIONS` codes are unique, lowercase and two letters; labels are
+      non-empty and unique; the required core languages are present; the list is
+      sorted by label. Then implement `languages.ts`.
 - [x] **T30.2c — Red: language forwarding.** Failing adapter specs: a session
-  with a language passes `providerOptions.<provider>.language` to
-  `streamTranscribe` (streaming) and to `transcribe` (batch); a session without
-  one passes no `providerOptions`; an existing `providerOptions` is merged, not
-  replaced; `sessionConfigFromStart` copies the command's language. Then
-  implement `languageProviderOptions` and wire both adapters.
+      with a language passes `providerOptions.<provider>.language` to
+      `streamTranscribe` (streaming) and to `transcribe` (batch); a session without
+      one passes no `providerOptions`; an existing `providerOptions` is merged, not
+      replaced; `sessionConfigFromStart` copies the command's language. Then
+      implement `languageProviderOptions` and wire both adapters.
 - [x] **T30.2d — Red: capabilities and start payload.** Failing `registry.spec.ts`
-  cases: `listCapabilities` reports `languages`; a `start` built from settings
-  with a language carries it, and one without omits the key. Then implement.
+      cases: `listCapabilities` reports `languages`; a `start` built from settings
+      with a language carries it, and one without omits the key. Then implement.
 - [x] **T30.3 — Red: worker prompt.** Failing `bun test` cases in `clean.spec.ts`
-  with a stub `generate`:
-  - the prompt carries the instructions and the transcript verbatim, and the
-    transcript appears exactly once;
-  - the prompt names all four defect categories (artefacts, fragment joins,
-    hesitations, the speaker's own repetitions) and the fidelity rules (no added
-    content, no summary, no style rewrite, keep the language);
-  - the returned text is trimmed;
-  - an empty answer returns the input unchanged;
-  - a clean input comes back unchanged when the stub echoes the transcript
-    (the idempotence clause);
-  - a declared language puts the language name and its typography rules in the
-    prompt; no declared language omits that clause entirely;
-  - `generate` is called with the documented `temperature` parameter.
+      with a stub `generate`:
+    - the prompt carries the instructions and the transcript verbatim, and the
+      transcript appears exactly once;
+    - the prompt names all four defect categories (artefacts, fragment joins,
+      hesitations, the speaker's own repetitions) and the fidelity rules (no added
+      content, no summary, no style rewrite, keep the language);
+    - the returned text is trimmed;
+    - an empty answer returns the input unchanged;
+    - a clean input comes back unchanged when the stub echoes the transcript
+      (the idempotence clause);
+    - a declared language puts the language name and its typography rules in the
+      prompt; no declared language omits that clause entirely;
+    - `generate` is called with the documented `temperature` parameter.
 
-  Then implement `clean.ts`.
+    Then implement `clean.ts`.
+
 - [x] **T30.4 — Red: worker routing.** Failing `worker.spec.ts` cases: a
-  `cleanTranscript` line emits `cleaned` with the same `requestId`; a missing key
-  emits `missing_api_key` with that `requestId`; a thrown error emits
-  `cleanup_failed` and never leaks the transcript in `message`; cleanup does not
-  disturb an active session. Then route it in `worker.ts`.
+      `cleanTranscript` line emits `cleaned` with the same `requestId`; a missing key
+      emits `missing_api_key` with that `requestId`; a thrown error emits
+      `cleanup_failed` and never leaks the transcript in `message`; cleanup does not
+      disturb an active session. Then route it in `worker.ts`.
 - [x] **T30.5 — Red: discovery and defaults.** Failing cases: `parseModels`
-  yields language models from `type: "language"` entries while transcription
-  models keep their modes; `defaultLanguageModel` prefers
-  `DEFAULT_LANGUAGE_MODEL` then the fallback; `listCapabilities` reports both new
-  fields. Then implement.
+      yields language models from `type: "language"` entries while transcription
+      models keep their modes; `defaultLanguageModel` prefers
+      `DEFAULT_LANGUAGE_MODEL` then the fallback; `listCapabilities` reports both new
+      fields. Then implement.
 - [x] **T30.6 — Red: controller.** Failing unit tests for `clean_status`
-  transitions (unavailable → ready → running → cleaned → ready after undo), the
-  stale-request rule, `undo` restoring the original pair, `new_take` clearing the
-  state, and Copy/Save/auto-paste following the cleaned text. Then implement.
+      transitions (unavailable → ready → running → cleaned → ready after undo), the
+      stale-request rule, `undo` restoring the original pair, `new_take` clearing the
+      state, and Copy/Save/auto-paste following the cleaned text. Then implement.
 - [x] **T30.7 — Green: app wiring and UI.** Add `clean_transcript`, route
-  `Cleaned`/`Error` in the pump, render the wand + undo in `session_end.rs`, add
-  the two Settings rows (Cleanup Model, Dictation Language), the third and fourth
-  select states, `components/language_select.rs`, the icon, and the language
-  forwarding from `start_configuration` into `SttCommand::Start` /
-  `TranscribeFile`. Make headless `widget.rs` tests:
-  - click `btn-clean-transcript`, feed `Cleaned`, assert the displayed text, the
-    Copy payload and the undo behaviour;
-  - choose a language in Settings, save, start a take, assert the sent `Start`
-    carries `language: Some("fr")`, and that Auto sends `None`.
+      `Cleaned`/`Error` in the pump, render the wand + undo in `session_end.rs`, add
+      the two Settings rows (Cleanup Model, Dictation Language), the third and fourth
+      select states, `components/language_select.rs`, the icon, and the language
+      forwarding from `start_configuration` into `SttCommand::Start` /
+      `TranscribeFile`. Make headless `widget.rs` tests:
+    - click `btn-clean-transcript`, feed `Cleaned`, assert the displayed text, the
+      Copy payload and the undo behaviour;
+    - choose a language in Settings, save, start a take, assert the sent `Start`
+      carries `language: Some("fr")`, and that Auto sends `None`.
 - [x] **T30.8 — Docs and design.** `DESIGN.md`: the footer action order, the
-  `Dictation Language` row (Auto first) and the `Cleanup Model` row; module
-  headers and item docs per `AGENTS.md` §3 (callers named, present tense, no
-  ticket ids).
+      `Dictation Language` row (Auto first) and the `Cleanup Model` row; module
+      headers and item docs per `AGENTS.md` §3 (callers named, present tense, no
+      ticket ids).
 - [x] **T30.9 — Gates.** `cargo fmt -- --check`,
-  `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
-  `bun check src/stt`, `bun run design:validate`. Record exact counts in
-  `## Implementation Notes`.
+      `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
+      `bun check src/stt`, `bun run design:validate`. Record exact counts in
+      `## Implementation Notes`.
 
 ## Acceptance Criteria
 
@@ -651,12 +655,13 @@ choice, not a per-take field.
 - Clicking it sends the displayed transcript to the worker, shows a running
   state, then replaces the transcript with the repaired text.
 
-  The repaired text removes transcription artefacts (glued or split words,
-  stray spaces around apostrophes), duplicated fragments at window joins,
-  hesitations and accidental repetitions, while keeping the speaker's words,
-  order and register: no content added, no summary, no stylistic rewrite, and
-  the original language preserved. An already-clean transcript comes back
-  identical.
+    The repaired text removes transcription artefacts (glued or split words,
+    stray spaces around apostrophes), duplicated fragments at window joins,
+    hesitations and accidental repetitions, while keeping the speaker's words,
+    order and register: no content added, no summary, no stylistic rewrite, and
+    the original language preserved. An already-clean transcript comes back
+    identical.
+
 - A second action restores the original text exactly, and Copy, Save and the
   automatic paste all use whichever text is on screen.
 - A failed cleanup leaves the original transcript untouched and surfaces a typed
@@ -728,7 +733,7 @@ verified by the CTO.
 - `FALLBACK_LANGUAGE_MODEL` / `LANGUAGE_MODEL_ENV` live in `registry.ts` and are
   re-exported by `clean.ts`: one definition, both documented import paths.
 - `defaultCleanDeps(apiKey)` builds the model with `createGateway({ apiKey })`
-  instead of a bare id string, because a string id resolves through the *global*
+  instead of a bare id string, because a string id resolves through the _global_
   gateway, which only reads `AI_GATEWAY_API_KEY` — the key coming from the Rust
   settings would be ignored.
 - `cachedGatewayModels()` became `cachedGatewayCatalogue()` so the synchronous
@@ -785,14 +790,14 @@ is `T0032` in `tickets/planned/`; `languageIsForwarded` already exists in
 
 ### Gates (repository root, zero warnings, no skipped tests)
 
-| Command | Result |
-|---|---|
-| `cargo fmt -- --check` | clean |
-| `cargo clippy --all-targets -- -D warnings` | clean |
-| `cargo test` | **546 passed, 0 failed** (core 233 + 3 + 14 + bridge_smoke 5, ui 99 + 3 + 12 + 37 + 14 + 93 + 4 + 33) |
-| `bun test` | **300 passed, 0 failed** |
-| `bun check src/stt` | no type errors in 27 files |
-| `bun run design:validate` | 66 tokens, 0 errors |
+| Command                                     | Result                                                                                                |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `cargo fmt -- --check`                      | clean                                                                                                 |
+| `cargo clippy --all-targets -- -D warnings` | clean                                                                                                 |
+| `cargo test`                                | **546 passed, 0 failed** (core 233 + 3 + 14 + bridge_smoke 5, ui 99 + 3 + 12 + 37 + 14 + 93 + 4 + 33) |
+| `bun test`                                  | **300 passed, 0 failed**                                                                              |
+| `bun check src/stt`                         | no type errors in 27 files                                                                            |
+| `bun run design:validate`                   | 66 tokens, 0 errors                                                                                   |
 
 ### Left for the user
 

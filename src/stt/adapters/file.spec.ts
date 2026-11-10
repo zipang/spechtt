@@ -2,11 +2,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { OutboundEvent } from "../protocol";
 import { FileDecodeError } from "../file-input";
 import type { SttSession, SttSessionConfig } from "./types";
-import {
-	FILE_SEGMENTATION,
-	type FileSessionDeps,
-	createFileSession,
-} from "./file";
+import { FILE_SEGMENTATION, type FileSessionDeps, createFileSession } from "./file";
 import type { TranscribeFn } from "./mistral";
 
 const RATE = 16_000;
@@ -17,7 +13,7 @@ const config: SttSessionConfig & { path: string } = {
 	model: "openai/gpt-4o-transcribe",
 	sampleRate: RATE,
 	apiKey: "sk-test",
-	path: "/tmp/meeting.mp4",
+	path: "/tmp/meeting.mp4"
 };
 
 function collect() {
@@ -30,8 +26,7 @@ function tone(ms: number, amplitude = 0.5, frequency = 220): Uint8Array {
 	const bytes = new Uint8Array(samples * 2);
 	const view = new DataView(bytes.buffer);
 	for (let index = 0; index < samples; index += 1) {
-		const value =
-			Math.sin((2 * Math.PI * frequency * index) / RATE) * amplitude * 32_767;
+		const value = Math.sin((2 * Math.PI * frequency * index) / RATE) * amplitude * 32_767;
 		view.setInt16(index * 2, Math.round(value), true);
 	}
 	return bytes;
@@ -65,7 +60,7 @@ function decodeOf(options: DecodeOptions) {
 	const chunks = options.chunks ?? [];
 	return async function* decode(
 		_path: string,
-		{ signal }: { signal: AbortSignal },
+		{ signal }: { signal: AbortSignal }
 	): AsyncIterable<Uint8Array> {
 		for (const [index, chunk] of chunks.entries()) {
 			if (signal.aborted) return;
@@ -130,7 +125,7 @@ function setup(options: SessionOptions = {}) {
 		decode: decodeOf({
 			chunks: options.chunks ?? chunked(tone(1500)),
 			error: options.decodeError,
-			onPull: options.onPull,
+			onPull: options.onPull
 		}),
 		probeDuration: async () => {
 			probed += 1;
@@ -139,14 +134,10 @@ function setup(options: SessionOptions = {}) {
 		transcribe,
 		resolveModel: () => "test-model" as never,
 		providerOptions: options.providerOptions,
-		segmentation: options.segmentation,
+		segmentation: options.segmentation
 	};
 
-	const session = createFileSession(
-		{ ...config, ...options.config },
-		emit,
-		deps,
-	);
+	const session = createFileSession({ ...config, ...options.config }, emit, deps);
 	return { session, events, calls, finished, failed, probed: () => probed };
 }
 
@@ -160,17 +151,15 @@ function progressEvents(events: readonly OutboundEvent[]) {
 			? [
 					{
 						processedSeconds: event.processedSeconds,
-						totalSeconds: event.totalSeconds,
-					},
+						totalSeconds: event.totalSeconds
+					}
 				]
-			: [],
+			: []
 	);
 }
 
 function committedTexts(events: readonly OutboundEvent[]): string[] {
-	return events.flatMap((event) =>
-		event.type === "committed" ? [event.text] : [],
-	);
+	return events.flatMap((event) => (event.type === "committed" ? [event.text] : []));
 }
 
 function stoppedText(events: readonly OutboundEvent[]): string | undefined {
@@ -180,7 +169,10 @@ function stoppedText(events: readonly OutboundEvent[]): string | undefined {
 
 describe("FILE_SEGMENTATION", () => {
 	test("uses the file-tuned cadence, not the live one", () => {
-		expect(FILE_SEGMENTATION).toEqual({ targetMs: 30_000, maxSegmentMs: 60_000 });
+		expect(FILE_SEGMENTATION).toEqual({
+			targetMs: 30_000,
+			maxSegmentMs: 60_000
+		});
 	});
 });
 
@@ -198,7 +190,7 @@ describe("createFileSession", () => {
 
 	test("emits started, one committed segment and the merged stop text", async () => {
 		const { events, calls, probed, finished } = setup({
-			texts: ["hello world"],
+			texts: ["hello world"]
 		});
 
 		await finished;
@@ -218,12 +210,8 @@ describe("createFileSession", () => {
 
 		const audio = calls[0]?.audio as Uint8Array;
 		expect(textAt(audio, 0, 4)).toBe("RIFF");
-		expect(new DataView(audio.buffer, audio.byteOffset).getUint32(24, true)).toBe(
-			RATE,
-		);
-		expect(
-			new DataView(audio.buffer, audio.byteOffset).getUint32(40, true),
-		).toBeGreaterThan(0);
+		expect(new DataView(audio.buffer, audio.byteOffset).getUint32(24, true)).toBe(RATE);
+		expect(new DataView(audio.buffer, audio.byteOffset).getUint32(40, true)).toBeGreaterThan(0);
 	});
 
 	test("never emits partial or delta events", async () => {
@@ -239,7 +227,7 @@ describe("createFileSession", () => {
 		const { events, calls, finished } = setup({
 			chunks: chunked(tone(3000)),
 			texts: ["one two three", "three four five"],
-			segmentation: { maxSegmentMs: 1000, minSpeechMs: 200 },
+			segmentation: { maxSegmentMs: 1000, minSpeechMs: 200 }
 		});
 
 		await finished;
@@ -253,13 +241,13 @@ describe("createFileSession", () => {
 		const { events, finished } = setup({
 			chunks: chunked(tone(3000)),
 			texts: ["one two three", "four five"],
-			segmentation: { maxSegmentMs: 1000, minSpeechMs: 200 },
+			segmentation: { maxSegmentMs: 1000, minSpeechMs: 200 }
 		});
 
 		await finished;
 
 		const segments = events.flatMap((event) =>
-			event.type === "committed" ? [event.segment] : [],
+			event.type === "committed" ? [event.segment] : []
 		);
 		expect(segments).toEqual(["0", "1"]);
 	});
@@ -269,7 +257,7 @@ describe("createFileSession", () => {
 			chunks: chunked(tone(3000)),
 			texts: ["a", "b", "c", "d", "e"],
 			total: 12.5,
-			segmentation: { maxSegmentMs: 700, minSpeechMs: 200 },
+			segmentation: { maxSegmentMs: 700, minSpeechMs: 200 }
 		});
 
 		await finished;
@@ -279,7 +267,7 @@ describe("createFileSession", () => {
 		expect(progress.every((entry) => entry.totalSeconds === 12.5)).toBe(true);
 		for (let index = 1; index < progress.length; index += 1) {
 			expect(progress[index]!.processedSeconds).toBeGreaterThan(
-				progress[index - 1]!.processedSeconds,
+				progress[index - 1]!.processedSeconds
 			);
 		}
 
@@ -308,7 +296,7 @@ describe("createFileSession", () => {
 				inFlight += 1;
 				maxInFlight = Math.max(maxInFlight, inFlight);
 				inFlight -= 1;
-			},
+			}
 		});
 
 		await finished;
@@ -326,7 +314,7 @@ describe("createFileSession", () => {
 			onPull: (_signal, index) => pulls.push(index),
 			onTranscribe: () => {
 				transcribed += 1;
-			},
+			}
 		});
 
 		await finished;
@@ -350,7 +338,7 @@ describe("createFileSession", () => {
 					// Stop from inside the decode loop, mid-file.
 					void holder.session?.stop();
 				}
-			},
+			}
 		});
 		holder.session = session;
 
@@ -382,7 +370,7 @@ describe("createFileSession", () => {
 			onPull: (pulled) => {
 				signal = pulled;
 				resolvePull();
-			},
+			}
 		});
 
 		// Let the decode start, then abort mid-stream.
@@ -397,7 +385,7 @@ describe("createFileSession", () => {
 		const { events, finished } = setup({
 			chunks: chunked(tone(1500)),
 			texts: ["alpha"],
-			decodeError: new FileDecodeError("decode_failed", "ffmpeg exploded"),
+			decodeError: new FileDecodeError("decode_failed", "ffmpeg exploded")
 		});
 
 		await finished;
@@ -407,7 +395,7 @@ describe("createFileSession", () => {
 			type: "error",
 			sessionId: "file-1",
 			code: "decode_failed",
-			message: "ffmpeg exploded",
+			message: "ffmpeg exploded"
 		});
 		expect(committedTexts(events)).toEqual(["alpha"]);
 		expect(stoppedText(events)).toBe("alpha");
@@ -417,7 +405,7 @@ describe("createFileSession", () => {
 	test("maps an unexpected decode failure to stream_failed", async () => {
 		const { events, failed } = setup({
 			chunks: [],
-			decodeError: new Error("boom"),
+			decodeError: new Error("boom")
 		});
 
 		await failed;
@@ -430,7 +418,7 @@ describe("createFileSession", () => {
 		const { events, failed } = setup({
 			chunks: chunked(tone(3000)),
 			transcribeError: new Error("gateway refused"),
-			segmentation: { maxSegmentMs: 700, minSpeechMs: 200 },
+			segmentation: { maxSegmentMs: 700, minSpeechMs: 200 }
 		});
 
 		await failed;
@@ -441,7 +429,7 @@ describe("createFileSession", () => {
 			type: "error",
 			sessionId: "file-1",
 			code: "stream_failed",
-			message: "gateway refused",
+			message: "gateway refused"
 		});
 	});
 
@@ -460,7 +448,7 @@ describe("createFileSession", () => {
 	test("does not call the model for a silent file", async () => {
 		const { events, calls, finished } = setup({
 			chunks: chunked(silence(3000)),
-			texts: ["unexpected"],
+			texts: ["unexpected"]
 		});
 
 		await finished;
@@ -482,7 +470,7 @@ describe("createFileSession", () => {
 	test("never sends the language through the gateway package", async () => {
 		const { calls, finished } = setup({
 			texts: ["alpha", "beta"],
-			config: { language: "fr" },
+			config: { language: "fr" }
 		});
 
 		await finished;
@@ -498,7 +486,7 @@ describe("createFileSession", () => {
 	test("forwards the language for a direct provider", async () => {
 		const { calls, finished } = setup({
 			texts: ["alpha"],
-			config: { provider: "mistral", language: "fr" },
+			config: { provider: "mistral", language: "fr" }
 		});
 
 		await finished;
@@ -521,7 +509,7 @@ describe("createFileSession", () => {
 		const { calls, finished } = setup({
 			texts: ["alpha"],
 			config: { language: "de" },
-			providerOptions: { gateway: { order: "desc" } } as never,
+			providerOptions: { gateway: { order: "desc" } } as never
 		});
 
 		await finished;

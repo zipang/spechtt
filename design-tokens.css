@@ -15,24 +15,23 @@
 
 :root {
 	/* ============================================================================
-       1. TYPOGRAPHY — system fonts only (no web fonts, no network requests)
-       ========================================================================== */
+		1. TYPOGRAPHY — system fonts only (no web fonts, no network requests)
+		========================================================================== */
 
 	/* --- Font families --- */
 	--font-family-base:
-		system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
-		Arial, sans-serif;
+		system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial,
+		sans-serif;
 	--font-family-display:
-		system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
-		Arial, sans-serif;
-	--font-family-mono:
-		ui-monospace, "DejaVu Sans Mono", "Courier New", monospace;
+		system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial,
+		sans-serif;
+	--font-family-mono: ui-monospace, "DejaVu Sans Mono", "Courier New", monospace;
 
 	/* --- Typographic scale — geometric, ratio 1.25 (Major Third) ---
-       size(step) = 1rem * 1.25^step, base = step 0 (always 1rem).
-       xs = step -2, sm = step -1, lg = step +1, xl = step +2, 2xl = step +3.
-       --font-size-display is optional and falls back to var(--font-size-xl)
-       unless overridden here. */
+		size(step) = 1rem * 1.25^step, base = step 0 (always 1rem).
+		xs = step -2, sm = step -1, lg = step +1, xl = step +2, 2xl = step +3.
+		--font-size-display is optional and falls back to var(--font-size-xl)
+		unless overridden here. */
 	--font-size-base: 1rem;
 
 	--font-size-xs: 0.64rem; /* 1.25^-2 — captions, shortcuts, status   */
@@ -44,8 +43,8 @@
 	--font-size-display: var(--font-size-xl); /* optional → var(--font-size-xl) */
 
 	/* --- Font weights ---
-       One weight per typographic style: thin (mono / UI), regular (base / body),
-       bold (display / headings). extrabold is optional and falls back to bold. */
+		One weight per typographic style: thin (mono / UI), regular (base / body),
+		bold (display / headings). extrabold is optional and falls back to bold. */
 	--font-weight-thin: 400;
 	--font-weight-regular: 500;
 	--font-weight-bold: 700;
@@ -62,16 +61,16 @@
 	--letter-spacing-wide: 0.08em; /* uppercase labels, shortcut keycaps    */
 
 	/* ============================================================================
-       2. COLORS — charcoal surfaces, off-white type, Agfa-Sensor orange
-       ----------------------------------------------------------------------------
-       Brand and action colors carry `muted` and `active` variants derived
-       automatically in color-variants.css (included after this file):
-           muted:  hsl(from var(--X) h calc(s * 0.8) calc(l * 1.2))
-           active: hsl(from var(--X) h calc(s * 1.2) calc(l * 1.1))
-       Text and surface colors define their own variants explicitly below.
-       Link and border COLORS are not tokens — components pick the color
-       tokens they need for their states (see the components in DESIGN.md).
-       ========================================================================== */
+		2. COLORS — charcoal surfaces, off-white type, Agfa-Sensor orange
+		----------------------------------------------------------------------------
+		Brand and action colors carry `muted` and `active` variants derived
+		automatically in color-variants.css (included after this file):
+				muted:  hsl(from var(--X) h calc(s * 0.8) calc(l * 1.2))
+				active: hsl(from var(--X) h calc(s * 1.2) calc(l * 1.1))
+		Text and surface colors define their own variants explicitly below.
+		Link and border COLORS are not tokens — components pick the color
+		tokens they need for their states (see the components in DESIGN.md).
+		========================================================================== */
 
 	/* --- Brand: Primary (deep Agfa-Sensor orange) — record, waveform, brand --- */
 	--color-brand-primary: #ea5514;
@@ -98,25 +97,25 @@
 	--color-action-danger: #e5484d;
 
 	/* --- Text colors ---
-       Only --color-text is required; the rest cover hierarchy and emphasis.
-       --color-text-accent maps to the brand accent, so it is orange: use it for
-       newly arrived transcript words, never for body copy. */
+		Only --color-text is required; the rest cover hierarchy and emphasis.
+		--color-text-accent maps to the brand accent, so it is orange: use it for
+		newly arrived transcript words, never for body copy. */
 	--color-text: #f2efeb;
 	--color-text-accent: #ff8a3d; /* streaming / highlighted words */
 	--color-text-muted: #9c9aa3; /* overridden — hints, timestamps      */
 	--color-text-ondark: #f2efeb; /* overridden — text on dark surfaces  */
 
 	/* --- Surface colors ---
-       Near-black panel body, raised alt for wells/inputs, deeper dark strip. */
+		Near-black panel body, raised alt for wells/inputs, deeper dark strip. */
 	--color-surface: #17171b;
 	--color-surface-alt: #202027;
 	--color-surface-dark: #0e0e11; /* overridden — info strip, backdrop    */
 	--color-surface-card: #1c1c22; /* overridden — settings cards          */
 
 	/* --- Resolved color contrast pairs (auto-calculated) ---
-       Foreground for text or icons on each role. Not authored: recomputed
-       from the colors above with WCAG 2.1 contrast (section 3). Every colored
-       role in this dark, high-chroma palette resolves to black ink. */
+		Foreground for text or icons on each role. Not authored: recomputed
+		from the colors above with WCAG 2.1 contrast (section 3). Every colored
+		role in this dark, high-chroma palette resolves to black ink. */
 	--color-on-primary: #000000;
 	--color-on-accent: #000000;
 	--color-on-secondary: var(--color-text-ondark);
@@ -130,11 +129,11 @@
 	--color-on-card: var(--color-text-ondark);
 
 	/* ============================================================================
-       3. SPACING — 4px linear scale
-       ----------------------------------------------------------------------------
-       space.base = 1rem (16px) = step 0. All values in rem.
-       A 4px grid keeps the vertical rhythm predictable.
-       ========================================================================== */
+		3. SPACING — 4px linear scale
+		----------------------------------------------------------------------------
+		space.base = 1rem (16px) = step 0. All values in rem.
+		A 4px grid keeps the vertical rhythm predictable.
+		========================================================================== */
 	--space-xs: 0.25rem; /*  4px — bar gaps, keycap padding              */
 	--space-sm: 0.5rem; /*  8px — chip padding, compact rows             */
 	--space-md: 0.75rem; /* 12px — button padding, card internal spacing */
@@ -144,10 +143,10 @@
 	--space-xxl: 3rem; /* 48px — page-level vertical rhythm            */
 
 	/* ============================================================================
-       4. ROUNDED — corner radii
-       ----------------------------------------------------------------------------
-       6px chips/keycaps, 12px buttons, 20px floating panel, 100% circles.
-       ========================================================================== */
+		4. ROUNDED — corner radii
+		----------------------------------------------------------------------------
+		6px chips/keycaps, 12px buttons, 20px floating panel, 100% circles.
+		========================================================================== */
 	--rounded-none: 0; /*    0px — none                          */
 	--rounded-sm: 0.375rem; /*    6px — keycaps, chips, inputs        */
 	--rounded-md: 0.75rem; /*   12px — buttons, small cards, wells   */
@@ -155,17 +154,15 @@
 	--rounded-full: 100%; /* circular — record button, dots, icons  */
 
 	/* ============================================================================
-       5. ELEVATION — deep, soft shadows tuned for a dark floating panel
-       ========================================================================== */
+		5. ELEVATION — deep, soft shadows tuned for a dark floating panel
+		========================================================================== */
 	--elevation-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.25);
 	--elevation-md: 0 4px 10px -2px rgba(0, 0, 0, 0.45), 0 10px 24px rgba(0, 0, 0, 0.35);
 	--elevation-lg: 0 8px 20px -4px rgba(0, 0, 0, 0.5), 0 24px 48px rgba(0, 0, 0, 0.45);
 
 	/* ============================================================================
-       6. BORDERS — 1px / 2px / 4px stepped widths
-       ----------------------------------------------------------------------------
-       Border COLORS are not tokens — components pick them.
-       ========================================================================== */
+		6. BORDERS — 1px / 2px / 4px stepped widths
+		========================================================================== */
 	--border-sm: 1px; /* dividers, hairlines, input edges             */
 	--border-md: 2px; /* focus rings, active selection borders        */
 	--border-lg: 4px; /* drag indicator, strong emphasis              */

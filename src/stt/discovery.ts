@@ -1,15 +1,13 @@
 /**
- * Dynamic transcription- and language-model discovery through the Vercel AI
- * Gateway.
+ * Dynamic transcription- and language-model discovery through the Vercel AI Gateway.
  *
- * `GET /v1/models` is anonymous and returns every model with a `type` and
- * `tags`. Streaming transcription models carry `websocket-transcription`; the
- * AI SDK's `getAvailableModels()` exposes `modelType` but no tags, so it cannot
- * distinguish streaming from batch. This module is pure apart from the injected
- * `fetch` and clock, which keeps the tests hermetic.
+ * `GET /v1/models` is anonymous and returns every model with a `type` and `tags`. Streaming
+ * transcription models carry `websocket-transcription`; the AI SDK's `getAvailableModels()` exposes
+ * `modelType` but no tags, so it cannot distinguish streaming from batch. This module is pure apart
+ * from the injected `fetch` and clock, which keeps the tests hermetic.
  *
- * Read by `worker.ts`, which answers the capabilities handshake from the cached
- * catalogue and refreshes it in the background.
+ * Read by `worker.ts`, which answers the capabilities handshake from the cached catalogue and
+ * refreshes it in the background.
  */
 
 import type { TranscriptionMode } from "./registry";
@@ -74,12 +72,10 @@ function isFresh(result: DiscoveryResult, now: number): boolean {
 /**
  * The last successful discovery while it is still fresh, synchronously.
  *
- * The worker uses this to answer the first capabilities event with
- * `source: "discovered"` instead of `"builtin"`, including the language models.
+ * The worker uses this to answer the first capabilities event with `source: "discovered"` instead
+ * of `"builtin"`, including the language models.
  */
-export function cachedGatewayCatalogue(
-	now: () => number = Date.now,
-): DiscoveryResult | undefined {
+export function cachedGatewayCatalogue(now: () => number = Date.now): DiscoveryResult | undefined {
 	if (cache === undefined || !isFresh(cache, now())) {
 		return undefined;
 	}
@@ -92,7 +88,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function compareByLabel(
 	left: { readonly label: string; readonly id: string },
-	right: { readonly label: string; readonly id: string },
+	right: { readonly label: string; readonly id: string }
 ): number {
 	if (left.label !== right.label) {
 		return left.label < right.label ? -1 : 1;
@@ -142,7 +138,7 @@ function parseModels(payload: unknown): readonly DiscoveredModel[] | undefined {
 			label: name.length > 0 ? name : id,
 			mode: streaming ? "streaming" : "segmented",
 			description,
-			pricing: parsePricing(entry.pricing),
+			pricing: parsePricing(entry.pricing)
 		});
 	}
 
@@ -153,17 +149,14 @@ function parseModels(payload: unknown): readonly DiscoveredModel[] | undefined {
 }
 
 /**
- * Collects the gateway's text models (`type: "language"`) from one catalogue
- * payload, sorted by label and deduplicated by id.
+ * Collects the gateway's text models (`type: "language"`) from one catalogue payload, sorted by
+ * label and deduplicated by id.
  *
- * `requestModels` calls this beside `parseModels`, so the capabilities payload
- * can offer the cleanup model menu. A malformed payload yields an empty list
- * rather than an error: the menu then falls back to free text instead of
- * blocking the handshake.
+ * `requestModels` calls this beside `parseModels`, so the capabilities payload can offer the
+ * cleanup model menu. A malformed payload yields an empty list rather than an error: the menu then
+ * falls back to free text instead of blocking the handshake.
  */
-export function parseLanguageModels(
-	payload: unknown,
-): readonly DiscoveredLanguageModel[] {
+export function parseLanguageModels(payload: unknown): readonly DiscoveredLanguageModel[] {
 	if (!isRecord(payload) || !Array.isArray(payload.data)) {
 		return [];
 	}
@@ -188,7 +181,7 @@ async function requestModels(
 	fetchImpl: typeof globalThis.fetch,
 	endpoint: string,
 	timeoutMs: number,
-	now: () => number,
+	now: () => number
 ): Promise<DiscoveryResult | undefined> {
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -196,7 +189,7 @@ async function requestModels(
 		const response = await fetchImpl(endpoint, {
 			method: "GET",
 			headers: { accept: "application/json" },
-			signal: controller.signal,
+			signal: controller.signal
 		});
 		if (!response.ok) {
 			return undefined;
@@ -210,7 +203,7 @@ async function requestModels(
 		return {
 			models,
 			languageModels: parseLanguageModels(payload),
-			fetchedAt: now(),
+			fetchedAt: now()
 		};
 	} catch {
 		return undefined;
@@ -225,7 +218,7 @@ async function requestModels(
  * Failures are never cached, and concurrent callers share a single request.
  */
 export async function discoverGatewayModels(
-	options: DiscoveryOptions = {},
+	options: DiscoveryOptions = {}
 ): Promise<DiscoveryResult | undefined> {
 	const now = options.now ?? Date.now;
 	if (cache !== undefined && isFresh(cache, now())) {
@@ -239,14 +232,12 @@ export async function discoverGatewayModels(
 	const endpoint = options.endpoint ?? DISCOVERY_ENDPOINT;
 	const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-	inFlight = requestModels(fetchImpl, endpoint, timeoutMs, now).then(
-		(result) => {
-			if (result !== undefined) {
-				cache = result;
-			}
-			return result;
-		},
-	);
+	inFlight = requestModels(fetchImpl, endpoint, timeoutMs, now).then((result) => {
+		if (result !== undefined) {
+			cache = result;
+		}
+		return result;
+	});
 
 	try {
 		return await inFlight;

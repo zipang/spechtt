@@ -60,7 +60,7 @@ impl Default for Settings { /* provider = "vercel", model = "", no keys */ }
 
 - `Settings::default()` must be non-panicking and usable before first run.
 - API keys are addressed by provider id: `api_key(&self, provider) ->
-  Option<&str>`, `set_api_key(&mut self, provider, key)`,
+Option<&str>`, `set_api_key(&mut self, provider, key)`,
   `remove_api_key(&mut self, provider)`.
 - `masked_api_key(&self, provider) -> Option<String>` renders
   `"sk-…"`-style masks (first 3 + `…` + last 2 for keys ≥ 8 chars, otherwise
@@ -154,33 +154,33 @@ pub trait ShortcutListener: Send {
 - `GlobalHotkeyListener` (crate `global-hotkey`) implements the trait; it is
   constructed only on the main thread and is **not** instantiated by tests.
 - Parsing `Settings.shortcuts` is explicit: `bindings_from_settings(&Settings)
-  -> Result<BTreeMap<SessionAction, Shortcut>, ShortcutError>`, so bad
+-> Result<BTreeMap<SessionAction, Shortcut>, ShortcutError>`, so bad
   persisted strings surface as errors instead of silently disabling hotkeys.
 
 ## 3. TDD Tasks
 
 - [x] **T6.1 — Settings model tests**: default is valid-ish and serializable;
-  set/remove/mask keys; empty key == absent; round-trip through serde
-  preserves all fields; `Debug` output contains no key material.
+      set/remove/mask keys; empty key == absent; round-trip through serde
+      preserves all fields; `Debug` output contains no key material.
 - [x] **T6.2 — Store tests** using `tempfile`-style unique temp dirs:
-  - missing file → `Settings::default()`;
-  - save → load round-trip equality;
-  - corrupt file → `SettingsError::Corrupt` (original untouched);
-  - atomicity: a save failure (target parent is a file / injected failing
-    writer) leaves the previous JSON readable;
-  - Unix-only: file mode is `0o600` (gate with `#[cfg(unix)]`).
+    - missing file → `Settings::default()`;
+    - save → load round-trip equality;
+    - corrupt file → `SettingsError::Corrupt` (original untouched);
+    - atomicity: a save failure (target parent is a file / injected failing
+      writer) leaves the previous JSON readable;
+    - Unix-only: file mode is `0o600` (gate with `#[cfg(unix)]`).
 - [x] **T6.3 — Shortcut parsing tests**: valid forms, canonical `Display`
-  round-trip, each error variant, duplicate-modifier rejection.
+      round-trip, each error variant, duplicate-modifier rejection.
 - [x] **T6.4 — Binding tests**: defaults resolve; unknown shortcut →
-  `None`; conflict detection; rebinding one action; duplicate binding
-  rejected; `bindings_from_settings` round-trip.
+      `None`; conflict detection; rebinding one action; duplicate binding
+      rejected; `bindings_from_settings` round-trip.
 - [x] **T6.5 — Listener contract test**: a `MockShortcutListener` records
-  register/unregister calls; `unregister_all` on drop is asserted.
+      register/unregister calls; `unregister_all` on drop is asserted.
 - [x] **T6.6 — Implementation** of `settings.rs` + `hotkeys.rs`, add the
-  `global-hotkey` dependency, register modules.
+      `global-hotkey` dependency, register modules.
 - [x] **T6.7 — Gates**: `cargo fmt -- --check`,
-  `cargo clippy --all-targets -- -D warnings`, `cargo test` clean; no test
-  reads/writes the real user config directory.
+      `cargo clippy --all-targets -- -D warnings`, `cargo test` clean; no test
+      reads/writes the real user config directory.
 
 ## Acceptance Criteria
 
@@ -198,7 +198,7 @@ pub trait ShortcutListener: Send {
 - **Model.** `Settings` keeps the ticket's field set and semantics:
   `provider` defaults to `"vercel"`, `model` to `""`, both maps empty, and
   `auto_paste` to `true` (the product's primary dictation flow; the open
-  question in `PRODUCT.md` §7 is about automatic paste *behaviour*, not the
+  question in `PRODUCT.md` §7 is about automatic paste _behaviour_, not the
   stored default). `#[serde(default, deny_unknown_fields)]` gives forward
   compatibility for missing fields while turning stale/typo'd keys into
   `SettingsError::Corrupt` instead of silently dropping configuration.
@@ -212,7 +212,7 @@ pub trait ShortcutListener: Send {
   input.
 - **Validation.** `validate` requires non-empty (after `trim`) provider and
   model only; unknown provider ids pass because the Bun registry is the
-  source of truth. `Settings::default()` is therefore intentionally *not*
+  source of truth. `Settings::default()` is therefore intentionally _not_
   valid until a model is chosen; the test documents this.
 - **Persistence.** `JsonFileStore::load` maps `NotFound` to
   `Settings::default()`, deserializes the whole file before returning
@@ -295,7 +295,7 @@ pub trait ShortcutListener: Send {
 
 - `cargo fmt -- --check` — clean (after one `cargo fmt` pass).
 - `cargo clippy --all-targets -- -D warnings` — `Finished dev profile
-  [unoptimized + debuginfo] target(s) in 0.26s`, zero warnings.
+[unoptimized + debuginfo] target(s) in 0.26s`, zero warnings.
 - `cargo test` — 175 passed, 0 failed:
   `speechtt-core` lib 117, `bridge_smoke` 2, `session_machine` 11,
   `speechtt-ui` lib 14, `dialogs` 8, `session_flow` 17, `theme_contract` 4,

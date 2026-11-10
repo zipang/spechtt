@@ -111,7 +111,7 @@ Do **not** touch:
 - `PROVIDERS` keys are canonical: `vercel-ai-gateway`, `mistral`, `openai`,
   `xai`, `elevenlabs`.
 - `PROVIDER_ALIASES: Readonly<Record<string, string>> = { vercel:
-  "vercel-ai-gateway", gateway: "vercel-ai-gateway" }`.
+"vercel-ai-gateway", gateway: "vercel-ai-gateway" }`.
 - `getProvider(id)` resolves aliases and returns the canonical definition, so
   `getProvider("vercel").id === "vercel-ai-gateway"`.
 - `providerEnvVars`, `isProviderAvailable`, `resolveProviderApiKey` and
@@ -124,17 +124,17 @@ Do **not** touch:
 - The curated `GATEWAY_MODELS` matches the live endpoint’s transcription set
   (labels from `name`), with these modes:
 
-| Streaming (7) | Batch (9) |
-|---|---|
-| `elevenlabs/scribe-v2-realtime` | `elevenlabs/scribe-v2` |
-| `google/gemini-3.5-transcribe-live` | `fish-audio/transcribe-1` |
-| `microsoft/mai-transcribe-2-streaming` | `google/gemini-3.5-transcribe` |
-| `openai/gpt-live-transcribe` | `microsoft/mai-transcribe-2` |
-| `openai/gpt-realtime-whisper` | `mistral/voxtral-mini-transcribe-3` |
-| `openai/gpt-transcribe` | `mistral/voxtral-small-transcribe-3` |
-| `spacexai/grok-stt` | `openai/gpt-4o-mini-transcribe` |
-| | `openai/gpt-4o-transcribe` |
-| | `openai/whisper-1` |
+| Streaming (7)                          | Batch (9)                            |
+| -------------------------------------- | ------------------------------------ |
+| `elevenlabs/scribe-v2-realtime`        | `elevenlabs/scribe-v2`               |
+| `google/gemini-3.5-transcribe-live`    | `fish-audio/transcribe-1`            |
+| `microsoft/mai-transcribe-2-streaming` | `google/gemini-3.5-transcribe`       |
+| `openai/gpt-live-transcribe`           | `microsoft/mai-transcribe-2`         |
+| `openai/gpt-realtime-whisper`          | `mistral/voxtral-mini-transcribe-3`  |
+| `openai/gpt-transcribe`                | `mistral/voxtral-small-transcribe-3` |
+| `spacexai/grok-stt`                    | `openai/gpt-4o-mini-transcribe`      |
+|                                        | `openai/gpt-4o-transcribe`           |
+|                                        | `openai/whisper-1`                   |
 
 - Direct-provider catalogues: `openai` adds `gpt-live-transcribe` (streaming)
   and `gpt-transcribe` (streaming); `elevenlabs` becomes `scribe_v2` (batch) and
@@ -147,30 +147,30 @@ Do **not** touch:
 
 ```ts
 export interface DiscoveredModel {
-  readonly id: string;
-  readonly label: string;
-  readonly mode: TranscriptionMode;
+	readonly id: string;
+	readonly label: string;
+	readonly mode: TranscriptionMode;
 }
 
 export interface DiscoveryResult {
-  readonly models: readonly DiscoveredModel[];
-  /** `Date.now()` of the successful response, for the TTL cache. */
-  readonly fetchedAt: number;
+	readonly models: readonly DiscoveredModel[];
+	/** `Date.now()` of the successful response, for the TTL cache. */
+	readonly fetchedAt: number;
 }
 
 export interface DiscoveryOptions {
-  /** Injected for tests; defaults to `globalThis.fetch`. */
-  readonly fetch?: typeof globalThis.fetch;
-  /** Whole-request timeout; defaults to 2000 ms. */
-  readonly timeoutMs?: number;
-  /** Defaults to `https://ai-gateway.vercel.sh/v1/models`. */
-  readonly endpoint?: string;
-  /** Clock injection for the TTL cache; defaults to `Date.now`. */
-  readonly now?: () => number;
+	/** Injected for tests; defaults to `globalThis.fetch`. */
+	readonly fetch?: typeof globalThis.fetch;
+	/** Whole-request timeout; defaults to 2000 ms. */
+	readonly timeoutMs?: number;
+	/** Defaults to `https://ai-gateway.vercel.sh/v1/models`. */
+	readonly endpoint?: string;
+	/** Clock injection for the TTL cache; defaults to `Date.now`. */
+	readonly now?: () => number;
 }
 
 export async function discoverGatewayModels(
-  options?: DiscoveryOptions,
+	options?: DiscoveryOptions
 ): Promise<DiscoveryResult | undefined>;
 
 /** Clears the module-level cache; tests only. */
@@ -224,20 +224,24 @@ readonly gatewayModels?: readonly ModelDefinition[]; // replaces the gateway cat
 
 ```json
 {
-  "type": "capabilities",
-  "requestId": "cap-1",
-  "source": "builtin",
-  "providers": [
-    {
-      "id": "vercel-ai-gateway",
-      "label": "Vercel AI Gateway",
-      "available": true,
-      "keyEnvVars": ["AI_GATEWAY_API_KEY", "VERCEL_AI_GATEWAY_API_KEY"],
-      "models": [
-        { "id": "openai/gpt-realtime-whisper", "label": "gpt-realtime-whisper", "mode": "streaming" }
-      ]
-    }
-  ]
+	"type": "capabilities",
+	"requestId": "cap-1",
+	"source": "builtin",
+	"providers": [
+		{
+			"id": "vercel-ai-gateway",
+			"label": "Vercel AI Gateway",
+			"available": true,
+			"keyEnvVars": ["AI_GATEWAY_API_KEY", "VERCEL_AI_GATEWAY_API_KEY"],
+			"models": [
+				{
+					"id": "openai/gpt-realtime-whisper",
+					"label": "gpt-realtime-whisper",
+					"mode": "streaming"
+				}
+			]
+		}
+	]
 }
 ```
 
@@ -255,12 +259,12 @@ readonly gatewayModels?: readonly ModelDefinition[]; // replaces the gateway cat
 - `DEFAULT_PROVIDER = "vercel-ai-gateway"`.
 - `Settings::normalize_provider_ids()` (idempotent, called from
   `JsonFileStore::load`):
-  - `provider` aliases (`vercel`, `gateway`) → `vercel-ai-gateway`;
-  - an `api_keys` entry under an alias is moved to the canonical id **without
-    re-encoding the secret**;
-  - if both alias and canonical entries exist, the canonical one wins and the
-    alias entry is removed (never lose the canonical key);
-  - unrelated keys are untouched.
+    - `provider` aliases (`vercel`, `gateway`) → `vercel-ai-gateway`;
+    - an `api_keys` entry under an alias is moved to the canonical id **without
+      re-encoding the secret**;
+    - if both alias and canonical entries exist, the canonical one wins and the
+      alias entry is removed (never lose the canonical key);
+    - unrelated keys are untouched.
 - `save` → `load` round-trips a migrated file with the canonical key only and
   the key bytes unchanged; file mode stays `0600`.
 - `Debug` for `Settings` still never prints key material.
@@ -271,19 +275,19 @@ readonly gatewayModels?: readonly ModelDefinition[]; // replaces the gateway cat
   `provider_option()`, `model_option()`, and every static fallback that used
   them; all lookups read `self.capabilities`.
 - Status exposure:
-  - `settings_api_key_env()` → first `key_env_vars` entry of the selected
-    provider (old wire without the field ⇒ `None`, UI shows the generic hint).
-  - `provider_label_for` / `model_label_for` / `provider_exists` /
-    `model_exists` / `provider_ids` / `model_ids` / `cycle_provider` /
-    `cycle_model` operate on capabilities only.
+    - `settings_api_key_env()` → first `key_env_vars` entry of the selected
+      provider (old wire without the field ⇒ `None`, UI shows the generic hint).
+    - `provider_label_for` / `model_label_for` / `provider_exists` /
+      `model_exists` / `provider_ids` / `model_ids` / `cycle_provider` /
+      `cycle_model` operate on capabilities only.
 - New queries:
-  - `pub fn settings_model_mode(&self) -> Option<TranscriptionMode>` — mode of
-    the Settings draft model.
-  - `pub fn session_model_mode(&self) -> Option<TranscriptionMode>` — mode of
-    the model in `last_start`, `None` when no session exists or the model is
-    absent from the catalogue.
-  - `pub fn catalogue_source(&self) -> Option<CapabilitySource>` — latest
-    payload source.
+    - `pub fn settings_model_mode(&self) -> Option<TranscriptionMode>` — mode of
+      the Settings draft model.
+    - `pub fn session_model_mode(&self) -> Option<TranscriptionMode>` — mode of
+      the model in `last_start`, `None` when no session exists or the model is
+      absent from the catalogue.
+    - `pub fn catalogue_source(&self) -> Option<CapabilitySource>` — latest
+      payload source.
 - Empty state: with `capabilities == None`, Settings shows
   `"Loading providers…"` and the provider button is disabled; the model button
   keeps `"Choose provider first"`.
@@ -324,39 +328,39 @@ impl TranscriptionModeBadge {
 ## TDD Tasks
 
 - [x] **T11.1 — Registry specs**: canonical ids + alias resolution, single
-  gateway entry in `listCapabilities`, `unknown model → segmented`, full
-  curated gateway set with the 7/9 split, `openai`/`elevenlabs` direct
-  catalogues, “every curated id has an explicit mode”.
+      gateway entry in `listCapabilities`, `unknown model → segmented`, full
+      curated gateway set with the 7/9 split, `openai`/`elevenlabs` direct
+      catalogues, “every curated id has an explicit mode”.
 - [x] **T11.2 — Discovery specs** (fake `fetch`, no network): maps tags to
-  modes, keeps only `type: "transcription"`, sorts deterministically, returns
-  `undefined` for non-2xx / timeout / bad JSON / zero models, sends **no**
-  `Authorization` header, caches for 60 s, single-flights concurrent calls,
-  survives a rejected fetch and retries on the next call.
+      modes, keeps only `type: "transcription"`, sorts deterministically, returns
+      `undefined` for non-2xx / timeout / bad JSON / zero models, sends **no**
+      `Authorization` header, caches for 60 s, single-flights concurrent calls,
+      survives a rejected fetch and retries on the next call.
 - [x] **T11.3 — Worker specs**: first event is immediate and `builtin`; second
-  event is `discovered` when the fetch resolves; a fresh cache yields a single
-  `discovered` event; discovery failure leaves only `builtin`; `requestId`
-  echoed on both; a resolving fetch after EOF emits nothing; an active session
-  is never disturbed; the API key is not passed to discovery.
+      event is `discovered` when the fetch resolves; a fresh cache yields a single
+      `discovered` event; discovery failure leaves only `builtin`; `requestId`
+      echoed on both; a resolving fetch after EOF emits nothing; an active session
+      is never disturbed; the API key is not passed to discovery.
 - [x] **T11.4 — Protocol specs** (TS + Rust): round-trip with `source` and
-  `keyEnvVars`; missing fields default (`builtin`, empty vec); lowercase wire
-  values; existing fixtures still deserialize.
+      `keyEnvVars`; missing fields default (`builtin`, empty vec); lowercase wire
+      values; existing fixtures still deserialize.
 - [x] **T11.5 — Settings migration tests**: alias provider → canonical,
-  alias key moved byte-for-byte, canonical wins on conflict, unrelated keys
-  untouched, round-trip through `save`/`load`, mode `0600`, no key in `Debug`.
+      alias key moved byte-for-byte, canonical wins on conflict, unrelated keys
+      untouched, round-trip through `save`/`load`, mode `0600`, no key in `Debug`.
 - [x] **T11.6 — Controller tests**: catalogue from capabilities only; label,
-  availability, key env, cycle behaviour; `settings_model_mode` /
-  `session_model_mode` for both modes and for unknown models; loading state
-  before the first handshake; no static fallback remains.
+      availability, key env, cycle behaviour; `settings_model_mode` /
+      `session_model_mode` for both modes and for unknown models; loading state
+      before the first handshake; no static fallback remains.
 - [x] **T11.7 — Badge tests**: `TranscriptionModeBadge` renders `Stream` +
-  `Zap` for streaming and `Batch` + `Scissors` for segmented; token colors;
-  Settings shows the badge beside the model; recording header shows it; absent
-  when no mode is known.
+      `Zap` for streaming and `Batch` + `Scissors` for segmented; token colors;
+      Settings shows the badge beside the model; recording header shows it; absent
+      when no mode is known.
 - [x] **T11.8 — Implementation**: discovery module, registry cleanup, worker
-  two-phase handshake, Rust protocol fields, settings migration, controller
-  cleanup, badge component + `AppIcons`, Settings/transport wiring.
+      two-phase handshake, Rust protocol fields, settings migration, controller
+      cleanup, badge component + `AppIcons`, Settings/transport wiring.
 - [x] **T11.9 — Gates**: `cargo fmt -- --check`,
-  `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
-  `bun check src/stt`, `bun run design:validate` (badge uses tokens only).
+      `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
+      `bun check src/stt`, `bun run design:validate` (badge uses tokens only).
 
 ## Acceptance Criteria
 
@@ -422,7 +426,7 @@ Implemented by the CTO directly after the coder quotas were exhausted.
 2. `discovery.spec.ts` used `RequestInfo`, which Bun's type definitions do not
    expose; replaced with `Parameters<typeof fetch>[0]`.
 3. `worker.spec.ts` "answers immediately, then refreshes" resolved discovery
-   *after* stdin EOF while a separate test requires results after EOF to be
+   _after_ stdin EOF while a separate test requires results after EOF to be
    dropped. The input generator now stays open until the refresh is emitted,
    so both semantics are testable and the documented drop-after-EOF rule holds.
 4. `MODEL_CAPABILITIES` is derived from the curated catalogues instead of a

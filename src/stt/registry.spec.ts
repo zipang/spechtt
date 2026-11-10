@@ -11,7 +11,7 @@ import {
 	listCapabilities,
 	providerEnvVars,
 	resolveModelCapability,
-	resolveProviderApiKey,
+	resolveProviderApiKey
 } from "./registry";
 import { LANGUAGE_OPTIONS } from "./languages";
 
@@ -33,7 +33,7 @@ const LIVE_TRANSCRIPTION_MODELS = [
 	"openai/gpt-realtime-whisper",
 	"openai/gpt-transcribe",
 	"openai/whisper-1",
-	"spacexai/grok-stt",
+	"spacexai/grok-stt"
 ];
 
 const STREAMING_MODELS = [
@@ -43,12 +43,12 @@ const STREAMING_MODELS = [
 	"openai/gpt-live-transcribe",
 	"openai/gpt-realtime-whisper",
 	"openai/gpt-transcribe",
-	"spacexai/grok-stt",
+	"spacexai/grok-stt"
 ];
 
 function gatewayCatalogue() {
 	const gateway = listCapabilities({ env: {} }).providers.find(
-		(provider) => provider.id === GATEWAY,
+		(provider) => provider.id === GATEWAY
 	);
 	expect(gateway).toBeDefined();
 	return gateway!;
@@ -66,16 +66,16 @@ describe("provider registry", () => {
 		for (const removed of ["mistral", "openai", "xai", "elevenlabs"]) {
 			expect(getProvider(removed)).toBeUndefined();
 			expect(providerEnvVars(removed)).toEqual([]);
-			expect(
-				isProviderAvailable(removed, "sk-explicit", { MISTRAL_API_KEY: "k" }),
-			).toBe(false);
+			expect(isProviderAvailable(removed, "sk-explicit", { MISTRAL_API_KEY: "k" })).toBe(
+				false
+			);
 		}
 	});
 
 	test("resolves legacy gateway aliases to the canonical provider", () => {
 		expect(PROVIDER_ALIASES).toEqual({
 			vercel: GATEWAY,
-			gateway: GATEWAY,
+			gateway: GATEWAY
 		});
 		expect(getProvider("vercel")?.id).toBe(GATEWAY);
 		expect(getProvider("gateway")?.id).toBe(GATEWAY);
@@ -86,11 +86,11 @@ describe("provider registry", () => {
 	test("maps the provider to its environment variables", () => {
 		expect(providerEnvVars(GATEWAY)).toEqual([
 			"AI_GATEWAY_API_KEY",
-			"VERCEL_AI_GATEWAY_API_KEY",
+			"VERCEL_AI_GATEWAY_API_KEY"
 		]);
 		expect(providerEnvVars("vercel")).toEqual([
 			"AI_GATEWAY_API_KEY",
-			"VERCEL_AI_GATEWAY_API_KEY",
+			"VERCEL_AI_GATEWAY_API_KEY"
 		]);
 		expect(providerEnvVars("unknown-provider")).toEqual([]);
 	});
@@ -113,13 +113,13 @@ describe("provider availability", () => {
 		for (const provider of [GATEWAY, "vercel", "gateway"]) {
 			expect(
 				isProviderAvailable(provider, undefined, {
-					AI_GATEWAY_API_KEY: "gateway-key",
-				}),
+					AI_GATEWAY_API_KEY: "gateway-key"
+				})
 			).toBe(true);
 			expect(
 				isProviderAvailable(provider, undefined, {
-					VERCEL_AI_GATEWAY_API_KEY: "gateway-key",
-				}),
+					VERCEL_AI_GATEWAY_API_KEY: "gateway-key"
+				})
 			).toBe(true);
 		}
 	});
@@ -130,18 +130,14 @@ describe("provider availability", () => {
 		expect(
 			isProviderAvailable(GATEWAY, undefined, {
 				AI_GATEWAY_API_KEY: "   ",
-				VERCEL_AI_GATEWAY_API_KEY: "",
-			}),
+				VERCEL_AI_GATEWAY_API_KEY: ""
+			})
 		).toBe(false);
-		expect(isProviderAvailable("unknown-provider", "sk-explicit", {})).toBe(
-			false,
-		);
+		expect(isProviderAvailable("unknown-provider", "sk-explicit", {})).toBe(false);
 	});
 
 	test("ignores unrelated provider keys", () => {
-		expect(
-			isProviderAvailable(GATEWAY, undefined, { MISTRAL_API_KEY: "mistral" }),
-		).toBe(false);
+		expect(isProviderAvailable(GATEWAY, undefined, { MISTRAL_API_KEY: "mistral" })).toBe(false);
 	});
 });
 
@@ -149,8 +145,8 @@ describe("resolveProviderApiKey", () => {
 	test("prefers the explicit key over the environment", () => {
 		expect(
 			resolveProviderApiKey(GATEWAY, "sk-explicit", {
-				AI_GATEWAY_API_KEY: "env-key",
-			}),
+				AI_GATEWAY_API_KEY: "env-key"
+			})
 		).toBe("sk-explicit");
 	});
 
@@ -158,15 +154,15 @@ describe("resolveProviderApiKey", () => {
 		expect(
 			resolveProviderApiKey("vercel", undefined, {
 				AI_GATEWAY_API_KEY: "first",
-				VERCEL_AI_GATEWAY_API_KEY: "second",
-			}),
+				VERCEL_AI_GATEWAY_API_KEY: "second"
+			})
 		).toBe("first");
 
 		expect(
 			resolveProviderApiKey(GATEWAY, undefined, {
 				AI_GATEWAY_API_KEY: "",
-				VERCEL_AI_GATEWAY_API_KEY: "second",
-			}),
+				VERCEL_AI_GATEWAY_API_KEY: "second"
+			})
 		).toBe("second");
 	});
 
@@ -182,27 +178,27 @@ describe("model capability lookup", () => {
 			expect(resolveModelCapability(GATEWAY, model)).toMatchObject({
 				provider: GATEWAY,
 				model,
-				mode: "streaming",
+				mode: "streaming"
 			});
 		}
 	});
 
 	test("marks batch transcription models as segmented", () => {
 		for (const model of LIVE_TRANSCRIPTION_MODELS.filter(
-			(candidate) => !STREAMING_MODELS.includes(candidate),
+			(candidate) => !STREAMING_MODELS.includes(candidate)
 		)) {
 			expect(resolveModelCapability(GATEWAY, model)).toMatchObject({
 				provider: GATEWAY,
 				model,
-				mode: "segmented",
+				mode: "segmented"
 			});
 		}
 	});
 
 	test("treats unknown models as segmented", () => {
-		expect(
-			resolveModelCapability(GATEWAY, "acme/brand-new-live"),
-		).toMatchObject({ mode: "segmented" });
+		expect(resolveModelCapability(GATEWAY, "acme/brand-new-live")).toMatchObject({
+			mode: "segmented"
+		});
 	});
 
 	test("returns undefined for unknown providers", () => {
@@ -228,9 +224,8 @@ describe("capability listing", () => {
 
 	test("emits the provider key environment variables on the wire", () => {
 		expect(
-			listCapabilities({ env: {} }).providers.find(
-				(provider) => provider.id === GATEWAY,
-			)?.keyEnvVars,
+			listCapabilities({ env: {} }).providers.find((provider) => provider.id === GATEWAY)
+				?.keyEnvVars
 		).toEqual(["AI_GATEWAY_API_KEY", "VERCEL_AI_GATEWAY_API_KEY"]);
 	});
 
@@ -265,32 +260,24 @@ describe("capability listing", () => {
 			"mistral/voxtral-mini-transcribe-3",
 			"mistral/voxtral-small-transcribe-3",
 			"openai/whisper-1",
-			"openai/gpt-realtime-whisper",
+			"openai/gpt-realtime-whisper"
 		]);
 		expect([...ids].sort()).toEqual([...LIVE_TRANSCRIPTION_MODELS].sort());
 		expect(
 			gateway.models
 				.filter((model) => model.mode === "streaming")
 				.map((model) => model.id)
-				.sort(),
+				.sort()
 		).toEqual([...STREAMING_MODELS].sort());
 	});
 
 	test("uses the live endpoint names as gateway model labels", () => {
-		const labels = new Map(
-			gatewayCatalogue().models.map((model) => [model.id, model.label]),
-		);
+		const labels = new Map(gatewayCatalogue().models.map((model) => [model.id, model.label]));
 
-		expect(labels.get("openai/gpt-realtime-whisper")).toBe(
-			"gpt-realtime-whisper",
-		);
+		expect(labels.get("openai/gpt-realtime-whisper")).toBe("gpt-realtime-whisper");
 		expect(labels.get("openai/whisper-1")).toBe("Whisper");
-		expect(labels.get("mistral/voxtral-mini-transcribe-3")).toBe(
-			"Voxtral Mini Transcribe 3",
-		);
-		expect(labels.get("openai/gpt-4o-mini-transcribe")).toBe(
-			"GPT-4o mini Transcribe",
-		);
+		expect(labels.get("mistral/voxtral-mini-transcribe-3")).toBe("Voxtral Mini Transcribe 3");
+		expect(labels.get("openai/gpt-4o-mini-transcribe")).toBe("GPT-4o mini Transcribe");
 	});
 
 	test("curated models carry no description or pricing", () => {
@@ -304,12 +291,8 @@ describe("capability listing", () => {
 		const serialized = JSON.stringify(listCapabilities({ env: {} }));
 
 		expect(serialized).not.toContain("eleven-scribe-2-realtime");
-		expect(MODEL_CAPABILITIES).not.toHaveProperty(
-			"eleven-scribe-2-realtime",
-		);
-		expect(MODEL_CAPABILITIES).not.toHaveProperty(
-			"elevenlabs/eleven-scribe-2-realtime",
-		);
+		expect(MODEL_CAPABILITIES).not.toHaveProperty("eleven-scribe-2-realtime");
+		expect(MODEL_CAPABILITIES).not.toHaveProperty("elevenlabs/eleven-scribe-2-realtime");
 	});
 
 	test("passes discovered metadata through and keeps the curated catalogue otherwise", () => {
@@ -321,14 +304,14 @@ describe("capability listing", () => {
 					label: "New Live Model",
 					mode: "streaming",
 					description: "Acme live transcription.",
-					pricing: { transcription_duration_cost_per_second: "0.00004" },
+					pricing: { transcription_duration_cost_per_second: "0.00004" }
 				},
 				{
 					id: "acme/new-batch-model",
 					label: "New Batch Model",
-					mode: "segmented",
-				},
-			],
+					mode: "segmented"
+				}
+			]
 		}).providers;
 		const gateway = providers.find((provider) => provider.id === GATEWAY)!;
 
@@ -338,23 +321,23 @@ describe("capability listing", () => {
 				label: "New Batch Model",
 				mode: "segmented",
 				description: null,
-				pricing: {},
+				pricing: {}
 			},
 			{
 				id: "acme/new-live-model",
 				label: "New Live Model",
 				mode: "streaming",
 				description: "Acme live transcription.",
-				pricing: { transcription_duration_cost_per_second: "0.00004" },
-			},
+				pricing: { transcription_duration_cost_per_second: "0.00004" }
+			}
 		]);
 		expect(providers).toHaveLength(1);
 	});
 
 	test("ignores an empty discovered catalogue", () => {
-		expect(
-			listCapabilities({ env: {}, gatewayModels: [] }).providers[0]?.models,
-		).toHaveLength(16);
+		expect(listCapabilities({ env: {}, gatewayModels: [] }).providers[0]?.models).toHaveLength(
+			16
+		);
 	});
 
 	test("availability reflects the gateway environment", () => {
@@ -364,9 +347,7 @@ describe("capability listing", () => {
 				.map((provider) => provider.id);
 
 		expect(availableIds({})).toEqual([]);
-		expect(availableIds({ AI_GATEWAY_API_KEY: "gateway-key" })).toEqual([
-			GATEWAY,
-		]);
+		expect(availableIds({ AI_GATEWAY_API_KEY: "gateway-key" })).toEqual([GATEWAY]);
 		expect(availableIds({ MISTRAL_API_KEY: "env-key" })).toEqual([]);
 	});
 
@@ -374,12 +355,11 @@ describe("capability listing", () => {
 		expect(
 			listCapabilities({
 				env: {},
-				apiKeyFor: () => "sk-explicit",
-			}).providers[0]?.available,
+				apiKeyFor: () => "sk-explicit"
+			}).providers[0]?.available
 		).toBe(true);
 		expect(
-			listCapabilities({ env: {}, apiKeyFor: () => undefined }).providers[0]
-				?.available,
+			listCapabilities({ env: {}, apiKeyFor: () => undefined }).providers[0]?.available
 		).toBe(false);
 	});
 
@@ -387,8 +367,8 @@ describe("capability listing", () => {
 		const payload = JSON.stringify(
 			listCapabilities({
 				env: { AI_GATEWAY_API_KEY: "sk-env-secret" },
-				apiKeyFor: () => "sk-explicit-secret",
-			}),
+				apiKeyFor: () => "sk-explicit-secret"
+			})
 		);
 
 		expect(payload).not.toContain("sk-env-secret");
@@ -405,20 +385,18 @@ describe("cleanup model defaults", () => {
 
 	test("prefers the environment override", () => {
 		expect(
-			defaultLanguageModel({ [LANGUAGE_MODEL_ENV]: "anthropic/claude-sonnet-5.5" }),
+			defaultLanguageModel({
+				[LANGUAGE_MODEL_ENV]: "anthropic/claude-sonnet-5.5"
+			})
 		).toBe("anthropic/claude-sonnet-5.5");
-		expect(
-			defaultLanguageModel({ [LANGUAGE_MODEL_ENV]: "  openai/gpt-4.1-mini  " }),
-		).toBe("openai/gpt-4.1-mini");
+		expect(defaultLanguageModel({ [LANGUAGE_MODEL_ENV]: "  openai/gpt-4.1-mini  " })).toBe(
+			"openai/gpt-4.1-mini"
+		);
 	});
 
 	test("ignores an empty or blank override", () => {
-		expect(defaultLanguageModel({ [LANGUAGE_MODEL_ENV]: "" })).toBe(
-			FALLBACK_LANGUAGE_MODEL,
-		);
-		expect(defaultLanguageModel({ [LANGUAGE_MODEL_ENV]: "   " })).toBe(
-			FALLBACK_LANGUAGE_MODEL,
-		);
+		expect(defaultLanguageModel({ [LANGUAGE_MODEL_ENV]: "" })).toBe(FALLBACK_LANGUAGE_MODEL);
+		expect(defaultLanguageModel({ [LANGUAGE_MODEL_ENV]: "   " })).toBe(FALLBACK_LANGUAGE_MODEL);
 	});
 });
 
@@ -427,40 +405,32 @@ describe("cleanup and language capabilities", () => {
 		const payload = listCapabilities({ env: {} });
 
 		expect(payload.languages).toEqual(LANGUAGE_OPTIONS);
-		expect(JSON.parse(JSON.stringify(payload.languages))).toEqual([
-			...LANGUAGE_OPTIONS,
-		]);
+		expect(JSON.parse(JSON.stringify(payload.languages))).toEqual([...LANGUAGE_OPTIONS]);
 	});
 
 	test("reports the resolved default cleanup model", () => {
-		expect(listCapabilities({ env: {} }).defaultLanguageModel).toBe(
-			FALLBACK_LANGUAGE_MODEL,
-		);
+		expect(listCapabilities({ env: {} }).defaultLanguageModel).toBe(FALLBACK_LANGUAGE_MODEL);
 		expect(
 			listCapabilities({
-				env: { [LANGUAGE_MODEL_ENV]: "openai/gpt-4.1" },
-			}).defaultLanguageModel,
+				env: { [LANGUAGE_MODEL_ENV]: "openai/gpt-4.1" }
+			}).defaultLanguageModel
 		).toBe("openai/gpt-4.1");
 	});
 
 	test("reports null language models when discovery returned none", () => {
 		expect(listCapabilities({ env: {} }).languageModels).toBeNull();
-		expect(
-			listCapabilities({ env: {}, languageModels: [] }).languageModels,
-		).toBeNull();
+		expect(listCapabilities({ env: {}, languageModels: [] }).languageModels).toBeNull();
 	});
 
 	test("passes discovered language models through unchanged", () => {
 		const languageModels = [
 			{ id: "anthropic/claude-sonnet-5.5", label: "Claude Sonnet 5.5" },
-			{ id: "openai/gpt-4.1-mini", label: "GPT-4.1 mini" },
+			{ id: "openai/gpt-4.1-mini", label: "GPT-4.1 mini" }
 		];
 
-		expect(
-			listCapabilities({ env: {}, languageModels }).languageModels,
-		).toEqual([
+		expect(listCapabilities({ env: {}, languageModels }).languageModels).toEqual([
 			{ id: "anthropic/claude-sonnet-5.5", label: "Claude Sonnet 5.5" },
-			{ id: "openai/gpt-4.1-mini", label: "GPT-4.1 mini" },
+			{ id: "openai/gpt-4.1-mini", label: "GPT-4.1 mini" }
 		]);
 	});
 
@@ -476,8 +446,8 @@ describe("cleanup and language capabilities", () => {
 			listCapabilities({
 				env: { AI_GATEWAY_API_KEY: "sk-env-secret" },
 				apiKeyFor: () => "sk-explicit-secret",
-				languageModels: [{ id: "openai/gpt-4.1-mini", label: "GPT-4.1 mini" }],
-			}),
+				languageModels: [{ id: "openai/gpt-4.1-mini", label: "GPT-4.1 mini" }]
+			})
 		);
 
 		expect(payload).not.toContain("sk-env-secret");

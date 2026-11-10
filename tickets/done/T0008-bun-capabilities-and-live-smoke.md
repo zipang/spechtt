@@ -49,26 +49,34 @@ reading their mode metadata, or the settings store.
 
 ```jsonc
 {
-  "type": "capabilities",
-  "requestId": "cap-1",
-  "providers": [
-    {
-      "id": "vercel",
-      "label": "Vercel AI Gateway",
-      "available": true,
-      "models": [
-        { "id": "openai/gpt-realtime-whisper", "label": "GPT Realtime Whisper", "mode": "streaming" },
-        { "id": "openai/gpt-4o-transcribe", "label": "GPT-4o Transcribe", "mode": "segmented" }
-      ]
-    }
-  ]
+	"type": "capabilities",
+	"requestId": "cap-1",
+	"providers": [
+		{
+			"id": "vercel",
+			"label": "Vercel AI Gateway",
+			"available": true,
+			"models": [
+				{
+					"id": "openai/gpt-realtime-whisper",
+					"label": "GPT Realtime Whisper",
+					"mode": "streaming"
+				},
+				{
+					"id": "openai/gpt-4o-transcribe",
+					"label": "GPT-4o Transcribe",
+					"mode": "segmented"
+				}
+			]
+		}
+	]
 }
 ```
 
 Rules:
 
 - `available` is computed with the existing `isProviderAvailable(providerId,
-  apiKey?)` logic against `process.env` **and** any key supplied in the
+apiKey?)` logic against `process.env` **and** any key supplied in the
   request (`{ "type": "capabilities", "requestId": "...", "apiKey": "..." }`
   — needed for keys entered but not yet exported). The key is never echoed
   and never logged.
@@ -133,13 +141,13 @@ A real process test, not a mock:
   `src/stt/worker.ts` is missing, so CI without Bun stays green.
 - Spawn `BunSubprocess::spawn_default()` with a scrubbed environment (no
   real API keys) and:
-  1. read the initial `Ready` event;
-  2. send `SttCommand::Capabilities { request_id: Some("smoke-1"), api_key:
-     None }`;
-  3. assert a `Capabilities` event with the same `requestId`, at least five
-     providers, and a non-empty model list with valid modes;
-  4. assert every `available` flag is `false` (no keys in the environment);
-  5. send `Stop`/drop the child and assert clean EOF/exit.
+    1. read the initial `Ready` event;
+    2. send `SttCommand::Capabilities { request_id: Some("smoke-1"), api_key:
+None }`;
+    3. assert a `Capabilities` event with the same `requestId`, at least five
+       providers, and a non-empty model list with valid modes;
+    4. assert every `available` flag is `false` (no keys in the environment);
+    5. send `Stop`/drop the child and assert clean EOF/exit.
 - Add a second case that serialises a **malformed** line directly into the
   child's stdin and asserts the worker replies with an `error` event
   (`invalid_protocol`) and stays alive for a following `capabilities` request.
@@ -149,21 +157,21 @@ A real process test, not a mock:
 ## 4. TDD Tasks
 
 - [x] **T8.1 — TS protocol specs**: parse `capabilities` with/without
-  `requestId`/`apiKey`; reject non-string `apiKey`; serialise the outbound
-  event with exact camelCase keys.
+      `requestId`/`apiKey`; reject non-string `apiKey`; serialise the outbound
+      event with exact camelCase keys.
 - [x] **T8.2 — Registry specs**: deterministic provider/model ordering;
-  `available` reflects env or supplied key; every listed model has a valid
-  mode; adding a provider key flips only that provider.
+      `available` reflects env or supplied key; every listed model has a valid
+      mode; adding a provider key flips only that provider.
 - [x] **T8.3 — Worker specs**: `capabilities` before `start`; during an
-  active session; bad request emits `invalid_protocol` and does not close the
-  loop; no API key appears in any emitted payload or diagnostic.
+      active session; bad request emits `invalid_protocol` and does not close the
+      loop; no API key appears in any emitted payload or diagnostic.
 - [x] **T8.4 — Rust protocol specs**: round-trip the new command/event,
-  redaction in `Debug`, `session_id() == None`, unknown-field tolerance.
+      redaction in `Debug`, `session_id() == None`, unknown-field tolerance.
 - [x] **T8.5 — Bridge smoke test**: the live process scenarios in §3, with
-  skip-on-missing-bun.
+      skip-on-missing-bun.
 - [x] **T8.6 — Implementation + gates**: `bun test`,
-  `bun check src/stt`, `cargo fmt -- --check`,
-  `cargo clippy --all-targets -- -D warnings`, `cargo test`.
+      `bun check src/stt`, `cargo fmt -- --check`,
+      `cargo clippy --all-targets -- -D warnings`, `cargo test`.
 
 ## Acceptance Criteria
 
@@ -253,15 +261,15 @@ A real process test, not a mock:
 
 ### Gate results
 
-| Gate | Result |
-| --- | --- |
-| `bun test` | `87 pass`, `0 fail`, 413 `expect()` calls, 7 files |
-| `bun check src/stt` | `✓ No type errors in 13 files` |
-| `cargo fmt -- --check` | clean (no diff) |
-| `cargo clippy -p speechtt-core --test bridge_smoke -- -D warnings` | `Finished` with no warnings |
-| `cargo clippy --all-targets -- -D warnings` | `Finished` with no warnings |
-| `cargo test -p speechtt-core` | lib 66 passed, bridge_smoke 2 passed, session_machine 11 passed, doc-tests 0 |
-| `cargo test -p speechtt-core --test bridge_smoke` | 2 passed in 0.15 s |
-| `cargo test -p speechtt-core protocol` | 17 passed (49 filtered) |
-| `cargo test` (workspace) | core 66/2/11 plus UI 14/0/8/17/4/2 — all passed |
-| `bun run stt:worker </dev/null` | exactly `{"type":"ready"}` (no unsolicited handshake) |
+| Gate                                                               | Result                                                                       |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| `bun test`                                                         | `87 pass`, `0 fail`, 413 `expect()` calls, 7 files                           |
+| `bun check src/stt`                                                | `✓ No type errors in 13 files`                                               |
+| `cargo fmt -- --check`                                             | clean (no diff)                                                              |
+| `cargo clippy -p speechtt-core --test bridge_smoke -- -D warnings` | `Finished` with no warnings                                                  |
+| `cargo clippy --all-targets -- -D warnings`                        | `Finished` with no warnings                                                  |
+| `cargo test -p speechtt-core`                                      | lib 66 passed, bridge_smoke 2 passed, session_machine 11 passed, doc-tests 0 |
+| `cargo test -p speechtt-core --test bridge_smoke`                  | 2 passed in 0.15 s                                                           |
+| `cargo test -p speechtt-core protocol`                             | 17 passed (49 filtered)                                                      |
+| `cargo test` (workspace)                                           | core 66/2/11 plus UI 14/0/8/17/4/2 — all passed                              |
+| `bun run stt:worker </dev/null`                                    | exactly `{"type":"ready"}` (no unsolicited handshake)                        |

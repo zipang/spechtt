@@ -40,12 +40,12 @@ one of its dialogs — holds focus.
 
 ### 3.1 Widget UI states
 
-| State | Description |
-|---|---|
-| **Idle** | Widget visible, big record button, no audio activity, shortcuts reminder visible. |
+| State         | Description                                                                                                                                                                   |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Idle**      | Widget visible, big record button, no audio activity, shortcuts reminder visible.                                                                                             |
 | **Recording** | Record button turns into a stop/pause affordance, live waveform animates from mic frequency data, transcript streams in and auto-scrolls, clear "Recording" status indicator. |
-| **Paused** | Waveform freezes/flattens, clear "Paused" status indicator (distinct color from Recording), transcript-so-far remains visible and scrollable, resume affordance shown. |
-| **Settings** | Separate larger panel/modal: STT service/provider choice, API key management (per provider), default model choice, save/close actions. |
+| **Paused**    | Waveform freezes/flattens, clear "Paused" status indicator (distinct color from Recording), transcript-so-far remains visible and scrollable, resume affordance shown.        |
+| **Settings**  | Separate larger panel/modal: STT service/provider choice, API key management (per provider), default model choice, save/close actions.                                        |
 
 ### 3.2 Core interactions
 
@@ -63,25 +63,25 @@ one of its dialogs — holds focus.
   or configured default), with a default filename pattern
   (e.g. `speechtt-YYYYMMDD-HHMMSS.md`).
 - **Settings**:
-  - Choose active STT provider (local model vs. remote: Vercel AI Gateway,
-    Mistral AI, others as added).
-  - Enter/store API key(s) per provider (securely, not in plain config when
-    avoidable).
-  - Choose default model per provider (e.g.
-    `mistral/voxtral-mini-transcribe-3`, `spacexai/grok-stt`).
-  - Remote providers/models are only listed/enabled when their required
-    environment variable or stored key is present (e.g.
-    `VERCEL_AI_GATEWAY_API_KEY`).
+    - Choose active STT provider (local model vs. remote: Vercel AI Gateway,
+      Mistral AI, others as added).
+    - Enter/store API key(s) per provider (securely, not in plain config when
+      avoidable).
+    - Choose default model per provider (e.g.
+      `mistral/voxtral-mini-transcribe-3`, `spacexai/grok-stt`).
+    - Remote providers/models are only listed/enabled when their required
+      environment variable or stored key is present (e.g.
+      `VERCEL_AI_GATEWAY_API_KEY`).
 
 ### 3.3 Keyboard shortcuts
 
-| Action | Shortcut |
-|---|---|
-| Start / pause / resume recording | `Space` |
-| Stop recording | `Enter` |
-| Save transcript to file | `Ctrl+S` |
-| Open Help | `F1` |
-| Open Settings | `F2` |
+| Action                           | Shortcut |
+| -------------------------------- | -------- |
+| Start / pause / resume recording | `Space`  |
+| Stop recording                   | `Enter`  |
+| Save transcript to file          | `Ctrl+S` |
+| Open Help                        | `F1`     |
+| Open Settings                    | `F2`     |
 
 Shortcuts are **window-scoped and state-scoped**: a command runs only while the
 SpeechTT window, or one of its Help/Settings dialogs, holds focus, and only in
@@ -115,107 +115,107 @@ other key is the same on every platform.
 
 - Follow the **Applied Design Systems** approach
   (https://github.com/zipang/applied-design-systems):
-  - Install `skills/design-system-tokens/` into `.agents/skills/` of this
-    repo.
-  - Generate `DESIGN.md` (YAML front matter + prose) and
-    `design-tokens.css` as the single source of truth for tokens.
-  - Only use the fixed token categories: `colors` (brand/action/text/surface),
-    `typography` (families/sizes/weights/line-heights/letter-spacing),
-    `spacing` (`xs`→`xxl`), `shapes` (radii/border widths), `elevation`
-    (`sm`/`md`/`lg`).
-  - Visual direction: bold/branded, dark charcoal `surface`, deep
-    "Agfa Sensor orange" as `brand.primary`/`action` accent for the record
-    button and waveform.
+    - Install `skills/design-system-tokens/` into `.agents/skills/` of this
+      repo.
+    - Generate `DESIGN.md` (YAML front matter + prose) and
+      `design-tokens.css` as the single source of truth for tokens.
+    - Only use the fixed token categories: `colors` (brand/action/text/surface),
+      `typography` (families/sizes/weights/line-heights/letter-spacing),
+      `spacing` (`xs`→`xxl`), `shapes` (radii/border widths), `elevation`
+      (`sm`/`md`/`lg`).
+    - Visual direction: bold/branded, dark charcoal `surface`, deep
+      "Agfa Sensor orange" as `brand.primary`/`action` accent for the record
+      button and waveform.
 - Paper MCP mockups (Idle / Recording / Paused / Settings / Help frames) are
   produced from these tokens, not invented ad hoc.
 - **Exported reference assets** (Phase 1 output, under `mockups/`):
-  - `mockups/app-window/` — Idle, Recording, Paused widget states.
-  - `mockups/dialogs/` — Settings, Help/Shortcuts modals.
-  - Each artboard exists as a **`.png` screenshot** and an auto-exported
-    **`.tsx` JSX dump**.
-  - **The `.png` files are the visual ground truth** for the Phase 7 UI:
-    the implementation is built semantically (real HTML elements +
-    `design-tokens.css`) and validated against them pixel by pixel.
-  - **The `.tsx` files are NOT usable as code**: the exporter emits
-    non-semantic, accessibility-flat `<div>` soup with inline styles. They
-    serve one purpose only — a lookup table for exact values (colors, px
-    sizes, spacing, radii, shadows) when a `DESIGN.md` token value is
-    ambiguous. Never copy/paste them into the implementation.
+    - `mockups/app-window/` — Idle, Recording, Paused widget states.
+    - `mockups/dialogs/` — Settings, Help/Shortcuts modals.
+    - Each artboard exists as a **`.png` screenshot** and an auto-exported
+      **`.tsx` JSX dump**.
+    - **The `.png` files are the visual ground truth** for the Phase 7 UI:
+      the implementation is built semantically (real HTML elements +
+      `design-tokens.css`) and validated against them pixel by pixel.
+    - **The `.tsx` files are NOT usable as code**: the exporter emits
+      non-semantic, accessibility-flat `<div>` soup with inline styles. They
+      serve one purpose only — a lookup table for exact values (colors, px
+      sizes, spacing, radii, shadows) when a `DESIGN.md` token value is
+      ambiguous. Never copy/paste them into the implementation.
 
 ## 5. Technical stack
 
 - **Rust — UI layer (gpui-kit, native GPU-accelerated; replaces the
   former webview/tauri plan)**:
-  - Framework: `gpui-kit = "0.9.1"` — one dependency bundling GPUI,
-    `gpui-base`, `gpui-component` (75+ styled components), the theme
-    system, default **Lucide** icon assets, and headless UI integration
-    testing.
-  - Built on **`gpui-component` styled components over a custom SpeechTT
-    theme** mapped 1:1 from `design-tokens.css` (dark charcoal surfaces,
-    deep Agfa-Sensor orange, type scale ×1.25, radii, elevation).
-  - Custom visual pieces written as `RenderOnce` components:
-    `HeaderStrip`, `StatusBadge`, `BigAction` (92px record/stop/resume
-    circle), `KeyCap`, `Waveform` (bars from FFT bins), `CaptionWell`.
-  - **Typography — DECIDED: bundle our own fonts** (the
-    `design-tokens.css` "system fonts only" rule was the web-mockup
-    default, irrelevant to the native app). Inter (400/500/700) + JetBrains
-    Mono (400/700) are embedded via `include_bytes!` +
-    `text_system().add_fonts()` — deterministic rendering on every
-    machine, no network, ~1.6 MB binary size; SIL-OFL license texts are
-    kept next to the `.ttf` files in `crates/speechtt-ui/assets/fonts/`.
-  - Settings & Help/Shortcuts shown as gpui-kit dialogs (window
-    overlays); global styling comes from the installed agent skills
-    (`longbridge/gpui-kit`).
-  - UI integration tests via `#[gpui_kit::test]` (headless windows:
-    state, focus, layout, accessibility).
-  - **Works without a backend**: state fed by a mock (fake timer, fake
-    waveform bins, fake streaming transcript) until the core is wired.
+    - Framework: `gpui-kit = "0.9.1"` — one dependency bundling GPUI,
+      `gpui-base`, `gpui-component` (75+ styled components), the theme
+      system, default **Lucide** icon assets, and headless UI integration
+      testing.
+    - Built on **`gpui-component` styled components over a custom SpeechTT
+      theme** mapped 1:1 from `design-tokens.css` (dark charcoal surfaces,
+      deep Agfa-Sensor orange, type scale ×1.25, radii, elevation).
+    - Custom visual pieces written as `RenderOnce` components:
+      `HeaderStrip`, `StatusBadge`, `BigAction` (92px record/stop/resume
+      circle), `KeyCap`, `Waveform` (bars from FFT bins), `CaptionWell`.
+    - **Typography — DECIDED: bundle our own fonts** (the
+      `design-tokens.css` "system fonts only" rule was the web-mockup
+      default, irrelevant to the native app). Inter (400/500/700) + JetBrains
+      Mono (400/700) are embedded via `include_bytes!` +
+      `text_system().add_fonts()` — deterministic rendering on every
+      machine, no network, ~1.6 MB binary size; SIL-OFL license texts are
+      kept next to the `.ttf` files in `crates/speechtt-ui/assets/fonts/`.
+    - Settings & Help/Shortcuts shown as gpui-kit dialogs (window
+      overlays); global styling comes from the installed agent skills
+      (`longbridge/gpui-kit`).
+    - UI integration tests via `#[gpui_kit::test]` (headless windows:
+      state, focus, layout, accessibility).
+    - **Works without a backend**: state fed by a mock (fake timer, fake
+      waveform bins, fake streaming transcript) until the core is wired.
 - **Rust — core (`crates/speechtt-core`)**:
-  - Audio capture: `cpal`.
-  - FFT / frequency analysis for waveform: `rustfft` (or `realfft`).
-  - Keyboard commands: the window-scoped, state-scoped command vocabulary
-    (`speechtt-core`'s `actions`), bound to keys through gpui-kit's keymap in
-    the UI layer.
-  - Clipboard: `arboard`.
-  - Synthetic keyboard paste (type into focused field):
-    `enigo` or platform input simulation.
-  - Settings store, API key masking, transcript streaming accumulator, and
-    `TranscriptionBackend` trait + `StdioNdjsonBackend` child-process bridge.
+    - Audio capture: `cpal`.
+    - FFT / frequency analysis for waveform: `rustfft` (or `realfft`).
+    - Keyboard commands: the window-scoped, state-scoped command vocabulary
+      (`speechtt-core`'s `actions`), bound to keys through gpui-kit's keymap in
+      the UI layer.
+    - Clipboard: `arboard`.
+    - Synthetic keyboard paste (type into focused field):
+      `enigo` or platform input simulation.
+    - Settings store, API key masking, transcript streaming accumulator, and
+      `TranscriptionBackend` trait + `StdioNdjsonBackend` child-process bridge.
 - **TypeScript + Bun** (stateless STT worker — DECIDED: `stdin`/`stdout` NDJSON subprocess, §7):
-  - Requires `bun` pre-installed on the host (`bun run src/stt/worker.ts`; no
-    compiled JS binary required).
-  - STT provider integrations: Vercel AI SDK (`experimental_streamTranscribe`
-    and `transcribe`) for Vercel AI Gateway-hosted models (`openai/gpt-realtime-whisper`,
-    `elevenlabs/eleven-scribe-2-realtime`, `xai/grok-stt`, etc.) and
-    provider-specific adapters (e.g. Mistral AI `voxtral-mini-transcribe-3-0`);
-    interface abstracted so new providers can be added.
-  - Full-duplex **NDJSON over `stdin`/`stdout`** (`stderr` reserved for
-    human-readable diagnostics):
-    - **Rust → Bun (`stdin`)**: `start` (session config + in-memory API key),
-      `audio` (`pcm16Base64` ~40–50ms frames fed directly to AI SDK
-      `ReadableStream<string>`), `pause`, `resume`, `stop`.
-    - **Bun → Rust (`stdout`)**: `ready`, `started`, `partial` (uncommitted
-      live words), `delta` (incremental token delta), `committed` (finalized
-      segment), `stopped` (full text), `error`.
-  - Bun used as the runtime and test runner (`bun test`) for the TS layer.
+    - Requires `bun` pre-installed on the host (`bun run src/stt/worker.ts`; no
+      compiled JS binary required).
+    - STT provider integrations: Vercel AI SDK (`experimental_streamTranscribe`
+      and `transcribe`) for Vercel AI Gateway-hosted models (`openai/gpt-realtime-whisper`,
+      `elevenlabs/eleven-scribe-2-realtime`, `xai/grok-stt`, etc.) and
+      provider-specific adapters (e.g. Mistral AI `voxtral-mini-transcribe-3-0`);
+      interface abstracted so new providers can be added.
+    - Full-duplex **NDJSON over `stdin`/`stdout`** (`stderr` reserved for
+      human-readable diagnostics):
+        - **Rust → Bun (`stdin`)**: `start` (session config + in-memory API key),
+          `audio` (`pcm16Base64` ~40–50ms frames fed directly to AI SDK
+          `ReadableStream<string>`), `pause`, `resume`, `stop`.
+        - **Bun → Rust (`stdout`)**: `ready`, `started`, `partial` (uncommitted
+          live words), `delta` (incremental token delta), `committed` (finalized
+          segment), `stopped` (full text), `error`.
+    - Bun used as the runtime and test runner (`bun test`) for the TS layer.
 - **Testing**: TDD for both sides.
-  - **UI test policy — test the function, not the pixels (decided).**
-    Headless UI tests assert *behavior*: state transitions
-    (idle/recording/paused), modal open/close (settings, help), and
-    button wiring. They must NOT assert element placement, relative
-    geometry, bounds comparisons, or pixel comparisons — the UI must
-    stay free to evolve (add/remove/rearrange controls) without breaking
-    tests. Mockups (`mockups/**/*.png`) are checked by *manual* visual
-    QA only, never by automated tests. **Stable `ElementId`s identify
-    controls in tests — never accessibility labels or visible wording**:
-    a control's label may change freely for copy/UX reasons without
-    breaking any test, and its position likewise must not be asserted.
-  - Rust: `cargo test` (unit tests for state transitions, audio
-    chunking, FFT bin aggregation, command dispatch, clipboard/paste
-    adapters mocked behind traits; gpui-kit headless UI tests for the
-    behaviors above).
-  - TypeScript: `bun test` (unit tests for provider adapters, settings
-    store, transcript buffer/streaming reducer).
+    - **UI test policy — test the function, not the pixels (decided).**
+      Headless UI tests assert _behavior_: state transitions
+      (idle/recording/paused), modal open/close (settings, help), and
+      button wiring. They must NOT assert element placement, relative
+      geometry, bounds comparisons, or pixel comparisons — the UI must
+      stay free to evolve (add/remove/rearrange controls) without breaking
+      tests. Mockups (`mockups/**/*.png`) are checked by _manual_ visual
+      QA only, never by automated tests. **Stable `ElementId`s identify
+      controls in tests — never accessibility labels or visible wording**:
+      a control's label may change freely for copy/UX reasons without
+      breaking any test, and its position likewise must not be asserted.
+    - Rust: `cargo test` (unit tests for state transitions, audio
+      chunking, FFT bin aggregation, command dispatch, clipboard/paste
+      adapters mocked behind traits; gpui-kit headless UI tests for the
+      behaviors above).
+    - TypeScript: `bun test` (unit tests for provider adapters, settings
+      store, transcript buffer/streaming reducer).
 
 ## 6. Task list (TDD-first)
 
@@ -238,15 +238,16 @@ tickets in `tickets/planned/`; T0009 is the Wave 2 integration ticket.
 The machine lives in `crates/speechtt-core/src/session.rs`; the UI derives
 every screen from it (plus one UI-owned result state).
 
-| State | Entered when | Screen / controls |
-|---|---|---|
-| `Blank` | the audio source, provider or model is missing | mode chooser: **Live dictation** / **From a file** cards |
-| `Ready` | all three parameters are present | READY badge; live → mic button, file → browse button + **Change mode** |
-| `Recording` | `start` from `Ready` (live) or the file picker (file) | RECORDING badge + timer (or decode progress) + waveform + caption; **Pause + Stop**, Stop **disabled** |
-| `Paused` | `pause` from `Recording` | PAUSED badge + timer + muted waveform + caption; **Resume + Stop**, Stop **enabled** |
-| *Stopped (UI)* | `stop` from `Paused` | transcript + **Copy** / **Save**; after Save, `TRANSCRIPT WRITTEN TO` + path + **Open File** |
+| State          | Entered when                                          | Screen / controls                                                                                      |
+| -------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `Blank`        | the audio source, provider or model is missing        | mode chooser: **Live dictation** / **From a file** cards                                               |
+| `Ready`        | all three parameters are present                      | READY badge; live → mic button, file → browse button + **Change mode**                                 |
+| `Recording`    | `start` from `Ready` (live) or the file picker (file) | RECORDING badge + timer (or decode progress) + waveform + caption; **Pause + Stop**, Stop **disabled** |
+| `Paused`       | `pause` from `Recording`                              | PAUSED badge + timer + muted waveform + caption; **Resume + Stop**, Stop **enabled**                   |
+| _Stopped (UI)_ | `stop` from `Paused`                                  | transcript + **Copy** / **Save**; after Save, `TRANSCRIPT WRITTEN TO` + path + **Open File**           |
 
 Rules:
+
 - **A take has exactly three parameters**: audio source (the default
   microphone, or the picked file's name), provider and model. There is no
   session name and no output target. Setup changes are frozen during a take.
@@ -271,6 +272,7 @@ Rules:
   stale or missing model shows the two-field setup form.
 
 ### Phase 0 — Design system foundation
+
 - [x] Install `design-system-tokens` skill into `.agents/skills/`.
 - [x] Install the Vercel AI SDK skill (`bunx skills add vercel/ai --skill ai-sdk`).
 - [x] Use the `use-bun` skill: all TS tooling runs on Bun (`bunx`, `bun test`,
@@ -286,6 +288,7 @@ Rules:
       token presence, AA text/surface contrast).
 
 ### Phase 1 — Paper MCP mockups (done)
+
 - [x] Idle state frame.
 - [x] Recording state frame (waveform + live caption).
 - [x] Paused state frame.
@@ -298,7 +301,9 @@ Rules:
       auto-exported `.tsx` value dumps — see §4 for their roles).
 
 ### Phase 2 — GPUI UI shell (no backend, mock state)
+
 > Dialogs tracked in [`tickets/planned/T0004-ui-dialogs-help-and-settings.md`](tickets/planned/T0004-ui-dialogs-help-and-settings.md).
+
 - [x] Workspace scaffold: workspace `Cargo.toml`, `crates/speechtt-ui`,
       `crates/speechtt-core` placeholder; `gpui-kit = "0.9.1"` dependency;
       app opens a 600×460 always-on-top, draggable window
@@ -314,7 +319,7 @@ Rules:
 - [x] Session state machine (pure Rust in `speechtt-core`): five required
       session parameters (audio source, provider, model) drive
       `Blank ⇄ Ready`; then `Ready → Recording ⇄
-      Paused`; `Stop` returns the finished session to the caller and resets
+Paused`; `Stop` returns the finished session to the caller and resets
       to `Blank` clearing the whole configuration (the next take starts from
       the mode chooser). Setup changes freeze during a take. Invalid
       transitions return an error and never mutate state.
@@ -364,7 +369,9 @@ Rules:
       `mockups/**/*.png`.
 
 ### Phase 3 — Rust core: audio capture & waveform
+
 > Tracked in [`tickets/planned/T0005-core-audio-capture-and-fft.md`](tickets/planned/T0005-core-audio-capture-and-fft.md).
+
 - [ ] Test: audio input stream yields fixed-size PCM chunks at expected
       sample rate.
 - [ ] Implement `cpal`-based capture producing chunks.
@@ -374,7 +381,9 @@ Rules:
 - [ ] Test: silence (near-zero amplitude) maps to a flat/minimal waveform.
 
 ### Phase 4 — Rust core: keyboard commands & lifecycle events
+
 > Tracked in [`tickets/planned/T0006-core-settings-and-shortcuts.md`](tickets/planned/T0006-core-settings-and-shortcuts.md) (command half).
+
 - [ ] Test: each keyboard command maps to the correct session action
       (start, pause, resume, finish), and only in the state where it acts.
 - [ ] Implement command dispatch into the session machine, bound to
@@ -383,7 +392,9 @@ Rules:
       consumer — transcript buffer vs file writer.
 
 ### Phase 5 — Rust core: clipboard, paste, save
+
 > Tracked in [`tickets/planned/T0007-core-output-clipboard-paste-save.md`](tickets/planned/T0007-core-output-clipboard-paste-save.md).
+
 - [ ] Test: transcript buffer copy produces exact clipboard content
       (clipboard backend mocked behind a trait).
 - [ ] Implement clipboard adapter (`arboard`).
@@ -395,6 +406,7 @@ Rules:
 - [ ] Implement file save.
 
 ### Phase 6 — TypeScript/Bun: NDJSON STT subprocess & Vercel AI SDK adapters (`tickets/done/T0003-bun-stt-worker.md`)
+
 - [x] Test: NDJSON protocol parser/serializer validates inbound (`start`,
       `audio`, `pause`, `resume`, `stop`) and outbound (`ready`, `started`,
       `partial`, `delta`, `committed`, `stopped`, `error`) messages without
@@ -415,6 +427,7 @@ Rules:
       environment variables or supplied API keys.
 
 ### Phase 7 — Rust core & UI: transcript reducer & duplex NDJSON bridge (`tickets/done/T0002-rust-duplex-bridge.md`; settings store in `tickets/planned/T0006-core-settings-and-shortcuts.md`)
+
 - [x] Test (Rust): NDJSON protocol types (`InboundCommand`, `OutboundEvent`)
       serialize/deserialize deterministically and redact `api_key` in `Debug`.
 - [x] Test (Rust): transcript streaming accumulator (`TranscriptBuffer`)
@@ -433,7 +446,9 @@ Rules:
       masked API keys, default model, and shortcut bindings).
 
 ### Phase 8 — End-to-end hardware & provider integration
+
 > Tracked in [`tickets/planned/T0009-e2e-wiring-and-error-ux.md`](tickets/planned/T0009-e2e-wiring-and-error-ux.md).
+
 - [ ] Wire live `cpal` PCM chunks + FFT waveform bins into `SessionController`
       and the `BunStdioBackend` `stdin` stream.
 - [ ] Wire the window-scoped commands → `SessionController` → UI updates.
@@ -443,7 +458,9 @@ Rules:
       from Vercel AI SDK → pause → resume → stop → copy / paste / save.
 
 ### Phase 9 — Polish & packaging
+
 > Error UX is part of [`tickets/planned/T0009-e2e-wiring-and-error-ux.md`](tickets/planned/T0009-e2e-wiring-and-error-ux.md); packaging remains unticketed.
+
 - [ ] Error states (mic permission denied, provider auth failure, network
       loss during streaming) surfaced in UI.
 - [ ] Idle resource usage check (CPU/mem).
@@ -457,24 +474,24 @@ Rules:
   background daemon; if a command must later act while the widget is not
   focused, that is a new requirement to be scoped.
 - **Rust ↔ TypeScript/Bun STT bridge — DECIDED: child process over `stdin`/`stdout` NDJSON (`tickets/done/T0002-rust-duplex-bridge.md`, `tickets/done/T0003-bun-stt-worker.md`).**
-  - `speechtt-core` spawns `bun run src/stt/worker.ts` (assuming `bun` is
-    pre-installed; no compiled JS binary needed) with piped `stdin`/`stdout`.
-  - Rust streams 16-bit mono PCM audio chunks encoded as `pcm16Base64` inside
-    NDJSON lines (`{"type":"audio","pcm16Base64":"..."}`) along with session
-    lifecycle commands (`start`, `pause`, `resume`, `stop`).
-  - Bun feeds the base64 chunks directly into the Vercel AI SDK's
-    `experimental_streamTranscribe` (`ReadableStream<string>`) and emits
-    real-time NDJSON events on `stdout` (`ready`, `started`, `partial`,
-    `delta`, `committed`, `stopped`, `error`).
-  - `stderr` is reserved exclusively for diagnostics/logging (API keys are
-    never logged). When the Rust process exits or closes `stdin`, Bun sees
-    `EOF`, aborts any in-flight stream, and exits automatically.
-  - `partial`, `delta` and `committed` may carry an optional `segment`: an
-    opaque identity for the utterance the text belongs to. Revisions of one
-    utterance share it and the next utterance carries a different one, so a
-    new hypothesis cannot overwrite an unfinished earlier one. A backend that
-    publishes no identity omits the key, and the payload stays byte-identical
-    to the original three events.
+    - `speechtt-core` spawns `bun run src/stt/worker.ts` (assuming `bun` is
+      pre-installed; no compiled JS binary needed) with piped `stdin`/`stdout`.
+    - Rust streams 16-bit mono PCM audio chunks encoded as `pcm16Base64` inside
+      NDJSON lines (`{"type":"audio","pcm16Base64":"..."}`) along with session
+      lifecycle commands (`start`, `pause`, `resume`, `stop`).
+    - Bun feeds the base64 chunks directly into the Vercel AI SDK's
+      `experimental_streamTranscribe` (`ReadableStream<string>`) and emits
+      real-time NDJSON events on `stdout` (`ready`, `started`, `partial`,
+      `delta`, `committed`, `stopped`, `error`).
+    - `stderr` is reserved exclusively for diagnostics/logging (API keys are
+      never logged). When the Rust process exits or closes `stdin`, Bun sees
+      `EOF`, aborts any in-flight stream, and exits automatically.
+    - `partial`, `delta` and `committed` may carry an optional `segment`: an
+      opaque identity for the utterance the text belongs to. Revisions of one
+      utterance share it and the next utterance carries a different one, so a
+      new hypothesis cannot overwrite an unfinished earlier one. A backend that
+      publishes no identity omits the key, and the payload stays byte-identical
+      to the original three events.
 - Local model support (which runtime/engine — e.g. whisper.cpp) is listed as
   a placeholder in the README and not yet specified in detail.
 - Multi-language transcription support not yet scoped.

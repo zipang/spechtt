@@ -64,17 +64,17 @@ and keep visual policy above it.
 
 Do not copy these web assumptions blindly:
 
-| Web habit | Native GPUI default |
-| --- | --- |
-| Pointing-hand cursor on every button | Default arrow cursor; pointing hand for links |
-| Page navigation as the main structure | Persistent windows, panes, sidebars, tabs, and menus |
-| Browser focus and scrolling as a fallback | Explicit focus ownership and region-owned scrolling |
-| Mobile-first single column | Resizable desktop shell with a defined minimum window size |
-| Hover-revealed critical actions | Keyboard- and pointer-reachable actions that do not depend on hover |
-| A row of hover-only icon buttons | A visible primary action plus `DropdownMenu` or `ContextMenu` for secondary commands |
+| Web habit                                 | Native GPUI default                                                                    |
+| ----------------------------------------- | -------------------------------------------------------------------------------------- |
+| Pointing-hand cursor on every button      | Default arrow cursor; pointing hand for links                                          |
+| Page navigation as the main structure     | Persistent windows, panes, sidebars, tabs, and menus                                   |
+| Browser focus and scrolling as a fallback | Explicit focus ownership and region-owned scrolling                                    |
+| Mobile-first single column                | Resizable desktop shell with a defined minimum window size                             |
+| Hover-revealed critical actions           | Keyboard- and pointer-reachable actions that do not depend on hover                    |
+| A row of hover-only icon buttons          | A visible primary action plus `DropdownMenu` or `ContextMenu` for secondary commands   |
 | Link-styled text for application commands | `Button`, `outline`, or `ghost`; Link only for URLs, web resources, or email addresses |
-| Large touch density everywhere | Medium density by default; compact only where information work benefits |
-| CSS overrides across descendants | Typed builders, semantic parts, and application composition |
+| Large touch density everywhere            | Medium density by default; compact only where information work benefits                |
+| CSS overrides across descendants          | Typed builders, semantic parts, and application composition                            |
 
 ## Start from the task
 
@@ -210,15 +210,15 @@ token snapshot and use it consistently in its application components.
 Spacing expresses relationship. Choose a gap from the semantic scale by asking
 what the two things mean to each other:
 
-| Relationship | Typical token | Current scale | Examples |
-| --- | --- | --- | --- |
-| Optical correction | `xxs` | 2 px | icon baseline, compact separator |
-| Parts of one control | `xs` | 4 px | menu icon/label, title/description |
-| Closely related controls | `sm` | 8 px | button icon/label, dialog actions |
-| One content group | `md` | 12 px | notification columns, compact form rows |
-| Separate groups in one section | `lg` | 16 px | panel padding, form groups |
-| Separate sections | `xl` | 24 px | major blocks in a page or inspector |
-| Major region boundary | `xxl` | 32 px | empty-state breathing room, page bands |
+| Relationship                   | Typical token | Current scale | Examples                                |
+| ------------------------------ | ------------- | ------------- | --------------------------------------- |
+| Optical correction             | `xxs`         | 2 px          | icon baseline, compact separator        |
+| Parts of one control           | `xs`          | 4 px          | menu icon/label, title/description      |
+| Closely related controls       | `sm`          | 8 px          | button icon/label, dialog actions       |
+| One content group              | `md`          | 12 px         | notification columns, compact form rows |
+| Separate groups in one section | `lg`          | 16 px         | panel padding, form groups              |
+| Separate sections              | `xl`          | 24 px         | major blocks in a page or inspector     |
+| Major region boundary          | `xxl`         | 32 px         | empty-state breathing room, page bands  |
 
 These values describe the current default scale, not literals to repeat. Use
 `cx.theme().spacing_tokens()` or the corresponding GPUI scale helpers for the
@@ -549,17 +549,17 @@ success message only when the result itself is not visible.
 
 Every interactive control should be designed for:
 
-| State | Design requirement |
-| --- | --- |
-| Rest | Clear affordance without visual noise |
-| Hover | Subtle pointer feedback, never the only cue |
-| Pressed | Immediate press feedback |
-| Open / pressed | Persistent feedback while an attached popup is open |
-| Focus visible | High-contrast keyboard focus ring |
-| Selected / checked | Persistent state distinct from hover |
-| Disabled | Lower emphasis and no misleading hover/pressed response |
-| Loading | Preserve context, prevent duplicate action, explain long waits |
-| Error | State what happened and how to recover |
+| State              | Design requirement                                             |
+| ------------------ | -------------------------------------------------------------- |
+| Rest               | Clear affordance without visual noise                          |
+| Hover              | Subtle pointer feedback, never the only cue                    |
+| Pressed            | Immediate press feedback                                       |
+| Open / pressed     | Persistent feedback while an attached popup is open            |
+| Focus visible      | High-contrast keyboard focus ring                              |
+| Selected / checked | Persistent state distinct from hover                           |
+| Disabled           | Lower emphasis and no misleading hover/pressed response        |
+| Loading            | Preserve context, prevent duplicate action, explain long waits |
+| Error              | State what happened and how to recover                         |
 
 Use GPUI's focus system and Actions for commands that should work from the
 keyboard. Match familiar desktop shortcuts, expose shortcuts in menus or
@@ -831,12 +831,12 @@ information; it must not restate the dialog title or body.
 
 Use the most specific concise result as the confirmation label when possible:
 
-| Context | Weak | Prefer |
-| --- | --- | --- |
-| Delete dialog | `Yes`, `Sure`, `Confirm deletion` | `Delete` |
-| Unsaved changes | `Confirm`, `Yes` | `Discard changes` |
-| Pure acknowledgement | `Confirm operation` | `OK` or `Done` |
-| Complex consent whose result has no clear verb | `Yes` | `Confirm` |
+| Context                                        | Weak                              | Prefer            |
+| ---------------------------------------------- | --------------------------------- | ----------------- |
+| Delete dialog                                  | `Yes`, `Sure`, `Confirm deletion` | `Delete`          |
+| Unsaved changes                                | `Confirm`, `Yes`                  | `Discard changes` |
+| Pure acknowledgement                           | `Confirm operation`               | `OK` or `Done`    |
+| Complex consent whose result has no clear verb | `Yes`                             | `Confirm`         |
 
 `Confirm` is a useful fallback when the surrounding dialog fully names a
 complex commitment and no shorter result verb is accurate. It should not

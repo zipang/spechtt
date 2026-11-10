@@ -7,24 +7,24 @@
 - **Owner**: coding sub-agent, supervised by CTO
 - **Started**: 2026-11-09
 - **References**:
-  - `AGENTS.md` §3 (Bun only), §5 (quality gates), §6 (Don'ts)
-  - `PRODUCT.md` §1–§3 (vision, users, functional requirements)
-  - `DESIGN.md` (the design-system contract the README points at)
-  - `https://gpui-kit.com/docs/installation.md` — the per-platform build
-    requirements the README summarises, and the one URL it cites for them
-  - `tickets/done/T0015-transcribe-local-media-file.md` — the platform matrix
-    behind the `ffmpeg` requirement
-  - `tickets/done/T0035-window-scoped-keyboard-shortcuts.md` — the shortcut
-    table the README documents (`crates/speechtt-ui/src/shortcuts.rs`)
+    - `AGENTS.md` §3 (Bun only), §5 (quality gates), §6 (Don'ts)
+    - `PRODUCT.md` §1–§3 (vision, users, functional requirements)
+    - `DESIGN.md` (the design-system contract the README points at)
+    - `https://gpui-kit.com/docs/installation.md` — the per-platform build
+      requirements the README summarises, and the one URL it cites for them
+    - `tickets/done/T0015-transcribe-local-media-file.md` — the platform matrix
+      behind the `ffmpeg` requirement
+    - `tickets/done/T0035-window-scoped-keyboard-shortcuts.md` — the shortcut
+      table the README documents (`crates/speechtt-ui/src/shortcuts.rs`)
 
 ## Context & Goal
 
 SpeechTT needs two binaries that are not part of the Rust workspace:
 
-| Binary | Used by | Present by default |
-|---|---|---|
-| `bun` | the STT worker subprocess (`src/stt/worker.ts`) | no — user installs |
-| `ffmpeg` + `ffprobe` | file decoding (T0015) | Linux: often; macOS/Windows: no |
+| Binary               | Used by                                         | Present by default              |
+| -------------------- | ----------------------------------------------- | ------------------------------- |
+| `bun`                | the STT worker subprocess (`src/stt/worker.ts`) | no — user installs              |
+| `ffmpeg` + `ffprobe` | file decoding (T0015)                           | Linux: often; macOS/Windows: no |
 
 Today a missing binary surfaces as an opaque failure (`spawn bun: No such file`,
 or T0015's `ffmpeg_missing`), leaving the user to work out the install command
@@ -46,7 +46,7 @@ or run anything, and its tree has drifted: `startup.rs`, `shortcuts.rs`,
 UI test files are missing, while `views/ready.rs`, `paused.rs` and `stopped.rs`
 no longer exist. It also documents three separate providers (Vercel, Mistral,
 …), but the worker knows exactly one: `vercel-ai-gateway` in
-`src/stt/registry.ts`, through which Mistral is a *model*, not a provider.
+`src/stt/registry.ts`, through which Mistral is a _model_, not a provider.
 
 Done means a README a newcomer can follow end to end — install, build, first
 run, keys, shortcuts — that is factually true of the code in this repository,
@@ -96,52 +96,65 @@ package manager):
 
 ```ts
 export type PackageManager =
-  | "apt" | "dnf" | "pacman" | "zypper" | "apk"   // Linux
-  | "brew"                                        // macOS
-  | "winget";                                     // Windows
+	| "apt"
+	| "dnf"
+	| "pacman"
+	| "zypper"
+	| "apk" // Linux
+	| "brew" // macOS
+	| "winget"; // Windows
 
 export type DependencyId = "bun" | "ffmpeg" | "ffprobe";
 
 export interface DependencySpec {
-  readonly id: DependencyId;
-  /** argv used to read the version (`["--version"]` / `["-version"]`, matching reality). */
-  readonly versionArgs: readonly string[];
-  /** Lowest acceptable version. */
-  readonly minimum: readonly [number, number, number];
+	readonly id: DependencyId;
+	/** Argv used to read the version (`["--version"]` / `["-version"]`, matching reality). */
+	readonly versionArgs: readonly string[];
+	/** Lowest acceptable version. */
+	readonly minimum: readonly [number, number, number];
 }
 
 export interface DependencyState {
-  readonly id: DependencyId;
-  readonly present: boolean;
-  readonly version: readonly [number, number, number] | null;
-  readonly status: "ok" | "missing" | "outdated";
+	readonly id: DependencyId;
+	readonly present: boolean;
+	readonly version: readonly [number, number, number] | null;
+	readonly status: "ok" | "missing" | "outdated";
 }
 
 export interface InstallStep {
-  readonly id: DependencyId;
-  /** argv lists executed in order; each runs through `exec`. */
-  readonly commands: readonly (readonly string[])[];
-  readonly requiresSudo: boolean;
+	readonly id: DependencyId;
+	/** Argv lists executed in order; each runs through `exec`. */
+	readonly commands: readonly (readonly string[])[];
+	readonly requiresSudo: boolean;
 }
 
 export interface SetupPlan {
-  readonly platform: { os: "linux" | "macos" | "windows"; manager: PackageManager | null };
-  readonly states: readonly DependencyState[];
-  readonly steps: readonly InstallStep[];
+	readonly platform: {
+		os: "linux" | "macos" | "windows";
+		manager: PackageManager | null;
+	};
+	readonly states: readonly DependencyState[];
+	readonly steps: readonly InstallStep[];
 }
 
-export function detectManager(platform: NodeJS.Platform, has: (bin: string) => boolean): PackageManager | null;
+export function detectManager(
+	platform: NodeJS.Platform,
+	has: (bin: string) => boolean
+): PackageManager | null;
 
 export function parseVersion(raw: string): readonly [number, number, number] | null;
 
 export function evaluate(
-  spec: DependencySpec,
-  probe: { present: boolean; versionOutput: string | null },
+	spec: DependencySpec,
+	probe: { present: boolean; versionOutput: string | null }
 ): DependencyState;
 
 export function plan(states: readonly DependencyState[], manager: PackageManager | null): SetupPlan;
 
-export function commandsFor(id: DependencyId, manager: PackageManager): readonly (readonly string[])[];
+export function commandsFor(
+	id: DependencyId,
+	manager: PackageManager
+): readonly (readonly string[])[];
 ```
 
 Rules:
@@ -163,15 +176,15 @@ Rules:
 
 Command table (asserted verbatim in tests):
 
-| Manager | bun | ffmpeg (+ffprobe) |
-|---|---|---|
-| apt | `curl -fsSL https://bun.sh/install \| bash` | `sudo apt-get install -y ffmpeg` |
-| dnf | same curl line | `sudo dnf install -y ffmpeg` |
-| pacman | same curl line | `sudo pacman -S --needed --noconfirm ffmpeg` |
-| zypper | same curl line | `sudo zypper install -y ffmpeg` |
-| apk | same curl line | `sudo apk add ffmpeg` |
-| brew | `brew install oven-sh/bun/bun` | `brew install ffmpeg` |
-| winget | `powershell -NoProfile -Command "irm bun.sh/install.ps1 \| iex"` | `winget install --id Gyan.FFmpeg -e --accept-package-agreements --accept-source-agreements` |
+| Manager | bun                                                              | ffmpeg (+ffprobe)                                                                           |
+| ------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| apt     | `curl -fsSL https://bun.sh/install \| bash`                      | `sudo apt-get install -y ffmpeg`                                                            |
+| dnf     | same curl line                                                   | `sudo dnf install -y ffmpeg`                                                                |
+| pacman  | same curl line                                                   | `sudo pacman -S --needed --noconfirm ffmpeg`                                                |
+| zypper  | same curl line                                                   | `sudo zypper install -y ffmpeg`                                                             |
+| apk     | same curl line                                                   | `sudo apk add ffmpeg`                                                                       |
+| brew    | `brew install oven-sh/bun/bun`                                   | `brew install ffmpeg`                                                                       |
+| winget  | `powershell -NoProfile -Command "irm bun.sh/install.ps1 \| iex"` | `winget install --id Gyan.FFmpeg -e --accept-package-agreements --accept-source-agreements` |
 
 The curl line is executed through `sh -c` (pipes are not expressible as argv);
 `requiresSudo` is `true` only for the apt/dnf/pacman/zypper/apk rows.
@@ -238,25 +251,25 @@ newcomer starts**, so it must be followable top to bottom with no other file
 open, and every factual claim in it must be verifiable against the code. Its
 sections, in order:
 
-| Section | Content | Source of truth it must agree with |
-|---|---|---|
-| Title + one-line pitch | What SpeechTT is, in two sentences. | `PRODUCT.md` §1 |
-| Demo | A linked poster: the committed `demo-launcher-vignette.png` wrapped in a Markdown link to the GitHub attachment URL, so GitHub shows a clickable thumbnail that opens the player. GitHub renders an `user-attachments` URL as a player, which a relative `<video>` is not. | the committed PNG plus the attachment URL the CEO supplied |
-| What it does | Five bullets: live dictation, file transcription, gateway models, window-scoped shortcuts, single process. | `PRODUCT.md` §2–§3 |
-| Requirements | The runtime table: platform, Rust, `bun`, `ffmpeg`+`ffprobe`, gateway key. `ffmpeg` is marked file-mode-only. | `src/stt/file-input.ts`, `crates/speechtt-core/src/backend.rs` (`WORKER_SCRIPT`), `AGENTS.md` §4 |
-| Getting started | Three steps: Linux system packages (the `apt` line, credited and linked to <https://gpui-kit.com/docs/installation.md>), the `./scripts/setup.sh` bootstrap, then `bun install` + `bun run ui` **from the repository root**. | this ticket's scripts; `package.json` |
-| First run — an API key | One key (`AI_GATEWAY_API_KEY` / `VERCEL_AI_GATEWAY_API_KEY`) or Settings (`F2`); the settings path and its `0600` mode; the masked-key rule. | `src/stt/registry.ts` (`envVars`), `crates/speechtt-core/src/settings.rs`, `AGENTS.md` §9 |
-| Keyboard shortcuts | The five-row table, plus the note that Help generates its rows from the same table. | `crates/speechtt-ui/src/shortcuts.rs` `BINDINGS` |
-| Project layout | The tree, current to the file, plus the "what lives where" notes. | `ls crates/*/src`, `ls src/stt`, `ls scripts`, `ls tests` |
-| Development | The six gate commands, and what the headless launch gate proves. | `AGENTS.md` §5 |
-| Documentation map | A table linking `PRODUCT.md`, `DESIGN.md`, `AGENTS.md`, `tickets/README.md`. | the files |
-| Status | One honest paragraph: functional end to end, remaining work tracked in `tickets/`. | `tickets/README.md` |
+| Section                | Content                                                                                                                                                                                                                                                                    | Source of truth it must agree with                                                               |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Title + one-line pitch | What SpeechTT is, in two sentences.                                                                                                                                                                                                                                        | `PRODUCT.md` §1                                                                                  |
+| Demo                   | A linked poster: the committed `demo-launcher-vignette.png` wrapped in a Markdown link to the GitHub attachment URL, so GitHub shows a clickable thumbnail that opens the player. GitHub renders an `user-attachments` URL as a player, which a relative `<video>` is not. | the committed PNG plus the attachment URL the CEO supplied                                       |
+| What it does           | Five bullets: live dictation, file transcription, gateway models, window-scoped shortcuts, single process.                                                                                                                                                                 | `PRODUCT.md` §2–§3                                                                               |
+| Requirements           | The runtime table: platform, Rust, `bun`, `ffmpeg`+`ffprobe`, gateway key. `ffmpeg` is marked file-mode-only.                                                                                                                                                              | `src/stt/file-input.ts`, `crates/speechtt-core/src/backend.rs` (`WORKER_SCRIPT`), `AGENTS.md` §4 |
+| Getting started        | Three steps: Linux system packages (the `apt` line, credited and linked to <https://gpui-kit.com/docs/installation.md>), the `./scripts/setup.sh` bootstrap, then `bun install` + `bun run ui` **from the repository root**.                                               | this ticket's scripts; `package.json`                                                            |
+| First run — an API key | One key (`AI_GATEWAY_API_KEY` / `VERCEL_AI_GATEWAY_API_KEY`) or Settings (`F2`); the settings path and its `0600` mode; the masked-key rule.                                                                                                                               | `src/stt/registry.ts` (`envVars`), `crates/speechtt-core/src/settings.rs`, `AGENTS.md` §9        |
+| Keyboard shortcuts     | The five-row table, plus the note that Help generates its rows from the same table.                                                                                                                                                                                        | `crates/speechtt-ui/src/shortcuts.rs` `BINDINGS`                                                 |
+| Project layout         | The tree, current to the file, plus the "what lives where" notes.                                                                                                                                                                                                          | `ls crates/*/src`, `ls src/stt`, `ls scripts`, `ls tests`                                        |
+| Development            | The six gate commands, and what the headless launch gate proves.                                                                                                                                                                                                           | `AGENTS.md` §5                                                                                   |
+| Documentation map      | A table linking `PRODUCT.md`, `DESIGN.md`, `AGENTS.md`, `tickets/README.md`.                                                                                                                                                                                               | the files                                                                                        |
+| Status                 | One honest paragraph: functional end to end, remaining work tracked in `tickets/`.                                                                                                                                                                                         | `tickets/README.md`                                                                              |
 
 Rules:
 
 - **One provider, not three.** The worker resolves exactly one provider id,
   `vercel-ai-gateway` (`src/stt/registry.ts`), and Mistral, OpenAI and the rest
-  are *models* behind it. The old README's separate "Mistral AI" provider
+  are _models_ behind it. The old README's separate "Mistral AI" provider
   section is wrong and does not survive.
 - **No unverifiable promise.** Do not repeat the Settings dialog's "falls back
   to a local model and keeps working fully offline" line: no local model exists
@@ -282,35 +295,35 @@ Rules:
 ## TDD Tasks
 
 - [x] **T16.1 — Pure-function specs (red first)**: `setup.spec.ts` for
-  `detectManager` (each platform, manager precedence, unknown), `parseVersion`
-  (bun/ffmpeg/ffprobe real-world strings, garbage, single-number), `evaluate`
-  (`ok`/`missing`/`outdated` boundaries at exactly the minimum, one patch above).
+      `detectManager` (each platform, manager precedence, unknown), `parseVersion`
+      (bun/ffmpeg/ffprobe real-world strings, garbage, single-number), `evaluate`
+      (`ok`/`missing`/`outdated` boundaries at exactly the minimum, one patch above).
 - [x] **T16.2 — Plan specs**: `plan()` emits no steps when all `ok`; one
-  `ffmpeg` step when either ffmpeg or ffprobe is missing (deduped); `bun` before
-  `ffmpeg`; no step + manual instructions when `manager` is `null`; stable
-  ordering across input permutations.
+      `ffmpeg` step when either ffmpeg or ffprobe is missing (deduped); `bun` before
+      `ffmpeg`; no step + manual instructions when `manager` is `null`; stable
+      ordering across input permutations.
 - [x] **T16.3 — Command table specs**: one test per manager asserting the exact
-  argv lists and `requiresSudo`, including the winget/brew rows.
+      argv lists and `requiresSudo`, including the winget/brew rows.
 - [x] **T16.4 — Implement** `scripts/setup.ts` until T16.1–T16.3 are green,
-  with an injected `exec`/`has`/`prompt` seam (`Bun.spawn`, `Bun.which`).
+      with an injected `exec`/`has`/`prompt` seam (`Bun.spawn`, `Bun.which`).
 - [x] **T16.5 — CLI specs**: `--check` exits 1 without invoking `exec` when a
-  dependency is missing; `--dry-run` prints commands and never calls `exec`;
-  non-TTY without `--yes` exits 1; `--yes` runs the plan; a failing command
-  exits 1 and prints the manual fallback. Drive `runCli(deps, argv)` with fakes.
+      dependency is missing; `--dry-run` prints commands and never calls `exec`;
+      non-TTY without `--yes` exits 1; `--yes` runs the plan; a failing command
+      exits 1 and prints the manual fallback. Drive `runCli(deps, argv)` with fakes.
 - [x] **T16.6 — Bootstraps**: `setup.sh`, `setup.ps1`, the `package.json`
-  script.
+      script.
 - [x] **T16.7 — README**: lead the demo with the committed poster
-  `demo-launcher-vignette.png`, linked to the GitHub attachment URL the CEO
-  supplies, and git-ignore the local `recording.mp4`; rewrite `README.md` per §5,
-  building the tree from live `ls`/`find` output and verifying every listed path.
-  Cross-check the requirements table, the shortcut table and the gate commands
-  against their sources of truth.
+      `demo-launcher-vignette.png`, linked to the GitHub attachment URL the CEO
+      supplies, and git-ignore the local `recording.mp4`; rewrite `README.md` per §5,
+      building the tree from live `ls`/`find` output and verifying every listed path.
+      Cross-check the requirements table, the shortcut table and the gate commands
+      against their sources of truth.
 - [x] **T16.8 — Gates**: `bun test`, `bun check scripts/setup.ts` (or the repo
-  type-check scope), plus a manual matrix run: `sh scripts/setup.sh --check` on
-  this Arch machine (ffmpeg present ⇒ exit 0), `--dry-run` with a fake `PATH`
-  lacking ffmpeg (plan printed, exit 0), and a shellcheck-free syntax check
-  (`sh -n scripts/setup.sh`, `pwsh -NoProfile -File scripts/setup.ps1 -Check`
-  when `pwsh` exists).
+      type-check scope), plus a manual matrix run: `sh scripts/setup.sh --check` on
+      this Arch machine (ffmpeg present ⇒ exit 0), `--dry-run` with a fake `PATH`
+      lacking ffmpeg (plan printed, exit 0), and a shellcheck-free syntax check
+      (`sh -n scripts/setup.sh`, `pwsh -NoProfile -File scripts/setup.ps1 -Check`
+      when `pwsh` exists).
 
 ## Acceptance Criteria
 
@@ -345,17 +358,17 @@ Rules:
 
 ### Files
 
-| File | Change |
-|---|---|
-| `scripts/setup.ts` | **new** — probe, plan and install logic plus the CLI (`runCli`), the `systemDeps()` seam and the `import.meta.main` guard. |
-| `scripts/setup.spec.ts` | **new** — 75 `bun test` cases covering T16.1–T16.3 and T16.5 with injected fakes. |
-| `scripts/setup.sh` | **new** — POSIX `sh`, `set -eu`; installs `bun` when absent (after confirmation), then `exec bun run scripts/setup.ts "$@"`. |
-| `scripts/setup.ps1` | **new** — PowerShell; installs `bun` via `irm bun.sh/install.ps1 \| iex`, refreshes `PATH` from the user environment, then `bun run scripts/setup.ts` and propagates `$LASTEXITCODE`. |
-| `package.json` | appended `"setup": "bun run scripts/setup.ts"`; nothing else touched. |
-| `README.md` | rewritten as the welcome document (§5 section order). |
-| `.gitignore` | appended one `recording.mp4` entry (outside the original scope, at the CEO's direction). |
-| `recording.mp4` | **not committed** — the video is a GitHub attachment, and the local copy is `.gitignore`d. |
-| `demo-launcher-vignette.png` | **new, committed** — the poster frame the demo section links to the attachment URL. |
+| File                         | Change                                                                                                                                                                                |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scripts/setup.ts`           | **new** — probe, plan and install logic plus the CLI (`runCli`), the `systemDeps()` seam and the `import.meta.main` guard.                                                            |
+| `scripts/setup.spec.ts`      | **new** — 75 `bun test` cases covering T16.1–T16.3 and T16.5 with injected fakes.                                                                                                     |
+| `scripts/setup.sh`           | **new** — POSIX `sh`, `set -eu`; installs `bun` when absent (after confirmation), then `exec bun run scripts/setup.ts "$@"`.                                                          |
+| `scripts/setup.ps1`          | **new** — PowerShell; installs `bun` via `irm bun.sh/install.ps1 \| iex`, refreshes `PATH` from the user environment, then `bun run scripts/setup.ts` and propagates `$LASTEXITCODE`. |
+| `package.json`               | appended `"setup": "bun run scripts/setup.ts"`; nothing else touched.                                                                                                                 |
+| `README.md`                  | rewritten as the welcome document (§5 section order).                                                                                                                                 |
+| `.gitignore`                 | appended one `recording.mp4` entry (outside the original scope, at the CEO's direction).                                                                                              |
+| `recording.mp4`              | **not committed** — the video is a GitHub attachment, and the local copy is `.gitignore`d.                                                                                            |
+| `demo-launcher-vignette.png` | **new, committed** — the poster frame the demo section links to the attachment URL.                                                                                                   |
 
 ### Shape of `scripts/setup.ts`
 
@@ -372,7 +385,7 @@ Rules:
 - CLI half: `runCli(deps, argv)` parses `--check` / `--dry-run` / `--yes`,
   rejects anything else with exit 2, prints the aligned table, then either the
   `Commands:` block, the `Manual install:` block, or `All dependencies are
-  ready.`; then check/dry-run/prompt/apply/re-probe.
+ready.`; then check/dry-run/prompt/apply/re-probe.
 - Machine seam: `systemDeps()` — `Bun.which` for `has`, `Bun.spawnSync` with
   piped streams for `probeVersion`, `Bun.spawnSync` with inherited streams for
   `exec` (so `sudo` keeps the terminal), `node:readline/promises` for `prompt`
@@ -419,15 +432,15 @@ collect lines. No test spawns a process, opens a socket or writes a file.
 
 ### Gate results
 
-| Gate | Result |
-|---|---|
-| `cargo fmt -- --check` | clean (no diff) |
-| `cargo clippy --all-targets -- -D warnings` | `Finished dev profile` — zero warnings |
-| `cargo test` | 18 binaries, **614 passed, 0 failed, 0 ignored** (incl. startup and launch gates) |
-| `bun test` | 17 files, **423 pass, 0 fail**, 1442 `expect()` (75 of them `scripts/setup.spec.ts`) |
-| `bun check src/stt` | `✓ No type errors in 32 files` |
-| `bun check scripts/setup.ts scripts/setup.spec.ts` | `✓ No type errors in 2 files` |
-| `bun run design:validate` | `✓ Design contract valid — 66 tokens, 0 errors.` |
+| Gate                                               | Result                                                                               |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `cargo fmt -- --check`                             | clean (no diff)                                                                      |
+| `cargo clippy --all-targets -- -D warnings`        | `Finished dev profile` — zero warnings                                               |
+| `cargo test`                                       | 18 binaries, **614 passed, 0 failed, 0 ignored** (incl. startup and launch gates)    |
+| `bun test`                                         | 17 files, **423 pass, 0 fail**, 1442 `expect()` (75 of them `scripts/setup.spec.ts`) |
+| `bun check src/stt`                                | `✓ No type errors in 32 files`                                                       |
+| `bun check scripts/setup.ts scripts/setup.spec.ts` | `✓ No type errors in 2 files`                                                        |
+| `bun run design:validate`                          | `✓ Design contract valid — 66 tokens, 0 errors.`                                     |
 
 There is no repository-wide TypeScript scope (`bun check` with no path would
 also type-check `vendor/` and the `.tsx` mockup dumps), so the new scripts are
@@ -595,7 +608,7 @@ All three were restored afterwards (75 pass, 0 fail).
   `adapters/types.ts`, and says in one sentence that `*.spec.ts` files sit beside
   their sources instead of listing thirty of them.
 - Exactly one provider is named: `vercel-ai-gateway`, with Mistral, OpenAI,
-  Google and ElevenLabs presented as *models* behind it.
+  Google and ElevenLabs presented as _models_ behind it.
 - Requirements table matches `src/stt/registry.ts` (`envVars`),
   `crates/speechtt-core/src/backend.rs` (`WORKER_SCRIPT`),
   `crates/speechtt-core/src/settings.rs` (`0o600`, `~/.config/speechtt`),

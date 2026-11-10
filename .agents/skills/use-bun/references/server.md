@@ -7,6 +7,7 @@
 <!-- curated:end -->
 
 <!-- generated:start -->
+
 _11 pages · Bun v1.4.4 · updated 2026-10-23. Regenerate with `bun .agents/skills/use-bun/scripts/update.ts`._
 
 - [Cookies](https://bun.com/docs/runtime/http/cookies.md): Work with cookies in HTTP requests and responses using Bun's built-in Cookie API.
@@ -20,4 +21,5 @@ _11 pages · Bun v1.4.4 · updated 2026-10-23. Regenerate with `bun .agents/skil
 - [Fetch](https://bun.com/docs/runtime/networking/fetch.md): Send HTTP requests with Bun's fetch API
 - [TCP](https://bun.com/docs/runtime/networking/tcp.md): Use Bun's native TCP API to implement performance-sensitive systems like database clients, game servers, or anything that needs to communicate over TCP (instead of HTTP)
 - [UDP](https://bun.com/docs/runtime/networking/udp.md): Use Bun's UDP API to implement services with advanced real-time requirements, such as voice chat.
+
 <!-- generated:end -->

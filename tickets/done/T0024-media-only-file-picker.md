@@ -97,9 +97,9 @@ Rules:
   is extension check → existence/unreadability check, so a `.pdf` reports its
   type rather than "that file no longer exists".
 - `app.rs::pick_transcription_file`:
-  - on a media path: `set_pending_file` then show the setup form (T0023);
-  - on a non-media path: report the error, keep the user on the welcome screen
-    and send nothing. The native dialog is not re-opened automatically.
+    - on a media path: `set_pending_file` then show the setup form (T0023);
+    - on a non-media path: report the error, keep the user on the welcome screen
+      and send nothing. The native dialog is not re-opened automatically.
 - The rejection never inspects file contents and never logs the full path in the
   diagnostic line (the redacted `detail` may name the extension only).
 
@@ -215,7 +215,6 @@ Mutation check: forcing `is_media_extension` to return `true` fails 4 specs
 (`non_media_extensions_are_rejected`, `an_empty_or_dot_only_extension_is_rejected`,
 `a_path_without_an_extension_is_not_media`, `a_non_ascii_path_does_not_panic`),
 so the specs are not vacuous.
-
 
 ### Review
 

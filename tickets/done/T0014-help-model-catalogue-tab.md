@@ -80,13 +80,13 @@ dormant for future tickets), `crates/speechtt-core/src/{audio,fft,output}.rs`,
 
 ```ts
 export interface DiscoveredModel {
-  readonly id: string;
-  readonly label: string;
-  readonly mode: TranscriptionMode;
-  /** Gateway `description`, or null. */
-  readonly description: string | null;
-  /** Raw gateway pricing map, values kept as strings. */
-  readonly pricing: Readonly<Record<string, string>>;
+	readonly id: string;
+	readonly label: string;
+	readonly mode: TranscriptionMode;
+	/** Gateway `description`, or null. */
+	readonly description: string | null;
+	/** Raw gateway pricing map, values kept as strings. */
+	readonly pricing: Readonly<Record<string, string>>;
 }
 ```
 
@@ -132,10 +132,10 @@ pub struct ModelCapabilityInfo {
   `Built-in catalogue` (`Builtin` / not loaded yet).
 - A scrollable list (`overflow_y_scrollbar`, `min_h_0`) of the provider's
   models, sorted exactly as the capability payload (label, then id). Each row:
-  1. `TranscriptionModeBadge` (`⚡ Stream` / `✂ Batch`),
-  2. model label (medium) and id in the mono font, muted,
-  3. description (muted, wraps, at most three lines),
-  4. pricing line(s) from the helper below.
+    1. `TranscriptionModeBadge` (`⚡ Stream` / `✂ Batch`),
+    2. model label (medium) and id in the mono font, muted,
+    3. description (muted, wraps, at most three lines),
+    4. pricing line(s) from the helper below.
 - Rows stay compact: no tags, owner or release columns.
 - Empty/unknown: `No model metadata yet. Open Settings to refresh the catalogue.`
   when no catalogue has arrived, and the row simply omits missing details.
@@ -146,14 +146,14 @@ pub struct ModelCapabilityInfo {
 `controller::pricing_lines(pricing: &BTreeMap<String, String>) -> Vec<String>`
 with deterministic order:
 
-| Key | Rendering |
-|---|---|
-| `transcription_duration_cost_per_second` | `$0.000031 / second of audio` |
-| `input` | `$2.00 / M input tokens` (value × 1 000 000) |
-| `output` | `$10.00 / M output tokens` |
-| any other key | `<key title-cased>: <raw value>` |
-| missing/empty map | `Price not published` |
-| zero values | `Free` |
+| Key                                      | Rendering                                    |
+| ---------------------------------------- | -------------------------------------------- |
+| `transcription_duration_cost_per_second` | `$0.000031 / second of audio`                |
+| `input`                                  | `$2.00 / M input tokens` (value × 1 000 000) |
+| `output`                                 | `$10.00 / M output tokens`                   |
+| any other key                            | `<key title-cased>: <raw value>`             |
+| missing/empty map                        | `Price not published`                        |
+| zero values                              | `Free`                                       |
 
 - Costs use two significant decimals for per-million prices and up to six
   decimals for per-second prices; a value that cannot parse is shown raw.
@@ -163,32 +163,32 @@ with deterministic order:
 ## TDD Tasks
 
 - [x] **T14.1 — Registry specs**: exactly one provider; aliases still resolve;
-  catalogue still 16 gateway ids with the 7/9 split; the removed ids are absent
-  from `PROVIDERS` and `MODEL_CAPABILITIES`; `listCapabilities` metadata
-  defaults are empty for curated models and pass through for discovered ones.
+      catalogue still 16 gateway ids with the 7/9 split; the removed ids are absent
+      from `PROVIDERS` and `MODEL_CAPABILITIES`; `listCapabilities` metadata
+      defaults are empty for curated models and pass through for discovered ones.
 - [x] **T14.2 — Discovery specs**: description and pricing are parsed from a
-  real-shaped fixture; malformed pricing values and missing keys degrade to
-  null/empty; tags still decide the mode but are not returned; zero
-  transcription models still returns `undefined`; sort, cache and single-flight
-  unchanged.
+      real-shaped fixture; malformed pricing values and missing keys degrade to
+      null/empty; tags still decide the mode but are not returned; zero
+      transcription models still returns `undefined`; sort, cache and single-flight
+      unchanged.
 - [x] **T14.3 — Protocol specs** (TS + Rust): metadata round-trips; missing
-  fields default; old payloads still deserialize.
+      fields default; old payloads still deserialize.
 - [x] **T14.4 — Settings specs**: a stored `mistral`/`openai`/`xai`/`elevenlabs`
-  provider normalizes to the gateway; its key is retained in `api_keys`; the
-  gateway alias still migrates; idempotent.
+      provider normalizes to the gateway; its key is retained in `api_keys`; the
+      gateway alias still migrates; idempotent.
 - [x] **T14.5 — Controller/help specs**: default tab is Shortcuts; switching
-  works and resets on open; `help_models()` returns the catalogue rows with
-  modes/description/pricing; pricing formatter table above; empty catalogue
-  state.
+      works and resets on open; `help_models()` returns the catalogue rows with
+      modes/description/pricing; pricing formatter table above; empty catalogue
+      state.
 - [x] **T14.6 — Help view**: Shortcuts tab unchanged; Models tab renders the
-  rows and the empty state (headless render + controller assertions); both
-  tabs switch through the app.
+      rows and the empty state (headless render + controller assertions); both
+      tabs switch through the app.
 - [x] **T14.7 — Implementation**: discovery metadata, registry restriction,
-  protocol fields, settings normalization, `TabBar`, compact list, formatter,
-  dialog height/scroll.
+      protocol fields, settings normalization, `TabBar`, compact list, formatter,
+      dialog height/scroll.
 - [x] **T14.8 — Gates**: `cargo fmt -- --check`,
-  `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
-  `bun check src/stt`.
+      `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
+      `bun check src/stt`.
 
 ## Acceptance Criteria
 

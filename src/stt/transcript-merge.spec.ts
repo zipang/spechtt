@@ -3,25 +3,21 @@ import { mergeTranscript } from "./transcript-merge";
 
 describe("mergeTranscript", () => {
 	test("joins plain segments with a single space", () => {
-		expect(mergeTranscript("hello world", "  good morning ")).toBe(
-			"hello world good morning",
-		);
+		expect(mergeTranscript("hello world", "  good morning ")).toBe("hello world good morning");
 		expect(mergeTranscript("", "  hello ")).toBe("hello");
 		expect(mergeTranscript("hello", "   ")).toBe("hello");
 	});
 
 	test("removes a two-word overlap", () => {
 		expect(mergeTranscript("alpha beta gamma", "beta gamma delta")).toBe(
-			"alpha beta gamma delta",
+			"alpha beta gamma delta"
 		);
-		expect(mergeTranscript("the end of it", "of it all")).toBe(
-			"the end of it all",
-		);
+		expect(mergeTranscript("the end of it", "of it all")).toBe("the end of it all");
 	});
 
 	test("removes a four-word overlap", () => {
 		expect(mergeTranscript("one two three four five", "two three four five six")).toBe(
-			"one two three four five six",
+			"one two three four five six"
 		);
 	});
 
@@ -30,46 +26,40 @@ describe("mergeTranscript", () => {
 	});
 
 	test("keeps a single-word overlap unless explicitly allowed", () => {
-		expect(mergeTranscript("we saw the", "the end")).toBe(
-			"we saw the the end",
-		);
+		expect(mergeTranscript("we saw the", "the end")).toBe("we saw the the end");
 		expect(
 			mergeTranscript("we saw the", "the end", {
-				allowSingleWordOverlap: true,
-			}),
+				allowSingleWordOverlap: true
+			})
 		).toBe("we saw the end");
 	});
 
 	test("preserves legitimate repetitions", () => {
-		expect(mergeTranscript("it was very", "very good")).toBe(
-			"it was very very good",
-		);
+		expect(mergeTranscript("it was very", "very good")).toBe("it was very very good");
 	});
 
 	test("matches case and punctuation but emits the original spelling", () => {
 		expect(
 			mergeTranscript("Hello, world.", "World again", {
-				allowSingleWordOverlap: true,
-			}),
+				allowSingleWordOverlap: true
+			})
 		).toBe("Hello, world. again");
 		expect(
 			mergeTranscript("fin de phrase.", "Phrase suivante", {
-				allowSingleWordOverlap: true,
-			}),
+				allowSingleWordOverlap: true
+			})
 		).toBe("fin de phrase. suivante");
 	});
 
 	test("returns the previous text when the next one is contained", () => {
-		expect(mergeTranscript("one two three", "two three")).toBe(
-			"one two three",
-		);
+		expect(mergeTranscript("one two three", "two three")).toBe("one two three");
 	});
 
 	test("never matches punctuation-only tokens", () => {
 		expect(
 			mergeTranscript("wait ...", "... go on", {
-				allowSingleWordOverlap: true,
-			}),
+				allowSingleWordOverlap: true
+			})
 		).toBe("wait ... ... go on");
 	});
 

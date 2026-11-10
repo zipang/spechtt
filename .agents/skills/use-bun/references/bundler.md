@@ -7,6 +7,7 @@
 <!-- curated:end -->
 
 <!-- generated:start -->
+
 _13 pages · Bun v1.4.4 · updated 2026-10-23. Regenerate with `bun .agents/skills/use-bun/scripts/update.ts`._
 
 - [Bundler](https://bun.com/docs/bundler.md): Bun's fast native bundler for JavaScript, TypeScript, JSX, and more
@@ -22,4 +23,5 @@ _13 pages · Bun v1.4.4 · updated 2026-10-23. Regenerate with `bun .agents/skil
 - [Minifier](https://bun.com/docs/bundler/minifier.md): Reduce bundle sizes with Bun's JavaScript and TypeScript minifier
 - [Plugins](https://bun.com/docs/bundler/plugins.md): Universal plugin API for extending Bun's runtime and bundler
 - [Standalone HTML](https://bun.com/docs/bundler/standalone-html.md): Bundle a single-page app into a single self-contained .html file with no external dependencies
+
 <!-- generated:end -->

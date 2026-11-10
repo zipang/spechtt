@@ -1,10 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-	CLEANUP_TEMPERATURE,
-	type CleanDeps,
-	type CleanRequest,
-	cleanTranscript,
-} from "./clean";
+import { CLEANUP_TEMPERATURE, type CleanDeps, type CleanRequest, cleanTranscript } from "./clean";
 
 const TRANSCRIPT = "euh bonjour, je d 'une idée très claire";
 
@@ -15,7 +10,7 @@ function recorder(answer: string) {
 		async generate(args) {
 			calls.push(args);
 			return { text: answer };
-		},
+		}
 	};
 	return { calls, deps };
 }
@@ -25,7 +20,7 @@ function request(overrides: Partial<CleanRequest> = {}): CleanRequest {
 		provider: "vercel-ai-gateway",
 		model: "openai/gpt-4.1-mini",
 		text: TRANSCRIPT,
-		...overrides,
+		...overrides
 	};
 }
 
@@ -51,7 +46,7 @@ describe("cleanTranscript", () => {
 		const { deps } = recorder("  Bonjour, je fais une idée très claire.\n\n");
 
 		await expect(cleanTranscript(request(), deps)).resolves.toBe(
-			"Bonjour, je fais une idée très claire.",
+			"Bonjour, je fais une idée très claire."
 		);
 	});
 
@@ -60,7 +55,7 @@ describe("cleanTranscript", () => {
 			const { deps } = recorder(answer);
 
 			await expect(
-				cleanTranscript(request({ text: `  ${TRANSCRIPT}  ` }), deps),
+				cleanTranscript(request({ text: `  ${TRANSCRIPT}  ` }), deps)
 			).resolves.toBe(TRANSCRIPT);
 		}
 	});
@@ -69,9 +64,7 @@ describe("cleanTranscript", () => {
 		const clean = "Bonjour, je fais une idée très claire.";
 		const { deps } = recorder(clean);
 
-		await expect(cleanTranscript(request({ text: clean }), deps)).resolves.toBe(
-			clean,
-		);
+		await expect(cleanTranscript(request({ text: clean }), deps)).resolves.toBe(clean);
 	});
 
 	test("passes the transcript verbatim, exactly once", async () => {

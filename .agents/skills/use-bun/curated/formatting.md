@@ -93,13 +93,13 @@ oxfmt, and Biome built-ins with `bun fmt`:
 				".yml",
 				".md",
 				".mdx",
-				".html",
-			],
+				".html"
+			]
 		},
 		"prettier": { "disabled": true },
 		"oxfmt": { "disabled": true },
-		"biome": { "disabled": true },
-	},
+		"biome": { "disabled": true }
+	}
 }
 ```
 

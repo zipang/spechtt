@@ -6,11 +6,11 @@ import {
 	DEFAULT_PRE_ROLL_MS,
 	DEFAULT_TAIL_PAD_MS,
 	Segmenter,
-	type SegmenterOptions,
+	type SegmenterOptions
 } from "./segmentation";
 
 const RATE = 16_000;
-const FRAME_BYTES = (RATE * 20) / 1000 * 2;
+const FRAME_BYTES = ((RATE * 20) / 1000) * 2;
 
 function silence(ms: number): Uint8Array {
 	return new Uint8Array(Math.round((RATE * ms) / 1000) * 2);
@@ -22,9 +22,7 @@ function tone(ms: number, amplitude = 0.5, frequency = 220): Uint8Array {
 	const view = new DataView(bytes.buffer);
 	for (let index = 0; index < samples; index += 1) {
 		const value =
-			Math.sin((2 * Math.PI * frequency * index) / RATE) *
-			amplitude *
-			Number(i16Max());
+			Math.sin((2 * Math.PI * frequency * index) / RATE) * amplitude * Number(i16Max());
 		view.setInt16(index * 2, Math.round(value), true);
 	}
 	return bytes;
@@ -65,17 +63,11 @@ function make(overrides: Partial<SegmenterOptions> = {}): Segmenter {
 	return new Segmenter({ sampleRate: RATE, ...overrides });
 }
 
-function pushAll(
-	target: Segmenter,
-	bytes: Uint8Array,
-	chunkSize = FRAME_BYTES,
-): AudioSegment[] {
+function pushAll(target: Segmenter, bytes: Uint8Array, chunkSize = FRAME_BYTES): AudioSegment[] {
 	const segments: AudioSegment[] = [];
 	for (let offset = 0; offset < bytes.length; offset += chunkSize) {
 		segments.push(
-			...target.push(
-				bytes.subarray(offset, Math.min(offset + chunkSize, bytes.length)),
-			),
+			...target.push(bytes.subarray(offset, Math.min(offset + chunkSize, bytes.length)))
 		);
 	}
 	return segments;
@@ -111,10 +103,7 @@ describe("Segmenter", () => {
 
 	test("pads segments with pre-roll and tail silence", () => {
 		const segmenter = make();
-		const segments = pushAll(
-			segmenter,
-			concat(silence(400), tone(1500), silence(800)),
-		);
+		const segments = pushAll(segmenter, concat(silence(400), tone(1500), silence(800)));
 
 		expect(segments).toHaveLength(1);
 		const segment = segments[0];
@@ -122,11 +111,7 @@ describe("Segmenter", () => {
 		// 300 ms pre-roll + 1500 ms speech + 200 ms tail pad.
 		expect(segment?.durationMs).toBe(2000);
 		expectSilence(segment?.pcm16 ?? new Uint8Array(), 0, DEFAULT_PRE_ROLL_MS);
-		expectSilence(
-			segment?.pcm16 ?? new Uint8Array(),
-			1800,
-			1800 + DEFAULT_TAIL_PAD_MS,
-		);
+		expectSilence(segment?.pcm16 ?? new Uint8Array(), 1800, 1800 + DEFAULT_TAIL_PAD_MS);
 		expect(segment?.rmsDb).toBeLessThan(-6);
 	});
 
@@ -138,18 +123,16 @@ describe("Segmenter", () => {
 			tone(1500),
 			silence(600),
 			tone(1500),
-			silence(600),
+			silence(600)
 		);
 		const segments = pushAll(segmenter, audio);
 
 		expect(segments).toHaveLength(3);
-		expect(segments.map((segment) => segment.speechMs)).toEqual([
-			1500, 1500, 1500,
-		]);
+		expect(segments.map((segment) => segment.speechMs)).toEqual([1500, 1500, 1500]);
 		expect(segments.map((segment) => segment.reason)).toEqual([
 			"silence",
 			"silence",
-			"silence",
+			"silence"
 		]);
 		expect(segments.map((segment) => segment.index)).toEqual([0, 1, 2]);
 		expect(segmenter.flush("stop")).toEqual([]);
@@ -159,7 +142,7 @@ describe("Segmenter", () => {
 		const segmenter = make();
 		const segments = pushAll(
 			segmenter,
-			concat(tone(200), silence(600), tone(1500), silence(600)),
+			concat(tone(200), silence(600), tone(1500), silence(600))
 		);
 
 		expect(segments).toHaveLength(1);
@@ -196,10 +179,7 @@ describe("Segmenter", () => {
 
 	test("forces a cut near the cap and repeats a short overlap", () => {
 		const segmenter = make();
-		const collected = [
-			...pushAll(segmenter, tone(12_000)),
-			...segmenter.flush("stop"),
-		];
+		const collected = [...pushAll(segmenter, tone(12_000)), ...segmenter.flush("stop")];
 
 		expect(collected).toHaveLength(2);
 		const [first, second] = collected;
@@ -211,9 +191,7 @@ describe("Segmenter", () => {
 
 		// 13 frames of 20 ms at 16 kHz, rounded from the 250 ms default.
 		const overlapBytes = 13 * ((RATE * 20) / 1000) * 2;
-		expect(second?.pcm16.slice(0, overlapBytes)).toEqual(
-			first?.pcm16.slice(-overlapBytes),
-		);
+		expect(second?.pcm16.slice(0, overlapBytes)).toEqual(first?.pcm16.slice(-overlapBytes));
 	});
 
 	test("cuts at the quietest frame near the cap", () => {
@@ -237,14 +215,14 @@ describe("Segmenter", () => {
 			tone(1500),
 			silence(600),
 			tone(1500),
-			silence(600),
+			silence(600)
 		);
 
 		const reference = pushAll(make(), audio, FRAME_BYTES);
 		for (const chunk of [1, 7, 641, 1024, 5000]) {
 			const other = pushAll(make(), audio, chunk);
 			expect(other.map((segment) => [segment.durationMs, segment.speechMs])).toEqual(
-				reference.map((segment) => [segment.durationMs, segment.speechMs]),
+				reference.map((segment) => [segment.durationMs, segment.speechMs])
 			);
 			other.forEach((segment, index) => {
 				expect(segment.pcm16).toEqual(reference[index]?.pcm16);
@@ -254,10 +232,7 @@ describe("Segmenter", () => {
 
 	test("does not mistake steady ambient noise for speech", () => {
 		const segmenter = make();
-		const segments = pushAll(
-			segmenter,
-			concat(noise(2000), tone(1500, 0.3), silence(700)),
-		);
+		const segments = pushAll(segmenter, concat(noise(2000), tone(1500, 0.3), silence(700)));
 
 		expect(segments).toHaveLength(1);
 		expect(segments[0]?.speechMs).toBe(1500);
@@ -278,7 +253,7 @@ describe("Segmenter", () => {
 		const segmenter = make({ minSpeechMs: DEFAULT_MIN_SPEECH_MS * 2 });
 		const segments = pushAll(
 			segmenter,
-			concat(tone(1500), silence(600), tone(1500), silence(600)),
+			concat(tone(1500), silence(600), tone(1500), silence(600))
 		);
 
 		expect(segments).toHaveLength(1);

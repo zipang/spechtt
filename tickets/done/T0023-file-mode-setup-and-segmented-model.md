@@ -101,12 +101,12 @@ Entry order stays: **mode card → native picker → setup form → take**.
 ### 2. The draft only ever holds a segmented model in file mode
 
 - `seed_draft_from_settings`:
-  - seeds the provider whenever the persisted provider exists in the catalogue;
-  - seeds the model only when it exists **and** its mode is
-    `TranscriptionMode::Segmented` while `mode == SessionMode::File`;
-  - therefore, with a persisted streaming model, file mode opens with a
-    provider and **no** model, and Continue is disabled until the user picks
-    one.
+    - seeds the provider whenever the persisted provider exists in the catalogue;
+    - seeds the model only when it exists **and** its mode is
+      `TranscriptionMode::Segmented` while `mode == SessionMode::File`;
+    - therefore, with a persisted streaming model, file mode opens with a
+      provider and **no** model, and Continue is disabled until the user picks
+      one.
 - New query:
 
 ```rust
@@ -114,10 +114,11 @@ Entry order stays: **mode card → native picker → setup form → take**.
 pub fn selectable_model_ids(&self, provider: &str) -> Vec<String>;
 ```
 
-  In `SessionMode::File` it returns only models whose capability mode is
-  `Segmented`; in `SessionMode::Live` it returns the whole provider list. It
-  returns an empty `Vec` for an unknown provider or before the catalogue
-  arrives.
+In `SessionMode::File` it returns only models whose capability mode is
+`Segmented`; in `SessionMode::Live` it returns the whole provider list. It
+returns an empty `Vec` for an unknown provider or before the catalogue
+arrives.
+
 - `cycle_model` iterates `selectable_model_ids`, so a streaming model is never
   reachable in file mode. When the current model is not in the selectable set
   (for example the draft was seeded before a catalogue update), the first
@@ -173,11 +174,16 @@ FileModelNotSupported,
   exactly one event and returns:
 
 ```json
-{"type":"error","code":"unsupported_file_model","message":"<model id> cannot transcribe files; choose a non-streaming model"}
+{
+	"type": "error",
+	"code": "unsupported_file_model",
+	"message": "<model id> cannot transcribe files; choose a non-streaming model"
+}
 ```
 
-  No `started`, no `progress`, no `stopped`, and no provider request is made.
-  The message carries the model id only — never a path, key or transcript.
+No `started`, no `progress`, no `stopped`, and no provider request is made.
+The message carries the model id only — never a path, key or transcript.
+
 - `SttErrorCode` gains `"unsupported_file_model"`; `AppError::from_stt_error`
   maps it to `FileModelNotSupported` (it must not fall into the generic
   `BackendFailed` bucket).
@@ -282,7 +288,7 @@ FileModelNotSupported,
   trace at all. The contract's §1 wording was corrected accordingly (it
   previously said `choose_mode` seeds and shows the form).
 - **`create_session` consumes the pending path.** The app captures
-  `pending_file()` *before* calling `create_session`, because the commit clears
+  `pending_file()` _before_ calling `create_session`, because the commit clears
   it; this keeps the "Continue starts the take without asking again" rule
   without a second field.
 - **Cancel goes through `change_mode()`.** That resets the provisional
@@ -319,7 +325,6 @@ bun test                                      → 217 pass, 0 fail
 bun check src/stt                             → No type errors in 23 files
 bun run design:validate                       → 66 tokens, 0 errors
 ```
-
 
 ### Review
 

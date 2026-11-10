@@ -44,19 +44,19 @@ Done means:
 
 ### Product decisions (locked)
 
-| Question | Decision |
-|---|---|
-| Setup fields | Mode + provider + model. The **name** and **output** rows are deleted. |
-| Live card with settings ready | Land on **Ready** (one click to record); the idle mockup stays valid. |
-| Live card with settings incomplete | The setup form (provider + model), then Ready. |
-| File card with settings ready | **Open the file picker immediately**; cancel → File Ready screen. |
-| File card with settings incomplete | Setup form → Continue → picker. |
-| File take naming | Source file stem (`meeting.mp4` → `meeting`), suggested as the save name. |
-| Save | Native save dialog (`prompt_for_new_path`), suggested `<stem>-<stamp>.md` (file) or `speechtt-<stamp>.md` (live). The chosen file's stem is the transcript title / take name. |
-| Drag & drop | **Out of scope** this wave (browse only). |
-| Window | Default **600×460**. |
-| Round button | Rename `TransportButton` → `RoundButton`, **one size: 56 px** (from the mockup), Primary + Secondary tones, `-active` hover, click ripple. |
-| T0015 Ready-screen file action | **Removed** — the mode chooser owns file entry. |
+| Question                           | Decision                                                                                                                                                                      |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Setup fields                       | Mode + provider + model. The **name** and **output** rows are deleted.                                                                                                        |
+| Live card with settings ready      | Land on **Ready** (one click to record); the idle mockup stays valid.                                                                                                         |
+| Live card with settings incomplete | The setup form (provider + model), then Ready.                                                                                                                                |
+| File card with settings ready      | **Open the file picker immediately**; cancel → File Ready screen.                                                                                                             |
+| File card with settings incomplete | Setup form → Continue → picker.                                                                                                                                               |
+| File take naming                   | Source file stem (`meeting.mp4` → `meeting`), suggested as the save name.                                                                                                     |
+| Save                               | Native save dialog (`prompt_for_new_path`), suggested `<stem>-<stamp>.md` (file) or `speechtt-<stamp>.md` (live). The chosen file's stem is the transcript title / take name. |
+| Drag & drop                        | **Out of scope** this wave (browse only).                                                                                                                                     |
+| Window                             | Default **600×460**.                                                                                                                                                          |
+| Round button                       | Rename `TransportButton` → `RoundButton`, **one size: 56 px** (from the mockup), Primary + Secondary tones, `-active` hover, click ripple.                                    |
+| T0015 Ready-screen file action     | **Removed** — the mode chooser owns file entry.                                                                                                                               |
 
 ## Scope Boundary
 
@@ -129,8 +129,8 @@ pub struct FinishedSession {
 - `SessionState` is unchanged: `Blank`/`Ready` remain pure functions of
   completeness (`refresh`).
 - Deleted: `SessionField::{SessionName, Output}`, `SessionConfig::{session_name,
-  output}`, `set_session_name`, `set_output`, `FinishedSession::{session_name,
-  output}`, the `OutputTarget` enum. `clear(field)` keeps its three remaining
+output}`, `set_session_name`, `set_output`, `FinishedSession::{session_name,
+output}`, the `OutputTarget` enum. `clear(field)` keeps its three remaining
   arms.
 - `stop()` returns the `FinishedSession` and **clears the whole config**
   (`audio_source`, `provider`, `model`), leaving the machine `Blank`. Rationale:
@@ -188,13 +188,13 @@ pub enum SessionMode {
 - `mode() -> SessionMode`, stored on `SessionController`, reset by
   `new_take()`/`change_mode()`.
 - `choose_mode(mode) -> bool`:
-  - refuses (returns `false`, no mutation) while a take is active;
-  - sets `mode`, `screen = Screen::Mode`, resets the draft, and seeds
-    provider + model from persisted settings **only when both resolve in the
-    current catalogue** (the existing `provider_exists`/`model_exists` check);
-  - when seeding resolved both: sets `audio_source = DEFAULT_AUDIO_SOURCE`,
-    commits provider + model (`Ready`) and returns `true`;
-  - otherwise: `screen = Screen::Form` and returns `false`.
+    - refuses (returns `false`, no mutation) while a take is active;
+    - sets `mode`, `screen = Screen::Mode`, resets the draft, and seeds
+      provider + model from persisted settings **only when both resolve in the
+      current catalogue** (the existing `provider_exists`/`model_exists` check);
+    - when seeding resolved both: sets `audio_source = DEFAULT_AUDIO_SOURCE`,
+      commits provider + model (`Ready`) and returns `true`;
+    - otherwise: `screen = Screen::Form` and returns `false`.
 - `create_session() -> bool`: commits the draft (provider + model only) to the
   machine, resets `screen`/draft, returns `true` on success. No name, no
   derived path.
@@ -333,15 +333,15 @@ impl Card {
 - Title `rem::LG`, `FontWeight::SEMIBOLD`, "Choose a mode"; subtitle
   `rem::SM`, `muted_foreground`, "Select a transcription method".
 - `h_flex`, gap `space::BASE`, two `Card::new(..).flex_1()`:
-  - `mode-live`: title `rem::MD` semibold "Live dictation"; description
-    `rem::SM` muted "Record and transcribe from your microphone in real time";
-    centred `RoundButton::new("btn-mode-live", IconName::Mic)` (Primary) with
-    `.pulse(app.pulse_count("btn-mode-live"))`; caption `rem::XS` medium muted
-    "Start".
-  - `mode-file`: title "From a file"; description "Import an audio or video
-    recording"; `RoundButton::new("btn-mode-file", IconName::FileUp)`
-    (Secondary); caption "Browse files" (drag & drop is out of scope, so the
-    mockup's "Browse or drop" is not used).
+    - `mode-live`: title `rem::MD` semibold "Live dictation"; description
+      `rem::SM` muted "Record and transcribe from your microphone in real time";
+      centred `RoundButton::new("btn-mode-live", IconName::Mic)` (Primary) with
+      `.pulse(app.pulse_count("btn-mode-live"))`; caption `rem::XS` medium muted
+      "Start".
+    - `mode-file`: title "From a file"; description "Import an audio or video
+      recording"; `RoundButton::new("btn-mode-file", IconName::FileUp)`
+      (Secondary); caption "Browse files" (drag & drop is out of scope, so the
+      mockup's "Browse or drop" is not used).
 - Cards are centred, text-centred, `justify_between` so captions align.
 - Clicking `mode-live`/`mode-file` bumps that card's pulse and calls
   `app.choose_mode(..)`.
@@ -357,9 +357,9 @@ existing wiring stays; label changes from "Create session").
 - Live: `RoundButton::new("btn-record", IconName::Mic)` + "Press to start
   dictating". The `btn-prompt-transcribe-file` action is removed.
 - File: `RoundButton::new("btn-browse-file", IconName::FileUp)` (Primary)
-  + "Browse a file" caption + a secondary `ActionButton`
-  `btn-change-mode` labelled "CHANGE MODE" → `app.change_mode(cx)`.
-  Clicking the round button re-opens the picker.
+    - "Browse a file" caption + a secondary `ActionButton`
+      `btn-change-mode` labelled "CHANGE MODE" → `app.change_mode(cx)`.
+      Clicking the round button re-opens the picker.
 
 **Stopped screen**: no output-target branch; `written_path` decides between
 Copy/Save and the written-path + Open layout.
@@ -378,60 +378,60 @@ Copy/Save and the written-path + Open layout.
 ### Part A — Nameless session contract
 
 - [x] **T17.1 — Core contract specs (red)**: `session_machine.rs` — `missing()`
-  returns only the three fields; `is_complete`; `set_*` freeze while active;
-  `stop()` returns source/provider/model and leaves `Blank` with an empty
-  config; `reset()` refuses while active and clears an idle machine. Delete the
-  name/output cases.
+      returns only the three fields; `is_complete`; `set_*` freeze while active;
+      `stop()` returns source/provider/model and leaves `Blank` with an empty
+      config; `reset()` refuses while active and clears an idle machine. Delete the
+      name/output cases.
 - [x] **T17.2 — Implement the core contract**: trim `session.rs` to
-  `audio_source/provider/model`, delete `OutputTarget`, `set_session_name`,
-  `set_output`, add `reset()`. Update doc comments (five parameters → three).
+      `audio_source/provider/model`, delete `OutputTarget`, `set_session_name`,
+      `set_output`, add `reset()`. Update doc comments (five parameters → three).
 - [x] **T17.3 — Save-layer specs (red)**: `output.rs` — `save_transcript_to`
-  writes the exact path (no timestamp), overwrites an existing file, creates a
-  missing parent, rejects empty text, Markdown title = `title`, `.txt` has no
-  heading; `suggested_transcript_name` sanitises, stamps and falls back to
-  `speechtt`. Delete the `save_finished`/`OutputTarget`/`save_transcript_at`
-  tests and port their stem/timestamp assertions to the suggestion helper.
+      writes the exact path (no timestamp), overwrites an existing file, creates a
+      missing parent, rejects empty text, Markdown title = `title`, `.txt` has no
+      heading; `suggested_transcript_name` sanitises, stamps and falls back to
+      `speechtt`. Delete the `save_finished`/`OutputTarget`/`save_transcript_at`
+      tests and port their stem/timestamp assertions to the suggestion helper.
 - [x] **T17.4 — Implement the save layer**: add `save_transcript_to` +
-  `suggested_transcript_name`, delete `save_finished`, `OutputTarget`,
-  `save_transcript_at` and the collision loop.
+      `suggested_transcript_name`, delete `save_finished`, `OutputTarget`,
+      `save_transcript_at` and the collision loop.
 - [x] **T17.5 — Controller specs (red)**: `session_flow.rs` —
-  `choose_mode(Live|File)` with complete vs incomplete settings; `create_session`
-  commits provider + model; `start_recording` refused in File mode;
-  `change_mode` resets to `Mode`; `save_finished_transcript_to` writes the
-  chosen path and sets `written_path`; `suggested_save_name` (file stem vs
-  `None`); `new_take` returns to `Mode`; no name/output API remains.
+      `choose_mode(Live|File)` with complete vs incomplete settings; `create_session`
+      commits provider + model; `start_recording` refused in File mode;
+      `change_mode` resets to `Mode`; `save_finished_transcript_to` writes the
+      chosen path and sets `written_path`; `suggested_save_name` (file stem vs
+      `None`); `new_take` returns to `Mode`; no name/output API remains.
 - [x] **T17.6 — Implement the controller**: `SessionMode`, `choose_mode`,
-  `change_mode`, save-to-path, delete name/output plumbing, rename
-  `ViewState::Prompt` → `Mode`.
+      `change_mode`, save-to-path, delete name/output plumbing, rename
+      `ViewState::Prompt` → `Mode`.
 
 ### Part B — Mode chooser UI
 
 - [x] **T17.7 — Component specs (red)**: in-file unit tests for
-  `ripple_frame` (monotonic diameter, alpha decays to 0, delta clamped) and a
-  `widget.rs` test that clicking `mode-live`/`mode-file` bumps
-  `pulse_count` and renders a frame.
+      `ripple_frame` (monotonic diameter, alpha decays to 0, delta clamped) and a
+      `widget.rs` test that clicking `mode-live`/`mode-file` bumps
+      `pulse_count` and renders a frame.
 - [x] **T17.8 — Implement `RoundButton` + `Card`**: new modules, move
-  `IconAction`, delete `TransportButton`/`ChoicePill`, add
-  `ScreenShell::headerless()`, update every transport call site to `RoundButton`
-  with its pulse counter.
+      `IconAction`, delete `TransportButton`/`ChoicePill`, add
+      `ScreenShell::headerless()`, update every transport call site to `RoundButton`
+      with its pulse counter.
 - [x] **T17.9 — Implement the mode chooser and Ready branching**: `render_mode`,
-  form rows, File Ready (browse + change mode), remove the T0015 ready-screen
-  action, window 600×460, body padding for `ViewState::Mode`.
+      form rows, File Ready (browse + change mode), remove the T0015 ready-screen
+      action, window 600×460, body padding for `ViewState::Mode`.
 - [x] **T17.10 — App wiring + save dialog**: `choose_mode`/`change_mode`/
-  `create_session` picker routing, `prompt_for_new_path` save, remove the
-  session-name input, stop auto-saving file takes. Widget test: click
-  `mode-live` (empty settings) → Form; fill → Continue → Ready; click
-  `btn-record` → Recording; finish → Stopped; click `btn-save` →
-  `cx.simulate_new_path_selection` → file exists, path shown.
+      `create_session` picker routing, `prompt_for_new_path` save, remove the
+      session-name input, stop auto-saving file takes. Widget test: click
+      `mode-live` (empty settings) → Form; fill → Continue → Ready; click
+      `btn-record` → Recording; finish → Stopped; click `btn-save` →
+      `cx.simulate_new_path_selection` → file exists, path shown.
 - [x] **T17.11 — Docs**: `DESIGN.md` (Card, RoundButton 56 px + tones +
-  ripple, record button size, headerless chooser), `PRODUCT.md` (workflow
-  table, screen checklist, save/output rules), `README.md` (screen list,
-  window size), `setting_row.rs` doc reference.
+      ripple, record button size, headerless chooser), `PRODUCT.md` (workflow
+      table, screen checklist, save/output rules), `README.md` (screen list,
+      window size), `setting_row.rs` doc reference.
 - [x] **T17.12 — Gates + manual QA**: `cargo fmt -- --check`,
-  `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
-  `bun check src/stt`, `bun run design:validate`. Manual QA: side-by-side with
-  `new-session.png` at 600×460; click ripple; live fast path; file fast path
-  (pick, cancel, change mode); save dialog naming; dark-theme contrast.
+      `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
+      `bun check src/stt`, `bun run design:validate`. Manual QA: side-by-side with
+      `new-session.png` at 600×460; click ripple; live fast path; file fast path
+      (pick, cancel, change mode); save dialog naming; dark-theme contrast.
 
 ## Acceptance Criteria
 
@@ -485,7 +485,7 @@ before the implementation.
 
 - `ViewState::Mode` / `SessionMode` replace the old `Prompt`/`OutputTarget`
   pair; `controller::{choose_mode, change_mode, save_finished_transcript_to,
-  suggested_save_name, mode, pulse_count}` are the seam the tests drive.
+suggested_save_name, mode, pulse_count}` are the seam the tests drive.
 - `RoundButton` (one 56 px diameter, Primary/Secondary tones, expanding ring
   driven by `SpeechTtApp::pulses`) and `Card` are new components;
   `TransportButton` and `ChoicePill` were removed.

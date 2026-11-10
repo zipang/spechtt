@@ -1,9 +1,8 @@
 /**
  * Unit tests for the dependency bootstrap (`scripts/setup.ts`).
  *
- * Every test injects its environment: `has`, `probeVersion`, `exec`, `prompt`
- * and the two output sinks are fakes, so no test runs a package manager, reads
- * the network or touches this machine.
+ * Every test injects its environment: `has`, `probeVersion`, `exec`, `prompt` and the two output
+ * sinks are fakes, so no test runs a package manager, reads the network or touches this machine.
  *
  * Run: bun test
  */
@@ -18,13 +17,11 @@ import {
 	evaluate,
 	parseVersion,
 	plan,
-	runCli,
+	runCli
 } from "./setup";
 
 /** Build the three states from the version output each probe would print. */
-function statesFrom(
-	probe: Partial<Record<DependencyId, string | null>>,
-): DependencyState[] {
+function statesFrom(probe: Partial<Record<DependencyId, string | null>>): DependencyState[] {
 	return DEPENDENCIES.map((spec) => {
 		const versionOutput = probe[spec.id] ?? null;
 		return evaluate(spec, { present: versionOutput !== null, versionOutput });
@@ -49,32 +46,32 @@ const MANAGER_TABLE: Record<string, ManagerRow> = {
 	apt: {
 		bun: CURL_BUN,
 		ffmpeg: ["sudo", "apt-get", "install", "-y", "ffmpeg"],
-		bunSudo: false,
+		bunSudo: false
 	},
 	dnf: {
 		bun: CURL_BUN,
 		ffmpeg: ["sudo", "dnf", "install", "-y", "ffmpeg"],
-		bunSudo: false,
+		bunSudo: false
 	},
 	pacman: {
 		bun: CURL_BUN,
 		ffmpeg: ["sudo", "pacman", "-S", "--needed", "--noconfirm", "ffmpeg"],
-		bunSudo: false,
+		bunSudo: false
 	},
 	zypper: {
 		bun: CURL_BUN,
 		ffmpeg: ["sudo", "zypper", "install", "-y", "ffmpeg"],
-		bunSudo: false,
+		bunSudo: false
 	},
 	apk: {
 		bun: CURL_BUN,
 		ffmpeg: ["sudo", "apk", "add", "ffmpeg"],
-		bunSudo: false,
+		bunSudo: false
 	},
 	brew: {
 		bun: ["brew", "install", "oven-sh/bun/bun"],
 		ffmpeg: ["brew", "install", "ffmpeg"],
-		bunSudo: false,
+		bunSudo: false
 	},
 	winget: {
 		bun: ["powershell", "-NoProfile", "-Command", "irm bun.sh/install.ps1 | iex"],
@@ -85,10 +82,10 @@ const MANAGER_TABLE: Record<string, ManagerRow> = {
 			"Gyan.FFmpeg",
 			"-e",
 			"--accept-package-agreements",
-			"--accept-source-agreements",
+			"--accept-source-agreements"
 		],
-		bunSudo: false,
-	},
+		bunSudo: false
+	}
 };
 
 /** The managers whose ffmpeg install needs root: the Linux package managers. */
@@ -98,7 +95,7 @@ describe("detectManager", () => {
 	for (const [platform, candidates] of [
 		["linux", ["apt", "dnf", "pacman", "zypper", "apk"]],
 		["darwin", ["brew"]],
-		["win32", ["winget"]],
+		["win32", ["winget"]]
 	] as const) {
 		for (const candidate of candidates) {
 			test(`${platform} finds ${candidate}`, () => {
@@ -111,7 +108,9 @@ describe("detectManager", () => {
 	test("linux prefers the first candidate of the probe order", () => {
 		expect(detectManager("linux", () => true)).toBe("apt");
 		expect(detectManager("linux", (bin) => bin === "dnf" || bin === "pacman")).toBe("dnf");
-		expect(detectManager("linux", (bin) => bin === "pacman" || bin === "zypper")).toBe("pacman");
+		expect(detectManager("linux", (bin) => bin === "pacman" || bin === "zypper")).toBe(
+			"pacman"
+		);
 		expect(detectManager("linux", (bin) => bin === "zypper" || bin === "apk")).toBe("zypper");
 	});
 
@@ -181,12 +180,20 @@ describe("parseVersion", () => {
 describe("minimum versions", () => {
 	test("bun 1.4.0 and ffmpeg/ffprobe 6.0.0", () => {
 		const minimums = Object.fromEntries(DEPENDENCIES.map((spec) => [spec.id, spec.minimum]));
-		expect(minimums).toEqual({ bun: [1, 4, 0], ffmpeg: [6, 0, 0], ffprobe: [6, 0, 0] });
+		expect(minimums).toEqual({
+			bun: [1, 4, 0],
+			ffmpeg: [6, 0, 0],
+			ffprobe: [6, 0, 0]
+		});
 	});
 
 	test("the version argv matches each binary", () => {
 		const args = Object.fromEntries(DEPENDENCIES.map((spec) => [spec.id, spec.versionArgs]));
-		expect(args).toEqual({ bun: ["--version"], ffmpeg: ["-version"], ffprobe: ["-version"] });
+		expect(args).toEqual({
+			bun: ["--version"],
+			ffmpeg: ["-version"],
+			ffprobe: ["-version"]
+		});
 	});
 });
 
@@ -198,7 +205,7 @@ describe("evaluate", () => {
 			id: "bun",
 			present: false,
 			version: null,
-			status: "missing",
+			status: "missing"
 		});
 	});
 
@@ -207,7 +214,7 @@ describe("evaluate", () => {
 			id: "bun",
 			present: true,
 			version: [1, 4, 0],
-			status: "ok",
+			status: "ok"
 		});
 	});
 
@@ -220,7 +227,7 @@ describe("evaluate", () => {
 			id: "bun",
 			present: true,
 			version: [1, 3, 9],
-			status: "outdated",
+			status: "outdated"
 		});
 	});
 
@@ -235,15 +242,20 @@ describe("evaluate", () => {
 	test("a present binary whose version cannot be read counts as ok", () => {
 		// The gate only rejects a version it can read and finds too old: an
 		// unreadable banner must not trigger an install over a working binary.
-		expect(evaluate(bun, { present: true, versionOutput: "bun (development build)" })).toEqual({
+		expect(
+			evaluate(bun, {
+				present: true,
+				versionOutput: "bun (development build)"
+			})
+		).toEqual({
 			id: "bun",
 			present: true,
 			version: null,
-			status: "ok",
+			status: "ok"
 		});
 		expect(evaluate(bun, { present: true, versionOutput: null }).status).toBe("ok");
 		expect(
-			evaluate(bun, { present: true, versionOutput: null, probeFailed: false }).status,
+			evaluate(bun, { present: true, versionOutput: null, probeFailed: false }).status
 		).toBe("ok");
 	});
 
@@ -251,23 +263,36 @@ describe("evaluate", () => {
 		// A probe that exits non-zero says the binary cannot run, which is not
 		// the same as a banner this build cannot parse: reinstalling is the fix,
 		// so the status must produce a step.
-		expect(
-			evaluate(bun, { present: true, versionOutput: null, probeFailed: true }),
-		).toEqual({
+		expect(evaluate(bun, { present: true, versionOutput: null, probeFailed: true })).toEqual({
 			id: "bun",
 			present: true,
 			version: null,
-			status: "missing",
+			status: "missing"
 		});
 	});
 
 	test("a failed probe produces a plan step where a good probe does not", () => {
-		const broken = plan([evaluate(bun, { present: true, versionOutput: null, probeFailed: true })], "brew");
+		const broken = plan(
+			[
+				evaluate(bun, {
+					present: true,
+					versionOutput: null,
+					probeFailed: true
+				})
+			],
+			"brew"
+		);
 		expect(broken.steps.map((step) => step.id)).toEqual(["bun"]);
 
 		const unreadable = plan(
-			[evaluate(bun, { present: true, versionOutput: "unknown build", probeFailed: false })],
-			"brew",
+			[
+				evaluate(bun, {
+					present: true,
+					versionOutput: "unknown build",
+					probeFailed: false
+				})
+			],
+			"brew"
 		);
 		expect(unreadable.steps).toEqual([]);
 	});
@@ -286,8 +311,8 @@ describe("plan", () => {
 			{
 				id: "ffmpeg",
 				commands: [["sudo", "pacman", "-S", "--needed", "--noconfirm", "ffmpeg"]],
-				requiresSudo: true,
-			},
+				requiresSudo: true
+			}
 		]);
 	});
 
@@ -299,7 +324,11 @@ describe("plan", () => {
 	test("keeps a single ffmpeg step when both are missing", () => {
 		const result = plan(statesFrom({ bun: BUN }), "brew");
 		expect(result.steps).toEqual([
-			{ id: "ffmpeg", commands: [["brew", "install", "ffmpeg"]], requiresSudo: false },
+			{
+				id: "ffmpeg",
+				commands: [["brew", "install", "ffmpeg"]],
+				requiresSudo: false
+			}
 		]);
 	});
 
@@ -310,9 +339,7 @@ describe("plan", () => {
 
 	test("an outdated dependency produces a step", () => {
 		const result = plan(statesFrom({ bun: "1.3.9", ffmpeg: FFMPEG, ffprobe: FFPROBE }), "apk");
-		expect(result.steps).toEqual([
-			{ id: "bun", commands: [CURL_BUN], requiresSudo: false },
-		]);
+		expect(result.steps).toEqual([{ id: "bun", commands: [CURL_BUN], requiresSudo: false }]);
 	});
 
 	test("the step order is stable across input permutations", () => {
@@ -342,12 +369,18 @@ describe("plan", () => {
 	});
 
 	test("the platform names the manager family", () => {
-		expect(plan(statesFrom({}), "brew").platform).toEqual({ os: "macos", manager: "brew" });
+		expect(plan(statesFrom({}), "brew").platform).toEqual({
+			os: "macos",
+			manager: "brew"
+		});
 		expect(plan(statesFrom({}), "winget").platform).toEqual({
 			os: "windows",
-			manager: "winget",
+			manager: "winget"
 		});
-		expect(plan(statesFrom({}), "pacman").platform).toEqual({ os: "linux", manager: "pacman" });
+		expect(plan(statesFrom({}), "pacman").platform).toEqual({
+			os: "linux",
+			manager: "pacman"
+		});
 	});
 
 	test("the states are carried through unchanged", () => {
@@ -368,7 +401,11 @@ describe("commandsFor", () => {
 			const steps = plan(statesFrom({}), manager as never).steps;
 			expect(steps).toEqual([
 				{ id: "bun", commands: [row.bun], requiresSudo: row.bunSudo },
-				{ id: "ffmpeg", commands: [row.ffmpeg], requiresSudo: SUDO_MANAGERS.includes(manager) },
+				{
+					id: "ffmpeg",
+					commands: [row.ffmpeg],
+					requiresSudo: SUDO_MANAGERS.includes(manager)
+				}
 			]);
 		});
 	}
@@ -389,21 +426,23 @@ interface Harness {
 	readonly stderr: string[];
 }
 
-function harness(options: {
-	platform?: NodeJS.Platform;
-	versions?: Partial<Record<DependencyId, string | null>>;
-	/** Binaries present on the fake `PATH` whose version probe fails. */
-	brokenProbes?: DependencyId[];
-	/** Package-manager binaries the fake `PATH` reports, on top of the versions. */
-	managers?: string[];
-	answer?: string | null;
-	execExitCode?: (call: number) => number;
-	onExec?: (argv: readonly string[]) => void;
-} = {}): Harness {
+function harness(
+	options: {
+		platform?: NodeJS.Platform;
+		versions?: Partial<Record<DependencyId, string | null>>;
+		/** Binaries present on the fake `PATH` whose version probe fails. */
+		brokenProbes?: DependencyId[];
+		/** Package-manager binaries the fake `PATH` reports, on top of the versions. */
+		managers?: string[];
+		answer?: string | null;
+		execExitCode?: (call: number) => number;
+		onExec?: (argv: readonly string[]) => void;
+	} = {}
+): Harness {
 	const versions = new Map<string, string>(
 		Object.entries(options.versions ?? {}).flatMap(([bin, output]) =>
-			output === null || output === undefined ? [] : [[bin, output] as [string, string]],
-		),
+			output === null || output === undefined ? [] : [[bin, output] as [string, string]]
+		)
 	);
 	const broken = new Set<string>(options.brokenProbes ?? []);
 	const managers = new Set(options.managers ?? ["pacman"]);
@@ -434,7 +473,7 @@ function harness(options: {
 		},
 		err: (line) => {
 			stderr.push(line);
-		},
+		}
 	};
 
 	return { deps, versions, execCalls, prompts, stdout, stderr };
@@ -492,7 +531,10 @@ describe("runCli --check", () => {
 	});
 
 	test("a binary whose probe failed is missing, not ok", async () => {
-		const fake = harness({ versions: { ffmpeg: FFMPEG, ffprobe: FFPROBE }, brokenProbes: ["bun"] });
+		const fake = harness({
+			versions: { ffmpeg: FFMPEG, ffprobe: FFPROBE },
+			brokenProbes: ["bun"]
+		});
 		const code = await runCli(fake.deps, ["--check"]);
 
 		expect(code).toBe(1);
@@ -518,7 +560,9 @@ describe("runCli --dry-run", () => {
 
 		expect(code).toBe(0);
 		expect(fake.execCalls).toEqual([]);
-		expect(lineMatches(fake.stdout, /curl -fsSL https:\/\/bun\.sh\/install \| bash/)).toBe(true);
+		expect(lineMatches(fake.stdout, /curl -fsSL https:\/\/bun\.sh\/install \| bash/)).toBe(
+			true
+		);
 	});
 
 	test("marks a step that needs root before asking", async () => {
@@ -526,12 +570,19 @@ describe("runCli --dry-run", () => {
 		await runCli(fake.deps, ["--dry-run"]);
 
 		expect(
-			lineMatches(fake.stdout, /^\s+sudo pacman -S --needed --noconfirm ffmpeg {2}\(needs root\)$/),
+			lineMatches(
+				fake.stdout,
+				/^\s+sudo pacman -S --needed --noconfirm ffmpeg {2}\(needs root\)$/
+			)
 		).toBe(true);
 	});
 
 	test("does not mark a user-level install as needing root", async () => {
-		const fake = harness({ versions: { bun: BUN }, platform: "darwin", managers: ["brew"] });
+		const fake = harness({
+			versions: { bun: BUN },
+			platform: "darwin",
+			managers: ["brew"]
+		});
 		await runCli(fake.deps, ["--dry-run"]);
 
 		expect(lineMatches(fake.stdout, /^\s+brew install ffmpeg$/)).toBe(true);
@@ -565,12 +616,14 @@ describe("runCli default mode", () => {
 			onExec: () => {
 				fake.versions.set("ffmpeg", FFMPEG);
 				fake.versions.set("ffprobe", FFPROBE);
-			},
+			}
 		});
 		const code = await runCli(fake.deps, []);
 
 		expect(code).toBe(0);
-		expect(fake.execCalls).toEqual([["sudo", "pacman", "-S", "--needed", "--noconfirm", "ffmpeg"]]);
+		expect(fake.execCalls).toEqual([
+			["sudo", "pacman", "-S", "--needed", "--noconfirm", "ffmpeg"]
+		]);
 		expect(lineMatches(fake.stdout, /^ffmpeg\s+9\.0\.2\s+ok$/)).toBe(true);
 		expect(lineMatches(fake.stdout, /All dependencies are ready/)).toBe(true);
 	});
@@ -580,7 +633,7 @@ describe("runCli default mode", () => {
 			versions: { ffmpeg: FFMPEG, ffprobe: FFPROBE },
 			onExec: () => {
 				fake.versions.set("bun", BUN);
-			},
+			}
 		});
 		const code = await runCli(fake.deps, ["--yes"]);
 
@@ -595,7 +648,7 @@ describe("runCli default mode", () => {
 			execExitCode: (call) => (call === 1 ? 0 : 1),
 			onExec: (argv) => {
 				if (argv.join(" ") === CURL_BUN.join(" ")) fake.versions.set("bun", BUN);
-			},
+			}
 		});
 		const code = await runCli(fake.deps, []);
 

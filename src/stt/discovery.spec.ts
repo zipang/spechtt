@@ -4,7 +4,7 @@ import {
 	cachedGatewayCatalogue,
 	discoverGatewayModels,
 	parseLanguageModels,
-	resetDiscoveryCache,
+	resetDiscoveryCache
 } from "./discovery";
 
 type FetchCall = {
@@ -15,17 +15,15 @@ type FetchCall = {
 function jsonResponse(body: unknown, status = 200): Response {
 	return new Response(JSON.stringify(body), {
 		status,
-		headers: { "content-type": "application/json" },
+		headers: { "content-type": "application/json" }
 	});
 }
 
-function fakeFetch(
-	handler: (url: string, init?: RequestInit) => Response | Promise<Response>,
-) {
+function fakeFetch(handler: (url: string, init?: RequestInit) => Response | Promise<Response>) {
 	const calls: FetchCall[] = [];
 	const fetchImpl = (async (
 		input: Parameters<typeof globalThis.fetch>[0],
-		init?: RequestInit,
+		init?: RequestInit
 	): Promise<Response> => {
 		calls.push({ url: String(input), init });
 		return handler(String(input), init);
@@ -36,12 +34,12 @@ function fakeFetch(
 const transcription = (
 	id: string,
 	name: string,
-	tags?: string[] | null,
+	tags?: string[] | null
 ): Record<string, unknown> => ({
 	id,
 	name,
 	type: "transcription",
-	tags,
+	tags
 });
 
 describe("discoverGatewayModels", () => {
@@ -58,24 +56,22 @@ describe("discoverGatewayModels", () => {
 			jsonResponse({
 				data: [
 					transcription("openai/gpt-4o-transcribe", "GPT-4o Transcribe"),
-					transcription(
-						"openai/gpt-transcribe",
-						"GPT Transcribe",
-						["websocket-transcription"],
-					),
+					transcription("openai/gpt-transcribe", "GPT Transcribe", [
+						"websocket-transcription"
+					]),
 					transcription("openai/whisper-1", "Whisper", null),
 					transcription("openai/gpt-realtime-whisper", "GPT Realtime Whisper", [
 						"websocket-realtime",
-						"websocket-transcription",
+						"websocket-transcription"
 					]),
 					{
 						id: "openai/tts-1",
 						name: "TTS 1",
 						type: "speech",
-						tags: ["websocket-transcription"],
-					},
-				],
-			}),
+						tags: ["websocket-transcription"]
+					}
+				]
+			})
 		);
 
 		const result = await discoverGatewayModels({ fetch, now: () => 1_000 });
@@ -87,24 +83,23 @@ describe("discoverGatewayModels", () => {
 				id: "openai/gpt-realtime-whisper",
 				label: "GPT Realtime Whisper",
 				mode: "streaming",
-				...empty,
+				...empty
 			},
 			{
 				id: "openai/gpt-transcribe",
 				label: "GPT Transcribe",
 				mode: "streaming",
-				...empty,
+				...empty
 			},
 			{
 				id: "openai/gpt-4o-transcribe",
 				label: "GPT-4o Transcribe",
 				mode: "segmented",
-				...empty,
+				...empty
 			},
-			{ id: "openai/whisper-1", label: "Whisper", mode: "segmented", ...empty },
+			{ id: "openai/whisper-1", label: "Whisper", mode: "segmented", ...empty }
 		]);
 	});
-
 
 	test("keeps the description and the raw pricing map", async () => {
 		const { fetch } = fakeFetch(() =>
@@ -118,18 +113,18 @@ describe("discoverGatewayModels", () => {
 						pricing: {
 							transcription_duration_cost_per_second: "0.000030556",
 							input: 42,
-							nested: { nope: true },
-						},
+							nested: { nope: true }
+						}
 					},
 					{
 						id: "acme/no-meta",
 						name: "No Meta",
 						type: "transcription",
 						description: "",
-						pricing: null,
-					},
-				],
-			}),
+						pricing: null
+					}
+				]
+			})
 		);
 
 		const result = await discoverGatewayModels({ fetch });
@@ -140,15 +135,15 @@ describe("discoverGatewayModels", () => {
 				label: "Acme STT",
 				mode: "segmented",
 				description: "Fast, accurate, billed per second.",
-				pricing: { transcription_duration_cost_per_second: "0.000030556" },
+				pricing: { transcription_duration_cost_per_second: "0.000030556" }
 			},
 			{
 				id: "acme/no-meta",
 				label: "No Meta",
 				mode: "segmented",
 				description: null,
-				pricing: {},
-			},
+				pricing: {}
+			}
 		]);
 	});
 
@@ -158,23 +153,28 @@ describe("discoverGatewayModels", () => {
 				data: [
 					transcription("acme/empty", ""),
 					{ id: "acme/missing-name", type: "transcription" },
-					transcription("acme/empty-tags", "Empty Tags", []),
-				],
-			}),
+					transcription("acme/empty-tags", "Empty Tags", [])
+				]
+			})
 		);
 
 		const result = await discoverGatewayModels({ fetch });
 
 		const empty = { description: null, pricing: {} };
 		expect(result?.models).toEqual([
-			{ id: "acme/empty-tags", label: "Empty Tags", mode: "segmented", ...empty },
+			{
+				id: "acme/empty-tags",
+				label: "Empty Tags",
+				mode: "segmented",
+				...empty
+			},
 			{ id: "acme/empty", label: "acme/empty", mode: "segmented", ...empty },
 			{
 				id: "acme/missing-name",
 				label: "acme/missing-name",
 				mode: "segmented",
-				...empty,
-			},
+				...empty
+			}
 		]);
 	});
 
@@ -185,9 +185,9 @@ describe("discoverGatewayModels", () => {
 					transcription("acme/b", "Same"),
 					transcription("acme/a", "Same"),
 					transcription("acme/z", "Alpha"),
-					transcription("acme/c", "Beta"),
-				],
-			}),
+					transcription("acme/c", "Beta")
+				]
+			})
 		);
 
 		const result = await discoverGatewayModels({ fetch });
@@ -196,13 +196,13 @@ describe("discoverGatewayModels", () => {
 			"acme/z",
 			"acme/c",
 			"acme/a",
-			"acme/b",
+			"acme/b"
 		]);
 	});
 
 	test("performs an anonymous GET on the documented endpoint", async () => {
 		const { calls, fetch } = fakeFetch(() =>
-			jsonResponse({ data: [transcription("acme/stt", "STT")] }),
+			jsonResponse({ data: [transcription("acme/stt", "STT")] })
 		);
 
 		await discoverGatewayModels({ fetch });
@@ -220,12 +220,12 @@ describe("discoverGatewayModels", () => {
 
 	test("honours an explicit endpoint for diagnostics and tests", async () => {
 		const { calls, fetch } = fakeFetch(() =>
-			jsonResponse({ data: [transcription("acme/stt", "STT")] }),
+			jsonResponse({ data: [transcription("acme/stt", "STT")] })
 		);
 
 		await discoverGatewayModels({
 			fetch,
-			endpoint: "https://example.test/v1/models",
+			endpoint: "https://example.test/v1/models"
 		});
 
 		expect(calls[0]?.url).toBe("https://example.test/v1/models");
@@ -235,7 +235,7 @@ describe("discoverGatewayModels", () => {
 		for (const status of [301, 400, 401, 429, 500, 503]) {
 			resetDiscoveryCache();
 			const { fetch } = fakeFetch(() =>
-				jsonResponse({ data: [transcription("acme/stt", "STT")] }, status),
+				jsonResponse({ data: [transcription("acme/stt", "STT")] }, status)
 			);
 
 			await expect(discoverGatewayModels({ fetch })).resolves.toBeUndefined();
@@ -257,12 +257,10 @@ describe("discoverGatewayModels", () => {
 					init?.signal?.addEventListener("abort", () => {
 						reject(new DOMException("aborted", "AbortError"));
 					});
-				}),
+				})
 		);
 
-		await expect(
-			discoverGatewayModels({ fetch, timeoutMs: 5 }),
-		).resolves.toBeUndefined();
+		await expect(discoverGatewayModels({ fetch, timeoutMs: 5 })).resolves.toBeUndefined();
 	});
 
 	test("returns undefined on a non-JSON body", async () => {
@@ -270,8 +268,8 @@ describe("discoverGatewayModels", () => {
 			() =>
 				new Response("<html>gateway error</html>", {
 					status: 200,
-					headers: { "content-type": "text/html" },
-				}),
+					headers: { "content-type": "text/html" }
+				})
 		);
 
 		await expect(discoverGatewayModels({ fetch })).resolves.toBeUndefined();
@@ -285,7 +283,7 @@ describe("discoverGatewayModels", () => {
 			{ data: "nope" },
 			{ models: [] },
 			[],
-			null,
+			null
 		];
 
 		for (const payload of payloads) {
@@ -301,9 +299,9 @@ describe("discoverGatewayModels", () => {
 			jsonResponse({
 				data: [
 					{ id: "openai/tts-1", name: "TTS", type: "speech" },
-					{ id: "openai/embed", name: "Embed", type: "embedding" },
-				],
-			}),
+					{ id: "openai/embed", name: "Embed", type: "embedding" }
+				]
+			})
 		);
 
 		await expect(discoverGatewayModels({ fetch })).resolves.toBeUndefined();
@@ -312,7 +310,7 @@ describe("discoverGatewayModels", () => {
 	test("caches the last success for 60 seconds of injected time", async () => {
 		let now = 1_000;
 		const { calls, fetch } = fakeFetch(() =>
-			jsonResponse({ data: [transcription("acme/stt", "STT")] }),
+			jsonResponse({ data: [transcription("acme/stt", "STT")] })
 		);
 		const options = { fetch, now: () => now };
 
@@ -355,7 +353,7 @@ describe("discoverGatewayModels", () => {
 			() =>
 				new Promise<Response>((resolve) => {
 					resolveFetch = resolve;
-				}),
+				})
 		);
 		const options = { fetch, now: () => 1_000 };
 
@@ -372,7 +370,7 @@ describe("discoverGatewayModels", () => {
 
 	test("resetDiscoveryCache forces the next call to refetch", async () => {
 		const { calls, fetch } = fakeFetch(() =>
-			jsonResponse({ data: [transcription("acme/stt", "STT")] }),
+			jsonResponse({ data: [transcription("acme/stt", "STT")] })
 		);
 		const options = { fetch, now: () => 1_000 };
 
@@ -396,16 +394,16 @@ describe("cachedGatewayCatalogue", () => {
 	test("exposes the last success synchronously until the TTL expires", async () => {
 		let now = 5_000;
 		const { fetch } = fakeFetch(() =>
-			jsonResponse({ data: [transcription("acme/stt", "STT")] }),
+			jsonResponse({ data: [transcription("acme/stt", "STT")] })
 		);
 
 		expect(cachedGatewayCatalogue(() => now)).toBeUndefined();
 
 		await discoverGatewayModels({ fetch, now: () => now });
 
-		expect(
-			cachedGatewayCatalogue(() => now)?.models.map((model) => model.id),
-		).toEqual(["acme/stt"]);
+		expect(cachedGatewayCatalogue(() => now)?.models.map((model) => model.id)).toEqual([
+			"acme/stt"
+		]);
 
 		now = 5_000 + 60_000;
 		expect(cachedGatewayCatalogue(() => now)).toBeUndefined();
@@ -424,7 +422,7 @@ describe("language model discovery", () => {
 	const language = (id: string, name: string): Record<string, unknown> => ({
 		id,
 		name,
-		type: "language",
+		type: "language"
 	});
 
 	test("collects language entries while transcription models keep their modes", async () => {
@@ -432,32 +430,28 @@ describe("language model discovery", () => {
 			jsonResponse({
 				data: [
 					language("openai/gpt-4.1-mini", "GPT-4.1 mini"),
-					transcription(
-						"openai/gpt-transcribe",
-						"GPT Transcribe",
-						["websocket-transcription"],
-					),
+					transcription("openai/gpt-transcribe", "GPT Transcribe", [
+						"websocket-transcription"
+					]),
 					language("anthropic/claude-sonnet-5.5", "Claude Sonnet 5.5"),
-					{ id: "openai/tts-1", name: "TTS 1", type: "speech" },
-				],
-			}),
+					{ id: "openai/tts-1", name: "TTS 1", type: "speech" }
+				]
+			})
 		);
 
 		const result = await discoverGatewayModels({ fetch });
 
-		expect(result?.models.map((model) => model.id)).toEqual([
-			"openai/gpt-transcribe",
-		]);
+		expect(result?.models.map((model) => model.id)).toEqual(["openai/gpt-transcribe"]);
 		expect(result?.models[0]?.mode).toBe("streaming");
 		expect(result?.languageModels).toEqual([
 			{ id: "anthropic/claude-sonnet-5.5", label: "Claude Sonnet 5.5" },
-			{ id: "openai/gpt-4.1-mini", label: "GPT-4.1 mini" },
+			{ id: "openai/gpt-4.1-mini", label: "GPT-4.1 mini" }
 		]);
 	});
 
 	test("reports an empty language list when the catalogue has none", async () => {
 		const { fetch } = fakeFetch(() =>
-			jsonResponse({ data: [transcription("acme/stt", "STT")] }),
+			jsonResponse({ data: [transcription("acme/stt", "STT")] })
 		);
 
 		const result = await discoverGatewayModels({ fetch });
@@ -476,8 +470,8 @@ describe("language model discovery", () => {
 				{ id: "acme/no-name", type: "language" },
 				{ id: "", name: "Empty Id", type: "language" },
 				{ id: 42, name: "Numeric Id", type: "language" },
-				transcription("openai/gpt-transcribe", "GPT Transcribe"),
-			],
+				transcription("openai/gpt-transcribe", "GPT Transcribe")
+			]
 		});
 
 		expect(models).toEqual([
@@ -486,7 +480,7 @@ describe("language model discovery", () => {
 			{ id: "acme/a", label: "Same" },
 			{ id: "acme/b", label: "Same" },
 			{ id: "acme/empty", label: "acme/empty" },
-			{ id: "acme/no-name", label: "acme/no-name" },
+			{ id: "acme/no-name", label: "acme/no-name" }
 		]);
 	});
 
@@ -501,15 +495,15 @@ describe("language model discovery", () => {
 			jsonResponse({
 				data: [
 					transcription("acme/stt", "STT"),
-					language("openai/gpt-4.1-mini", "GPT-4.1 mini"),
-				],
-			}),
+					language("openai/gpt-4.1-mini", "GPT-4.1 mini")
+				]
+			})
 		);
 
 		await discoverGatewayModels({ fetch, now: () => 1_000 });
 
 		expect(cachedGatewayCatalogue(() => 1_000)?.languageModels).toEqual([
-			{ id: "openai/gpt-4.1-mini", label: "GPT-4.1 mini" },
+			{ id: "openai/gpt-4.1-mini", label: "GPT-4.1 mini" }
 		]);
 	});
 });

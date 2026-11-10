@@ -8,7 +8,7 @@ import {
 	type TranscribeFn,
 	createWavHeader,
 	pcm16Base64ToWav,
-	pcm16ToWav,
+	pcm16ToWav
 } from "./mistral";
 
 const RATE = 16_000;
@@ -18,7 +18,7 @@ const config: SttSessionConfig = {
 	provider: "mistral",
 	model: "voxtral-mini-transcribe-3-0",
 	sampleRate: RATE,
-	apiKey: "sk-test",
+	apiKey: "sk-test"
 };
 
 function collect() {
@@ -35,8 +35,7 @@ function tone(ms: number, amplitude = 0.5, frequency = 220): Uint8Array {
 	const bytes = new Uint8Array(samples * 2);
 	const view = new DataView(bytes.buffer);
 	for (let index = 0; index < samples; index += 1) {
-		const value =
-			Math.sin((2 * Math.PI * frequency * index) / RATE) * amplitude * 32_767;
+		const value = Math.sin((2 * Math.PI * frequency * index) / RATE) * amplitude * 32_767;
 		view.setInt16(index * 2, Math.round(value), true);
 	}
 	return bytes;
@@ -54,7 +53,7 @@ function base64(bytes: Uint8Array): string {
 function pushPcm(
 	session: { pushAudio(pcm16Base64: string): void },
 	bytes: Uint8Array,
-	chunkSize = 640,
+	chunkSize = 640
 ): void {
 	for (let offset = 0; offset < bytes.length; offset += chunkSize) {
 		session.pushAudio(base64(bytes.subarray(offset, offset + chunkSize)));
@@ -62,9 +61,7 @@ function pushPcm(
 }
 
 function committedTexts(events: OutboundEvent[]): string[] {
-	return events.flatMap((event) =>
-		event.type === "committed" ? [event.text] : [],
-	);
+	return events.flatMap((event) => (event.type === "committed" ? [event.text] : []));
 }
 
 describe("WAV framing", () => {
@@ -129,7 +126,7 @@ describe("MistralAdapter", () => {
 		const { events, emit } = collect();
 		const adapter = new MistralAdapter({
 			transcribe,
-			resolveModel: () => "test-model",
+			resolveModel: () => "test-model"
 		});
 
 		const session = await adapter.start(config, emit);
@@ -142,7 +139,7 @@ describe("MistralAdapter", () => {
 		expect(textAt(audio, 0, 4)).toBe("RIFF");
 		// 1500 ms of speech plus the default 200 ms tail pad.
 		expect(new DataView(audio.buffer, audio.byteOffset).getUint32(40, true)).toBe(
-			(1500 + 200) * 32,
+			(1500 + 200) * 32
 		);
 		expect(events).toEqual([
 			{ type: "started", sessionId: "session-1" },
@@ -150,9 +147,9 @@ describe("MistralAdapter", () => {
 				type: "committed",
 				sessionId: "session-1",
 				text: "hello world",
-				segment: "0",
+				segment: "0"
 			},
-			{ type: "stopped", sessionId: "session-1", fullText: "hello world" },
+			{ type: "stopped", sessionId: "session-1", fullText: "hello world" }
 		]);
 	});
 
@@ -165,7 +162,7 @@ describe("MistralAdapter", () => {
 		const { events, emit } = collect();
 		const adapter = new MistralAdapter({
 			transcribe,
-			resolveModel: () => "test-model",
+			resolveModel: () => "test-model"
 		});
 
 		const session = await adapter.start(config, emit);
@@ -178,18 +175,23 @@ describe("MistralAdapter", () => {
 		expect(call).toBe(2);
 		expect(events).toEqual([
 			{ type: "started", sessionId: "session-1" },
-			{ type: "committed", sessionId: "session-1", text: "first", segment: "0" },
+			{
+				type: "committed",
+				sessionId: "session-1",
+				text: "first",
+				segment: "0"
+			},
 			{
 				type: "committed",
 				sessionId: "session-1",
 				text: "second",
-				segment: "1",
+				segment: "1"
 			},
 			{
 				type: "stopped",
 				sessionId: "session-1",
-				fullText: "first second",
-			},
+				fullText: "first second"
+			}
 		]);
 	});
 
@@ -202,7 +204,7 @@ describe("MistralAdapter", () => {
 		const { events, emit } = collect();
 		const adapter = new MistralAdapter({
 			transcribe,
-			resolveModel: () => "test-model",
+			resolveModel: () => "test-model"
 		});
 
 		const session = await adapter.start(config, emit);
@@ -214,7 +216,7 @@ describe("MistralAdapter", () => {
 		expect(calls).toBe(0);
 		expect(events).toEqual([
 			{ type: "started", sessionId: "session-1" },
-			{ type: "stopped", sessionId: "session-1", fullText: "" },
+			{ type: "stopped", sessionId: "session-1", fullText: "" }
 		]);
 	});
 
@@ -225,7 +227,7 @@ describe("MistralAdapter", () => {
 		const { events, emit } = collect();
 		const adapter = new MistralAdapter({
 			transcribe,
-			resolveModel: () => "test-model",
+			resolveModel: () => "test-model"
 		});
 
 		const session = await adapter.start(config, emit);
@@ -233,7 +235,7 @@ describe("MistralAdapter", () => {
 
 		expect(events).toEqual([
 			{ type: "started", sessionId: "session-1" },
-			{ type: "stopped", sessionId: "session-1", fullText: "" },
+			{ type: "stopped", sessionId: "session-1", fullText: "" }
 		]);
 	});
 
@@ -246,7 +248,7 @@ describe("MistralAdapter", () => {
 		const { events, emit } = collect();
 		const adapter = new MistralAdapter({
 			transcribe,
-			resolveModel: () => "test-model",
+			resolveModel: () => "test-model"
 		});
 
 		const session = await adapter.start(config, emit);
@@ -258,7 +260,7 @@ describe("MistralAdapter", () => {
 		expect(calls).toBe(0);
 		expect(events).toEqual([
 			{ type: "started", sessionId: "session-1" },
-			{ type: "stopped", sessionId: "session-1", fullText: "" },
+			{ type: "stopped", sessionId: "session-1", fullText: "" }
 		]);
 	});
 
@@ -272,7 +274,7 @@ describe("MistralAdapter", () => {
 		const adapter = new MistralAdapter({
 			transcribe,
 			resolveModel: () => "test-model",
-			segmentation: { maxSegmentMs: 1000, minSpeechMs: 200 },
+			segmentation: { maxSegmentMs: 1000, minSpeechMs: 200 }
 		});
 
 		const session = await adapter.start(config, emit);
@@ -298,7 +300,7 @@ describe("MistralAdapter", () => {
 		const adapter = new MistralAdapter({
 			transcribe,
 			resolveModel: () => "test-model",
-			segmentation: { maxSegmentMs: 1000, minSpeechMs: 200 },
+			segmentation: { maxSegmentMs: 1000, minSpeechMs: 200 }
 		});
 
 		const session = await adapter.start(config, emit);
@@ -309,7 +311,7 @@ describe("MistralAdapter", () => {
 		expect(stopped).toEqual({
 			type: "stopped",
 			sessionId: "session-1",
-			fullText: "one two three four",
+			fullText: "one two three four"
 		});
 		expect(committedTexts(events).join(" ")).toBe("one two three four");
 	});
@@ -323,7 +325,7 @@ describe("MistralAdapter", () => {
 		const { events, emit } = collect();
 		const adapter = new MistralAdapter({
 			transcribe,
-			resolveModel: () => "test-model",
+			resolveModel: () => "test-model"
 		});
 
 		const session = await adapter.start(config, emit);
@@ -334,18 +336,17 @@ describe("MistralAdapter", () => {
 		await session.stop();
 
 		const segments = events.flatMap((event) =>
-			event.type === "committed" ? [event.segment] : [],
+			event.type === "committed" ? [event.segment] : []
 		);
 		expect(segments).toEqual(["0", "1"]);
 	});
 
 	test("writes segment diagnostics to stderr without transcript text", async () => {
-		const transcribe: TranscribeFn = async () =>
-			({ text: "private words" }) as never;
+		const transcribe: TranscribeFn = async () => ({ text: "private words" }) as never;
 		const { emit } = collect();
 		const adapter = new MistralAdapter({
 			transcribe,
-			resolveModel: () => "test-model",
+			resolveModel: () => "test-model"
 		});
 
 		const session = await adapter.start(config, emit);
@@ -357,13 +358,11 @@ describe("MistralAdapter", () => {
 		expect(
 			lines.some((line: string) =>
 				/^\[stt-worker\] segment index=0 reason=silence durationMs=\d+ speechMs=\d+ rmsDb=-?\d+(\.\d+)? overlap=false$/.test(
-					line,
-				),
-			),
+					line
+				)
+			)
 		).toBe(true);
-		expect(lines.some((line: string) => line.includes("private words"))).toBe(
-			false,
-		);
+		expect(lines.some((line: string) => line.includes("private words"))).toBe(false);
 	});
 
 	test("emits stream_failed and still stops when transcription fails", async () => {
@@ -373,7 +372,7 @@ describe("MistralAdapter", () => {
 		const { events, emit } = collect();
 		const adapter = new MistralAdapter({
 			transcribe,
-			resolveModel: () => "test-model",
+			resolveModel: () => "test-model"
 		});
 
 		const session = await adapter.start(config, emit);
@@ -384,12 +383,12 @@ describe("MistralAdapter", () => {
 			type: "error",
 			sessionId: "session-1",
 			code: "stream_failed",
-			message: "mistral unavailable",
+			message: "mistral unavailable"
 		});
 		expect(events.at(-1)).toEqual({
 			type: "stopped",
 			sessionId: "session-1",
-			fullText: "",
+			fullText: ""
 		});
 	});
 
@@ -406,14 +405,14 @@ describe("MistralAdapter", () => {
 					warnings: [],
 					response: {
 						timestamp: new Date(0),
-						modelId: "mock-model",
-					},
+						modelId: "mock-model"
+					}
 				};
-			},
+			}
 		});
 		const { events, emit } = collect();
 		const adapter = new MistralAdapter({
-			resolveModel: () => model,
+			resolveModel: () => model
 		});
 
 		const session = await adapter.start(config, emit);
@@ -428,13 +427,13 @@ describe("MistralAdapter", () => {
 				type: "committed",
 				sessionId: "session-1",
 				text: "hello via the SDK",
-				segment: "0",
+				segment: "0"
 			},
 			{
 				type: "stopped",
 				sessionId: "session-1",
-				fullText: "hello via the SDK",
-			},
+				fullText: "hello via the SDK"
+			}
 		]);
 	});
 
@@ -447,7 +446,7 @@ describe("MistralAdapter", () => {
 		const { events, emit } = collect();
 		const adapter = new MistralAdapter({
 			transcribe,
-			resolveModel: () => "test-model",
+			resolveModel: () => "test-model"
 		});
 
 		const session = await adapter.start(config, emit);
@@ -472,7 +471,7 @@ describe("MistralAdapter dictation language", () => {
 
 	async function transcribeOnce(
 		options: { language?: string },
-		injected: MistralAdapterOptions = {},
+		injected: MistralAdapterOptions = {}
 	): Promise<Parameters<TranscribeFn>[0] | undefined> {
 		const calls: Parameters<TranscribeFn>[0][] = [];
 		const transcribe: TranscribeFn = async (callOptions) => {
@@ -483,7 +482,7 @@ describe("MistralAdapter dictation language", () => {
 		const adapter = new MistralAdapter({
 			transcribe,
 			resolveModel: () => "test-model",
-			...injected,
+			...injected
 		});
 
 		const session = await adapter.start({ ...config, ...options }, emit);
@@ -509,11 +508,11 @@ describe("MistralAdapter dictation language", () => {
 	test("merges the language into provider options it already had", async () => {
 		const call = await transcribeOnce(
 			{ language: "fr" },
-			{ providerOptions: { mistral: { timestampGranularities: ["word"] } } },
+			{ providerOptions: { mistral: { timestampGranularities: ["word"] } } }
 		);
 
 		expect(call?.providerOptions).toEqual({
-			mistral: { timestampGranularities: ["word"], language: "fr" },
+			mistral: { timestampGranularities: ["word"], language: "fr" }
 		});
 	});
 });

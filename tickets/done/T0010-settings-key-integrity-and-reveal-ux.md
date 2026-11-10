@@ -74,19 +74,19 @@ Do **not** touch `src/stt/`, `crates/speechtt-core/src/audio.rs`, `fft.rs`,
 ## TDD Tasks
 
 - [x] **T10.1 — Core round-trip test**: mixed-case key survives
-  `set_api_key` + `save` + `load` exactly.
+      `set_api_key` + `save` + `load` exactly.
 - [x] **T10.2 — UI save-path tests**: input value with mixed case reaches the
-  store unchanged; masking toggle does not alter the value; simulated paste +
-  Save is byte-exact.
+      store unchanged; masking toggle does not alter the value; simulated paste +
+      Save is byte-exact.
 - [x] **T10.3 — Stored-mask tests**: `masked_api_key` is surfaced for the
-  selected provider; no raw key in any rendered/debug string.
+      selected provider; no raw key in any rendered/debug string.
 - [x] **T10.4 — Reveal UX tests**: Reveal is disabled for a stored key with an
-  empty field; enabled once a new value is typed; hint text present.
+      empty field; enabled once a new value is typed; hint text present.
 - [x] **T10.5 — Implementation**: controller helper + dialog row
-  presentation + reveal gating.
+      presentation + reveal gating.
 - [x] **T10.6 — Gates**: `cargo fmt -- --check`,
-  `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
-  `bun check src/stt`.
+      `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
+      `bun check src/stt`.
 
 ## Acceptance Criteria
 
@@ -143,18 +143,17 @@ Do **not** touch `src/stt/`, `crates/speechtt-core/src/audio.rs`, `fft.rs`,
 - `cargo clippy --all-targets -- -D warnings` — pass
   (`Finished dev profile ...`).
 - `cargo test` — pass: 260 tests total, 0 failed.
-  - `speechtt-core` lib: 165
-  - `bridge_smoke`: 2
-  - `session_machine`: 11
-  - `speechtt-ui` lib: 14
-  - `speechtt-ui` bin: 0
-  - `dialogs`: 10
-  - `end_to_end`: 26
-  - `error_ux`: 9
-  - `session_flow`: 17
-  - `theme_contract`: 4
-  - `widget`: 2
-  - doc-tests: 0
+    - `speechtt-core` lib: 165
+    - `bridge_smoke`: 2
+    - `session_machine`: 11
+    - `speechtt-ui` lib: 14
+    - `speechtt-ui` bin: 0
+    - `dialogs`: 10
+    - `end_to_end`: 26
+    - `error_ux`: 9
+    - `session_flow`: 17
+    - `theme_contract`: 4
+    - `widget`: 2
+    - doc-tests: 0
 - `bun test` — 87 pass, 0 fail, 443 `expect()` calls across 7 files.
 - `bun check src/stt` — pass: `No type errors in 13 files`.
-

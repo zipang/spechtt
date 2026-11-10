@@ -1,6 +1,6 @@
 /**
- * WCAG 2.1 color contrast helpers. The theme front matter stores role and text colors
- * as six-digit hex values, so this module parses hex only and rejects anything else.
+ * WCAG 2.1 color contrast helpers. The theme front matter stores role and text colors as six-digit
+ * hex values, so this module parses hex only and rejects anything else.
  */
 
 /** An sRGB color with 0-255 channels. */
@@ -14,6 +14,7 @@ const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
 
 /**
  * Parse `#rgb` or `#rrggbb` into channels. Return null for any other format.
+ *
  * @param value - The color string to parse.
  * @returns The parsed channels, or `null` when the input is not hex.
  */
@@ -42,6 +43,7 @@ const linearize = (value: number): number => {
 
 /**
  * WCAG 2.1 relative luminance of an sRGB color, from 0 (black) to 1 (white).
+ *
  * @param color - The sRGB color to measure.
  * @returns The relative luminance, from 0 (black) to 1 (white).
  */
@@ -50,6 +52,7 @@ export const relativeLuminance = ({ r, g, b }: Rgb): number =>
 
 /**
  * WCAG 2.1 contrast ratio between two colors, from 1 to 21.
+ *
  * @param a - The first sRGB color.
  * @param b - The second sRGB color.
  * @returns The contrast ratio, from 1 to 21.

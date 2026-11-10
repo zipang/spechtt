@@ -5,12 +5,12 @@
 - **Depends on**: T0030 (the setting and its wiring)
 - **Blocks**: nothing
 - **References**:
-  - `AGENTS.md` §2 (component rule), §3 (documentation), §5 (gates)
-  - `DESIGN.md` § "Settings panel"
-  - AI Gateway provider options (the reason a gateway gets no language):
-    <https://ai-sdk.dev/providers/ai-sdk-providers/ai-gateway.md> § "Gateway Provider Options"
-  - Streaming transcription provider options:
-    <https://ai-sdk.dev/docs/ai-sdk-core/transcription.md> § "Streaming Transcription"
+    - `AGENTS.md` §2 (component rule), §3 (documentation), §5 (gates)
+    - `DESIGN.md` § "Settings panel"
+    - AI Gateway provider options (the reason a gateway gets no language):
+      <https://ai-sdk.dev/providers/ai-sdk-providers/ai-gateway.md> § "Gateway Provider Options"
+    - Streaming transcription provider options:
+      <https://ai-sdk.dev/docs/ai-sdk-core/transcription.md> § "Streaming Transcription"
 
 ## Context & Goal
 
@@ -23,7 +23,7 @@ sending one makes the gateway reject the whole request — which is exactly the
 
 The shipped catalogue is gateway-only, so today the setting **cannot reach the
 transcription model at all**. It still genuinely feeds the cleanup prompt, but
-the Settings row reads *"The language you speak; improves accuracy"*, which
+the Settings row reads _"The language you speak; improves accuracy"_, which
 promises the user a transcription gain that does not arrive.
 
 Done means: the dialog says which of the two is true, from the worker's own
@@ -62,9 +62,11 @@ adapters apply:
 
 ```ts
 // src/stt/registry.ts — CapabilitiesPayload
-/** `true` when some offered provider package documents a `language` option,
- * so the dictation language can reach a transcription model. Derived from
- * `languageIsForwarded` over the offered providers, never hardcoded. */
+/**
+ * `true` when some offered provider package documents a `language` option, so the dictation
+ * language can reach a transcription model. Derived from `languageIsForwarded` over the offered
+ * providers, never hardcoded.
+ */
 languageReachesTranscription: boolean;
 ```
 
@@ -98,9 +100,9 @@ pub fn language_reaches_transcription(&self) -> bool;
 The **Dictation Language** row keeps its label, its select and its Auto entry.
 Its description becomes conditional:
 
-- reachable — *"The language you speak; improves accuracy"* (unchanged);
-- not reachable — *"The language you speak; used by the cleanup pass. The
-  transcription model detects it"*.
+- reachable — _"The language you speak; improves accuracy"_ (unchanged);
+- not reachable — _"The language you speak; used by the cleanup pass. The
+  transcription model detects it"_.
 
 When it is not reachable, the row also renders an `InfoNote` below the select
 with the same fact in one sentence, because a muted description alone is easy to
@@ -112,25 +114,25 @@ input for the cleanup prompt.
 ## TDD Tasks
 
 - [ ] **T32.1 — Red: worker.** Failing cases: a gateway-only catalogue reports
-  `languageReachesTranscription: false`; a catalogue containing a direct
-  language-aware provider reports `true`; the value comes from
-  `languageIsForwarded`, so a new provider package that documents the option
-  flips it without touching the flag. Then implement.
+      `languageReachesTranscription: false`; a catalogue containing a direct
+      language-aware provider reports `true`; the value comes from
+      `languageIsForwarded`, so a new provider package that documents the option
+      flips it without touching the flag. Then implement.
 - [ ] **T32.2 — Red: protocol.** Failing cases: a capabilities payload with and
-  without `languageReachesTranscription` parses; absent stays absent on the
-  wire. Then implement.
+      without `languageReachesTranscription` parses; absent stays absent on the
+      wire. Then implement.
 - [ ] **T32.3 — Red: controller.** Failing cases: `false` before any catalogue,
-  `false` for a gateway-only catalogue, `true` when a direct provider is
-  present, and the cleanup model resolution unaffected either way. Then
-  implement.
+      `false` for a gateway-only catalogue, `true` when a direct provider is
+      present, and the cleanup model resolution unaffected either way. Then
+      implement.
 - [ ] **T32.4 — Green: the row.** Conditional description plus the `InfoNote`
-  branch; headless test asserting both branches render without panicking and
-  that the select is enabled in both.
+      branch; headless test asserting both branches render without panicking and
+      that the select is enabled in both.
 - [ ] **T32.5 — Docs and gates.** `DESIGN.md` § "Settings panel" states the two
-  forms of the row and the reason. Then `cargo fmt -- --check`,
-  `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
-  `bun check src/stt`, `bun run design:validate`, recorded in
-  `## Implementation Notes`.
+      forms of the row and the reason. Then `cargo fmt -- --check`,
+      `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
+      `bun check src/stt`, `bun run design:validate`, recorded in
+      `## Implementation Notes`.
 
 ## Acceptance Criteria
 

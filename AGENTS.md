@@ -51,6 +51,7 @@ approval in `DESIGN.md` is strictly prohibited. A view (`crates/speechtt-ui/src/
 composes approved UI components and passes data plus intent; it must not choose
 a font size, a weight, a colour, a radius, a padding, or a shadow. When a screen
 needs a visual element or variant that does not exist yet:
+
 1. Discuss and get explicit approval from the Designer/CEO to document it in `DESIGN.md`.
 2. Implement it as a reusable component under `crates/speechtt-ui/src/components/` (with its own tests) — never by styling a raw `div` at the view call site.
 
@@ -94,20 +95,20 @@ contract for the next reader, not a diary for this one.
 
 ### Write docs that answer "what is this and how do I use it?"
 
-| Question the reader has | What the doc covers |
-|---|---|
-| What is this thing? | One sentence naming it, in the vocabulary of the domain. |
-| What does it do? | The behaviour, its states, its guarantees. |
-| What can I pass? | Every builder/setter, what each one changes, and the default. |
-| What must I not do? | Constraints a caller would get wrong silently. |
-| Where does it live in the design? | The `DESIGN.md` section or token role it implements. |
+| Question the reader has           | What the doc covers                                           |
+| --------------------------------- | ------------------------------------------------------------- |
+| What is this thing?               | One sentence naming it, in the vocabulary of the domain.      |
+| What does it do?                  | The behaviour, its states, its guarantees.                    |
+| What can I pass?                  | Every builder/setter, what each one changes, and the default. |
+| What must I not do?               | Constraints a caller would get wrong silently.                |
+| Where does it live in the design? | The `DESIGN.md` section or token role it implements.          |
 
 Rules:
 
 - **Lead with the purpose in one line.** The first `//!` or `///` line is a
   complete sentence a reader can stop after.
 - **Document the public surface, not the private one.** A `pub fn` gets a doc
-  comment; a `fn` private to its module gets one only when the *why* is not
+  comment; a `fn` private to its module gets one only when the _why_ is not
   obvious from the code.
 - **State invariants where they can be violated.** "Clamped to `0..=1`",
   "sends exactly one `Stop`", "never returns `NaN`" — these are contracts, and
@@ -130,8 +131,8 @@ the file:
 
 - **Every module header names its callers.** After the one-line purpose, list
   the screens and components that render, construct or depend on what the module
-  defines — names, not vague prose: *"rendered by `views::recording` and
-  `views::session_end`, wrapped by `layout::SurfaceBox`"*. A module nobody uses
+  defines — names, not vague prose: _"rendered by `views::recording` and
+  `views::session_end`, wrapped by `layout::SurfaceBox`"_. A module nobody uses
   is either new or dead, and the header must make that visible.
 - **Every public item states its role in the design.** A component says which
   band of which screen it fills; a helper says which call site depends on which
@@ -154,28 +155,28 @@ the history; a reader of the file only has the present.
 
 **Never write:**
 
-- what the code used to do — *"this used to render a pause glyph"*, *"the old
-  screen lacked an escape hatch"*, *"an earlier version animated something
-  nobody could see"*;
-- what was removed, moved or renamed — *"the chip that used to ride along here
-  was gone"*, *"the header no longer carries a New take button"*;
-- why a *previous* draft was wrong, or a defence against a misreading of the
-  past — *"it is not a record control, it is a switch"*, *"rather than
-  restyling it"*;
-- ticket IDs, ticket titles or ticket paths — `(T0023)`, *"see
-  `tickets/done/T…md`"*, *"T0009 will replace this"*;
-- dated decisions and review history — *"CEO decision of 2026-10-31"*,
-  *"approved during review"*;
-- placeholder future tense for work that has since landed — *"T0006 will drive
-  this"*, *"the store arrives later"*.
+- what the code used to do — _"this used to render a pause glyph"_, _"the old
+  screen lacked an escape hatch"_, _"an earlier version animated something
+  nobody could see"_;
+- what was removed, moved or renamed — _"the chip that used to ride along here
+  was gone"_, _"the header no longer carries a New take button"_;
+- why a _previous_ draft was wrong, or a defence against a misreading of the
+  past — _"it is not a record control, it is a switch"_, _"rather than
+  restyling it"_;
+- ticket IDs, ticket titles or ticket paths — `(T0023)`, _"see
+  `tickets/done/T…md`"_, _"T0009 will replace this"_;
+- dated decisions and review history — _"CEO decision of 2026-10-31"_,
+  _"approved during review"_;
+- placeholder future tense for work that has since landed — _"T0006 will drive
+  this"_, _"the store arrives later"_.
 
 If a fact is only true in the past tense, it does not belong in the file. If a
 reader needs it, it belongs in the ticket, in `DESIGN.md` (for a design rule) or
 in `PRODUCT.md` (for a product decision).
 
 **Write instead:** the rule itself, in the present tense, with the reason that
-still applies — *"back always means one step towards the mode chooser"* rather
-than *"this used to be in the header"*.
+still applies — _"back always means one step towards the mode chooser"_ rather
+than _"this used to be in the header"_.
 
 ### Scope of this rule
 
@@ -207,6 +208,7 @@ it: the code, the tests and the ticket already hold the truth.
 ## 5. Quality Gates (run before staging any ticket to `review/`)
 
 ### Rust
+
 - `cargo fmt -- --check`
 - `cargo clippy --all-targets -- -D warnings`
 - `cargo test` — includes the **startup gate** (`crates/speechtt-ui/tests/startup.rs`),
@@ -223,10 +225,12 @@ it: the code, the tests and the ticket already hold the truth.
   configuration, so it runs on every machine and in CI.
 
 ### TypeScript / Bun
+
 - `bun test`
 - `bun check src/stt`
 
 ### Design (when tokens or theme files are touched)
+
 - `bun run design:validate`
 
 All gates must be green with **zero warnings**. Do not weaken, skip, or
@@ -237,6 +241,7 @@ All gates must be green with **zero warnings**. Do not weaken, skip, or
 ## 6. Engineering Rules & Do/Don'ts
 
 ### Do
+
 - Follow strict **TDD**: write failing tests first, then implement, then
   refactor. Tests target the `Contract` section of the ticket.
 - **Read the official documentation of a library, never its source.** For any
@@ -278,6 +283,7 @@ All gates must be green with **zero warnings**. Do not weaken, skip, or
   all deterministic headless tests and design-system gates pass.
 
 ### Don't
+
 - Don't write or edit production feature code directly when a coding sub-agent
   can be dispatched — the CTO architects, specifies, delegates, audits.
 - Don't grep, read or reverse-engineer the source of an imported dependency
@@ -312,17 +318,17 @@ LLM-friendly form when the project publishes one (`llms.txt`, `llms-full.txt`,
 page-level `.md`), because it is Markdown all the way down and costs a fraction
 of the rendered HTML.
 
-| Library | Official documentation | Use |
-|---|---|---|
-| `gpui-kit` (UI framework) | index <https://gpui-kit.com/llms.txt> · full text <https://gpui-kit.com/llms-full.txt> · one page as Markdown, e.g. <https://gpui-kit.com/base/text-selection.md> | Start at `llms.txt`, then fetch the single page the ticket needs. |
-| `gpui-kit::base`, `::component`, `::assets` (layers of the same framework) | <https://docs.rs/gpui-kit> · <https://docs.rs/gpui-base> · <https://docs.rs/gpui-component> | Exact signatures and types when the guide is prose only. |
-| `ai` (Vercel AI SDK) | <https://ai-sdk.dev/llms.txt> | The whole documentation set as Markdown. |
-| `@ai-sdk/elevenlabs` | <https://ai-sdk.dev/providers/ai-sdk-providers/elevenlabs.md> | Provider page. |
-| `@ai-sdk/mistral` | <https://ai-sdk.dev/providers/ai-sdk-providers/mistral.md> | Provider page. |
-| `@ai-sdk/openai` | <https://ai-sdk.dev/providers/ai-sdk-providers/openai.md> | Provider page. |
-| `@ai-sdk/xai` | <https://ai-sdk.dev/providers/ai-sdk-providers/xai.md> | Provider page. |
-| Bun (runtime, test runner, bundler) | <https://bun.com/docs/llms.txt> | `bun test`, `Bun.*` APIs, tooling. |
-| `cpal`, `enigo`, `arboard`, `rustfft`, `base64`, `async-channel`, `serde`, `serde_json`, `thiserror` | `https://docs.rs/<crate>/latest/<crate>/` | docs.rs is where these crates publish their API. |
+| Library                                                                                              | Official documentation                                                                                                                                            | Use                                                               |
+| ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `gpui-kit` (UI framework)                                                                            | index <https://gpui-kit.com/llms.txt> · full text <https://gpui-kit.com/llms-full.txt> · one page as Markdown, e.g. <https://gpui-kit.com/base/text-selection.md> | Start at `llms.txt`, then fetch the single page the ticket needs. |
+| `gpui-kit::base`, `::component`, `::assets` (layers of the same framework)                           | <https://docs.rs/gpui-kit> · <https://docs.rs/gpui-base> · <https://docs.rs/gpui-component>                                                                       | Exact signatures and types when the guide is prose only.          |
+| `ai` (Vercel AI SDK)                                                                                 | <https://ai-sdk.dev/llms.txt>                                                                                                                                     | The whole documentation set as Markdown.                          |
+| `@ai-sdk/elevenlabs`                                                                                 | <https://ai-sdk.dev/providers/ai-sdk-providers/elevenlabs.md>                                                                                                     | Provider page.                                                    |
+| `@ai-sdk/mistral`                                                                                    | <https://ai-sdk.dev/providers/ai-sdk-providers/mistral.md>                                                                                                        | Provider page.                                                    |
+| `@ai-sdk/openai`                                                                                     | <https://ai-sdk.dev/providers/ai-sdk-providers/openai.md>                                                                                                         | Provider page.                                                    |
+| `@ai-sdk/xai`                                                                                        | <https://ai-sdk.dev/providers/ai-sdk-providers/xai.md>                                                                                                            | Provider page.                                                    |
+| Bun (runtime, test runner, bundler)                                                                  | <https://bun.com/docs/llms.txt>                                                                                                                                   | `bun test`, `Bun.*` APIs, tooling.                                |
+| `cpal`, `enigo`, `arboard`, `rustfft`, `base64`, `async-channel`, `serde`, `serde_json`, `thiserror` | `https://docs.rs/<crate>/latest/<crate>/`                                                                                                                         | docs.rs is where these crates publish their API.                  |
 
 Rules that go with the table:
 

@@ -54,10 +54,10 @@ close that path for file input:
    ordinary `fetch` with a scheme allowlist of `http:`, `https:` and `data:`
    (`validateDownloadUrl` in `@ai-sdk/provider-utils`), and the whole body is
    buffered in memory (2 GiB cap) to sniff the media type. So:
-   - a local path cannot be expressed as a URL — **`file://` is rejected**
-     even though Bun's `fetch` would accept it;
-   - an `http(s)` URL still means "download everything, then base64", which
-     is useless for local files and no better than reading bytes ourselves.
+    - a local path cannot be expressed as a URL — **`file://` is rejected**
+      even though Bun's `fetch` would accept it;
+    - an `http(s)` URL still means "download everything, then base64", which
+      is useless for local files and no better than reading bytes ourselves.
 2. **`experimental_streamTranscribe` only accepts raw audio, not containers.**
    Its options are `audio: ReadableStream<Uint8Array | string>` plus
    `inputAudioFormat: { type: "audio/pcm", rate }`, and the gateway opens a
@@ -80,15 +80,15 @@ model restriction.
 ffmpeg is available on Linux, macOS and Windows; the ticket does not add any
 platform-specific code. What differs is what the user has to install:
 
-| Platform | Preinstalled? | Install hint shown by `ffmpeg_missing` |
-|---|---|---|
+| Platform               | Preinstalled?           | Install hint shown by `ffmpeg_missing`                |
+| ---------------------- | ----------------------- | ----------------------------------------------------- |
 | Linux (project target) | Usually, not guaranteed | `sudo apt install ffmpeg` / `sudo dnf install ffmpeg` |
-| macOS | No | `brew install ffmpeg` |
-| Windows | No | `winget install ffmpeg` |
+| macOS                  | No                      | `brew install ffmpeg`                                 |
+| Windows                | No                      | `winget install ffmpeg`                               |
 
 `README.md`/`AGENTS.md` define SpeechTT as a **Linux** widget, so a system
 dependency is acceptable for this ticket; the hint text above keeps macOS and
-Windows builds honest. Bundling a per-platform binary is deliberately *not*
+Windows builds honest. Bundling a per-platform binary is deliberately _not_
 done here (it adds ~80 MB per target and a release-packaging story that does
 not exist yet) and is the natural fallback if non-Linux builds ship later.
 
@@ -156,13 +156,13 @@ New inbound command, camelCase on the wire:
 
 ```ts
 export interface TranscribeFileCommand {
-  type: "transcribeFile";
-  sessionId: string;
-  provider: string;
-  model: string;
-  /** Absolute path to an audio or video file on the worker's host. */
-  path: string;
-  apiKey?: string;
+	type: "transcribeFile";
+	sessionId: string;
+	provider: string;
+	model: string;
+	/** Absolute path to an audio or video file on the worker's host. */
+	path: string;
+	apiKey?: string;
 }
 ```
 
@@ -185,12 +185,12 @@ New outbound event:
 
 ```ts
 export interface ProgressEvent {
-  type: "progress";
-  sessionId: string;
-  /** Seconds of decoded audio consumed so far (monotonic, ≥ 0). */
-  processedSeconds: number;
-  /** ffprobe duration, or null when it cannot be determined. */
-  totalSeconds: number | null;
+	type: "progress";
+	sessionId: string;
+	/** Seconds of decoded audio consumed so far (monotonic, ≥ 0). */
+	processedSeconds: number;
+	/** Ffprobe duration, or null when it cannot be determined. */
+	totalSeconds: number | null;
 }
 ```
 
@@ -211,20 +211,31 @@ SttEvent::Progress {
 ### 2. Decoding (`src/stt/file-input.ts`)
 
 ```ts
-export interface FfmpegTools { readonly ffmpeg: string; readonly ffprobe: string; }
+export interface FfmpegTools {
+	readonly ffmpeg: string;
+	readonly ffprobe: string;
+}
 
-/** Resolution order: env override, then PATH. Cached; `undefined` when
- *  either binary is absent. Env: SPEECHTT_FFMPEG, SPEECHTT_FFPROBE. */
+/**
+ * Resolution order: env override, then PATH. Cached; `undefined` when either binary is absent. Env:
+ * SPEECHTT_FFMPEG, SPEECHTT_FFPROBE.
+ */
 export function findFfmpeg(env?: Record<string, string | undefined>): FfmpegTools | undefined;
 
 /** `format.duration` via ffprobe; null on any failure. Never throws. */
-export function probeDuration(path: string, ffprobe: string, signal?: AbortSignal): Promise<number | null>;
+export function probeDuration(
+	path: string,
+	ffprobe: string,
+	signal?: AbortSignal
+): Promise<number | null>;
 
-/** Streams 16 kHz mono PCM16 LE from the file's first audio stream.
- *  Chunks are even-length; a partial sample is carried to the next chunk. */
+/**
+ * Streams 16 kHz mono PCM16 LE from the file's first audio stream. Chunks are even-length; a
+ * partial sample is carried to the next chunk.
+ */
 export function decodeFileToPcm16(
-  path: string,
-  options: { ffmpeg: string; signal?: AbortSignal },
+	path: string,
+	options: { ffmpeg: string; signal?: AbortSignal }
 ): AsyncIterable<Uint8Array>;
 ```
 
@@ -258,17 +269,17 @@ mode split unchanged — no duplication of segmentation or junction dedupe.
 
 ```ts
 export interface FileSessionDeps {
-  decode(path: string, options: { signal: AbortSignal }): AsyncIterable<Uint8Array>;
-  probeDuration(path: string, signal: AbortSignal): Promise<number | null>;
-  transcribe: TranscribeFn;
-  resolveModel(config: SttSessionConfig): TranscriptionModel;
-  segmentation?: Partial<Omit<SegmenterOptions, "sampleRate">>;
+	decode(path: string, options: { signal: AbortSignal }): AsyncIterable<Uint8Array>;
+	probeDuration(path: string, signal: AbortSignal): Promise<number | null>;
+	transcribe: TranscribeFn;
+	resolveModel(config: SttSessionConfig): TranscriptionModel;
+	segmentation?: Partial<Omit<SegmenterOptions, "sampleRate">>;
 }
 
 export function createFileSession(
-  config: SttSessionConfig & { path: string },
-  emit: EmitFn,
-  deps: FileSessionDeps,
+	config: SttSessionConfig & { path: string },
+	emit: EmitFn,
+	deps: FileSessionDeps
 ): SttSession;
 ```
 
@@ -330,7 +341,7 @@ Behaviour:
   reflects the decoded position while a file take runs.
 - **File picker**: `SpeechTtApp::pick_transcription_file(cx)` calls
   `cx.prompt_for_paths(PathPromptOptions { files: true, directories: false,
-  multiple: false, prompt: Some("Transcribe") })`. `Ok(Some([p]))` ⇒
+multiple: false, prompt: Some("Transcribe") })`. `Ok(Some([p]))` ⇒
   `start_file_session(p)`; `Ok(None)` ⇒ no-op; `Err` ⇒ `FileDialogFailed`.
   A headless-testable seam `SpeechTtApp::start_file_from_path(path, cx)` is the
   entry point the picker calls.
@@ -342,42 +353,42 @@ Behaviour:
 ## TDD Tasks
 
 - [x] **T15.1 — Protocol specs (TS)**: failing tests in `protocol.spec.ts` for
-  `transcribeFile` parse/serialize happy path, every rejection rule, and
-  `progress` serialization incl. `totalSeconds: null`. Red first.
+      `transcribeFile` parse/serialize happy path, every rejection rule, and
+      `progress` serialization incl. `totalSeconds: null`. Red first.
 - [x] **T15.2 — Protocol specs (Rust)**: failing round-trip tests in
-  `protocol.rs` for `TranscribeFile` (camelCase, key omitted when absent) and
-  `Progress` (`total_seconds` omitted when `None`), plus `session_id()`.
+      `protocol.rs` for `TranscribeFile` (camelCase, key omitted when absent) and
+      `Progress` (`total_seconds` omitted when `None`), plus `session_id()`.
 - [x] **T15.3 — Decoder specs**: `file-input.spec.ts` against an injected
-  spawn/exec seam covering flag exactness, odd-byte chunk framing, stderr
-  truncation, every error-code mapping, abort killing the child, and
-  `findFfmpeg` env/PATH precedence.
+      spawn/exec seam covering flag exactness, odd-byte chunk framing, stderr
+      truncation, every error-code mapping, abort killing the child, and
+      `findFfmpeg` env/PATH precedence.
 - [x] **T15.4 — Session specs**: `file.spec.ts` with a fake decode iterator and
-  fake `transcribe` asserting: `started` then `committed`s in order,
-  junction dedupe (no repeated words), monotonic `progress`, no
-  `partial`/`delta`, `stopped.fullText` equals the merged text, mid-file
-  `stop()` keeps partial text, `abort()` emits nothing, sequential
-  (never concurrent) transcription calls.
+      fake `transcribe` asserting: `started` then `committed`s in order,
+      junction dedupe (no repeated words), monotonic `progress`, no
+      `partial`/`delta`, `stopped.fullText` equals the merged text, mid-file
+      `stop()` keeps partial text, `abort()` emits nothing, sequential
+      (never concurrent) transcription calls.
 - [x] **T15.5 — Worker specs**: `worker.spec.ts` for routing, missing key,
-  unknown provider, `ffmpeg_missing` (no `started`), and that `stop` cancels.
+      unknown provider, `ffmpeg_missing` (no `started`), and that `stop` cancels.
 - [x] **T15.6 — Implement** `file-input.ts`, `adapters/file.ts`, wire
-  `transcribeFile` into `worker.ts`, and add the Rust command/event variants.
+      `transcribeFile` into `worker.ts`, and add the Rust command/event variants.
 - [x] **T15.7 — Controller specs**: `start_file_session` validation matrix,
-  naming defaults, `Recording` transition, progress mapping into
-  `elapsed_seconds`, error mapping, and that no `Audio` command is ever sent
-  for a file take (assert the recorded sink commands).
+      naming defaults, `Recording` transition, progress mapping into
+      `elapsed_seconds`, error mapping, and that no `Audio` command is ever sent
+      for a file take (assert the recorded sink commands).
 - [x] **T15.8 — UI wiring**: Prompt action, `prompt_for_paths` handler,
-  `start_file_from_path` seam, Recording status line showing
-  `processed / total s` when the total is known. Add a headless test proving
-  `start_file_from_path` starts a take and that a `progress` event updates the
-  elapsed read-out.
+      `start_file_from_path` seam, Recording status line showing
+      `processed / total s` when the total is known. Add a headless test proving
+      `start_file_from_path` starts a take and that a `progress` event updates the
+      elapsed read-out.
 - [x] **T15.9 — Live smoke**: extend `bridge_smoke.rs` to send a real
-  `transcribeFile` for `tests/test-record.wav` **skipped** when `ffmpeg` or
-  `AI_GATEWAY_API_KEY` is absent (never fail CI for missing tools).
+      `transcribeFile` for `tests/test-record.wav` **skipped** when `ffmpeg` or
+      `AI_GATEWAY_API_KEY` is absent (never fail CI for missing tools).
 - [x] **T15.10 — Gates**: `cargo fmt -- --check`,
-  `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
-  `bun check src/stt`. Manual QA: transcribe a `.wav`, an `.mp3`, and an
-  `.mp4` (video, audio track only) and confirm identical quality to the mic
-  path.
+      `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
+      `bun check src/stt`. Manual QA: transcribe a `.wav`, an `.mp3`, and an
+      `.mp4` (video, audio track only) and confirm identical quality to the mic
+      path.
 
 ## Acceptance Criteria
 
@@ -426,7 +437,7 @@ Behaviour:
   `f64`); `transcript.rs::apply` ignores `Progress`.
 - **Controller** — `start_file_session(&Path)` validates (empty/NUL,
   metadata, directory), maps `AppError::{FileNotFound, FileUnreadable,
-  FfmpegMissing, FileDialogFailed}` and `from_stt_error`, sets the audio
+FfmpegMissing, FileDialogFailed}` and `from_stt_error`, sets the audio
   source to the file name, starts the take and sends only
   `SttCommand::TranscribeFile`. `progress`/`file_take` state feeds
   `elapsed_seconds()` and the header read-out; `push_audio_chunk` is inert for

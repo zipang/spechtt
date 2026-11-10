@@ -5,6 +5,7 @@
 ## When to Use
 
 Use the low-level `Element` trait when:
+
 - Need fine-grained control over layout calculation
 - Building complex, performance-critical components
 - Implementing custom layout algorithms (masonry, circular, etc.)
@@ -100,6 +101,7 @@ State flows in one direction through associated types, passed as mutable referen
 ## Reference Documentation
 
 ### Complete API Documentation
+
 - **API**: See [element-api.md](element-api.md) — associated types, hitbox system, event handling, cursor styles
 - **Examples**: See [element-examples.md](element-examples.md) — text, interactive, complex elements
 - **Patterns**: See [element-patterns.md](element-patterns.md) — text, container, interactive, composite, scrollable

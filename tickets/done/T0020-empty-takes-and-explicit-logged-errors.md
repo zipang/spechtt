@@ -84,20 +84,20 @@ visual style: reuse `Label`, `IconAction` and its existing `disabled` state.
   when the flush arrives later with `fullText: ""`.
 - `copy_finished_transcript` and `save_finished_transcript_to` guard an empty
   take defensively:
-  - return `Err(AppError::NothingRecorded)`;
-  - do **not** call `report_error` / `fail` (no strip);
-  - do **not** write a file, touch the clipboard, or set `output_status`.
+    - return `Err(AppError::NothingRecorded)`;
+    - do **not** call `report_error` / `fail` (no strip);
+    - do **not** write a file, touch the clipboard, or set `output_status`.
 - `auto_paste_after_finish` returns `None` for an empty take (no copy/paste
   attempt, no clipboard error).
 - `AppError::NothingRecorded` has message `"Nothing was recorded."` and
   `ErrorAction::Dismiss`. It is informational, so it is **not** logged at error
   level.
 - `views/stopped.rs`:
-  - when `finished_take_is_empty()`, Copy and Save render disabled
-    (`IconAction::disabled(true)`);
-  - the body still renders the (empty) `CaptionWell`;
-  - a muted `Label::new("Nothing was recorded.")` replaces the transient output
-    status area. No new component, token, size, weight or colour.
+    - when `finished_take_is_empty()`, Copy and Save render disabled
+      (`IconAction::disabled(true)`);
+    - the body still renders the (empty) `CaptionWell`;
+    - a muted `Label::new("Nothing was recorded.")` replaces the transient output
+      status area. No new component, token, size, weight or colour.
 - There is no automatic save anywhere in the flow.
 
 ### 2. No phantom backend failure on an empty/silent start → stop
@@ -133,29 +133,29 @@ pub enum AppError {
 ```
 
 - `AppError::from_stt_error`:
-  - `missing_api_key`, auth, network and timeout mappings stay as today;
-  - `invalid_protocol` → `ProtocolError(message)` (keep the worker's parse
-    detail);
-  - `stream_failed` with a non-auth/non-network message → `BackendFailed
-    { code: "stream_failed", detail: sanitized(message) }`;
-  - any unknown code → `BackendFailed { code, detail: sanitized(message) }`
-    instead of `ProtocolError(code)`; an empty message yields
-    `detail = "no detail provided"`.
+    - `missing_api_key`, auth, network and timeout mappings stay as today;
+    - `invalid_protocol` → `ProtocolError(message)` (keep the worker's parse
+      detail);
+    - `stream_failed` with a non-auth/non-network message → `BackendFailed
+{ code: "stream_failed", detail: sanitized(message) }`;
+    - any unknown code → `BackendFailed { code, detail: sanitized(message) }`
+      instead of `ProtocolError(code)`; an empty message yields
+      `detail = "no detail provided"`.
 - `AppError::message()` returns an owned `String`/`Cow` so it can include the
   detail:
-  - `BackendFailed` → `"The transcription backend failed: {detail}."`
-  - `ProtocolError` → `"The transcription backend sent an unexpected message:
-    {detail}."`
-  - `SaveFailed` → `"Could not save the transcript: {cause}."` where `cause`
-    is a short sanitized summary (`permission denied`, `no space left`,
-    `unsupported format`, …), never a raw multi-line OS dump.
-  - Visible message stays **≤ 160 characters**.
+    - `BackendFailed` → `"The transcription backend failed: {detail}."`
+    - `ProtocolError` → `"The transcription backend sent an unexpected message:
+{detail}."`
+    - `SaveFailed` → `"Could not save the transcript: {cause}."` where `cause`
+      is a short sanitized summary (`permission denied`, `no space left`,
+      `unsupported format`, …), never a raw multi-line OS dump.
+    - Visible message stays **≤ 160 characters**.
 - `sanitize_detail(raw)` (pure, tested):
-  - trims, collapses whitespace/newlines, strips control characters;
-  - caps at 120 characters with `…` when truncated;
-  - redacts `sk-…`, `Bearer …`, `Authorization: …`, `api_key=…`, `key=…`
-    patterns to `[REDACTED]`;
-  - returns an empty string only when the input is empty.
+    - trims, collapses whitespace/newlines, strips control characters;
+    - caps at 120 characters with `…` when truncated;
+    - redacts `sk-…`, `Bearer …`, `Authorization: …`, `api_key=…`, `key=…`
+      patterns to `[REDACTED]`;
+    - returns an empty string only when the input is empty.
 - `detail()` keeps returning the sanitized cause for `BackendFailed`,
   `ProtocolError` and `SaveFailed`.
 - Existing guarantee stays: no transcript text, API key or secret in
@@ -188,39 +188,39 @@ pub fn format_error_line(context: &str, error: &AppError) -> String;
 ## TDD Tasks
 
 - [x] **T20.1 — Reproduce hermetically (red first).**
-  - Rust: `finish_take()` on a paused take with no transcript leaves
-    `app_error()` `None`; currently it can be followed by a save failure.
-  - Rust: saving/copying an empty finished take does not write, does not touch
-    the sink, and does not populate the strip.
-  - TypeScript: a fake streaming provider whose flush rejects on zero audio —
-    `session.stop()` must emit only `stopped {fullText:""}`; today it emits
-    `stream_failed`.
-  - Confirm and record the real root cause (also via the integration event
-    loop) in **Implementation Notes** before changing adapters.
+    - Rust: `finish_take()` on a paused take with no transcript leaves
+      `app_error()` `None`; currently it can be followed by a save failure.
+    - Rust: saving/copying an empty finished take does not write, does not touch
+      the sink, and does not populate the strip.
+    - TypeScript: a fake streaming provider whose flush rejects on zero audio —
+      `session.stop()` must emit only `stopped {fullText:""}`; today it emits
+      `stream_failed`.
+    - Confirm and record the real root cause (also via the integration event
+      loop) in **Implementation Notes** before changing adapters.
 - [x] **T20.2 — Empty-take UX.** Add `finished_take_is_empty`, the
-  `NothingRecorded` guards, auto-paste no-op, and the disabled Copy/Save +
-  neutral label in `views/stopped.rs`. Tests cover the controller queries and
-  the absence of `app_error`.
+      `NothingRecorded` guards, auto-paste no-op, and the disabled Copy/Save +
+      neutral label in `views/stopped.rs`. Tests cover the controller queries and
+      the absence of `app_error`.
 - [x] **T20.3 — Adapter empty-stop.** Implement the zero-audio stop path in the
-  Vercel AI SDK adapter; lock Mistral parity. Specs: no provider call for zero
-  audio, exactly one `stopped`, no `error`; audio-ful sessions keep existing
-  error semantics.
+      Vercel AI SDK adapter; lock Mistral parity. Specs: no provider call for zero
+      audio, exactly one `stopped`, no `error`; audio-ful sessions keep existing
+      error semantics.
 - [x] **T20.4 — Worker diagnostics.** Emit one `stderr` line per `error` event
-  and none for a clean empty stop. `worker.spec.ts` asserts `stdout` carries
-  the same events as before and `stderr` carries the diagnostic.
+      and none for a clean empty stop. `worker.spec.ts` asserts `stdout` carries
+      the same events as before and `stderr` carries the diagnostic.
 - [x] **T20.5 — Explicit Rust mapping.** Add `BackendFailed` and
-  `NothingRecorded`; rework `from_stt_error`, dynamic messages and
-  `sanitize_detail`. Update `error_ux.rs` (tuple-variant call sites, 160-char
-  bound) and add table-driven tests for every canonical code, `stream_failed`,
-  unknown code, empty message, and redaction of `sk-…`/`Bearer …`.
+      `NothingRecorded`; rework `from_stt_error`, dynamic messages and
+      `sanitize_detail`. Update `error_ux.rs` (tuple-variant call sites, 160-char
+      bound) and add table-driven tests for every canonical code, `stream_failed`,
+      unknown code, empty message, and redaction of `sk-…`/`Bearer …`.
 - [x] **T20.6 — Diagnostics logger.** Implement `diagnostics.rs`; assert the
-  exact one-line format, one call per `report_error`, and that
-  `NothingRecorded` produces no error line. Add an integration test that an
-  inbound `SttEvent::Error` logs the code/message and still maps to the right
-  `AppError`.
+      exact one-line format, one call per `report_error`, and that
+      `NothingRecorded` produces no error line. Add an integration test that an
+      inbound `SttEvent::Error` logs the code/message and still maps to the right
+      `AppError`.
 - [x] **T20.7 — Gates.** `cargo fmt -- --check`,
-  `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
-  `bun check src/stt`. All green, zero warnings.
+      `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
+      `bun check src/stt`. All green, zero warnings.
 
 ## Acceptance Criteria
 

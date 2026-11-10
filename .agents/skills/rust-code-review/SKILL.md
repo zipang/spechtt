@@ -338,7 +338,7 @@ pub(crate) fn internal_helper() { ... }
 
 ### Document Public APIs
 
-```rust
+````rust
 /// Creates a new client with the given configuration.
 ///
 /// # Arguments
@@ -357,19 +357,19 @@ pub(crate) fn internal_helper() { ... }
 pub fn new(config: Config) -> Result<Self> {
     // ...
 }
-```
+````
 
 ## Anti-Patterns to Avoid
 
-| Anti-Pattern | Better Approach |
-|--------------|-----------------|
-| `.unwrap()` everywhere | Use `?` operator |
-| `clone()` to satisfy borrow checker | Restructure ownership |
-| `String` parameters | Use `&str` or `impl Into<String>` |
-| Boolean parameters | Use enums |
-| Long function bodies | Extract to smaller functions |
-| Deep nesting | Use early returns |
-| Magic numbers | Use named constants |
+| Anti-Pattern                        | Better Approach                   |
+| ----------------------------------- | --------------------------------- |
+| `.unwrap()` everywhere              | Use `?` operator                  |
+| `clone()` to satisfy borrow checker | Restructure ownership             |
+| `String` parameters                 | Use `&str` or `impl Into<String>` |
+| Boolean parameters                  | Use enums                         |
+| Long function bodies                | Extract to smaller functions      |
+| Deep nesting                        | Use early returns                 |
+| Magic numbers                       | Use named constants               |
 
 ## Quick Reference
 

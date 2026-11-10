@@ -28,7 +28,9 @@
 :root {
 	/* --- Brand: Primary --- */
 	--color-brand-primary-muted: hsl(from var(--color-brand-primary) h calc(s * 0.8) calc(l * 1.2));
-	--color-brand-primary-active: hsl(from var(--color-brand-primary) h calc(s * 1.2) calc(l * 1.1));
+	--color-brand-primary-active: hsl(
+		from var(--color-brand-primary) h calc(s * 1.2) calc(l * 1.1)
+	);
 
 	/* --- Brand: Accent --- */
 	--color-brand-accent-muted: hsl(from var(--color-brand-accent) h calc(s * 0.8) calc(l * 1.2));
@@ -44,13 +46,17 @@
 
 	/* --- Brand: Tertiary (optional — falls back to primary, so these resolve
            to the primary variants unless --color-brand-tertiary is defined) --- */
-	--color-brand-tertiary-muted: hsl(from var(--color-brand-tertiary) h calc(s * 0.8) calc(l * 1.2));
+	--color-brand-tertiary-muted: hsl(
+		from var(--color-brand-tertiary) h calc(s * 0.8) calc(l * 1.2)
+	);
 	--color-brand-tertiary-active: hsl(
 		from var(--color-brand-tertiary) h calc(s * 1.2) calc(l * 1.1)
 	);
 
 	/* --- Action: Success --- */
-	--color-action-success-muted: hsl(from var(--color-action-success) h calc(s * 0.8) calc(l * 1.2));
+	--color-action-success-muted: hsl(
+		from var(--color-action-success) h calc(s * 0.8) calc(l * 1.2)
+	);
 	--color-action-success-active: hsl(
 		from var(--color-action-success) h calc(s * 1.2) calc(l * 1.1)
 	);
@@ -60,12 +66,16 @@
 	--color-action-info-active: hsl(from var(--color-action-info) h calc(s * 1.2) calc(l * 1.1));
 
 	/* --- Action: Warning --- */
-	--color-action-warning-muted: hsl(from var(--color-action-warning) h calc(s * 0.8) calc(l * 1.2));
+	--color-action-warning-muted: hsl(
+		from var(--color-action-warning) h calc(s * 0.8) calc(l * 1.2)
+	);
 	--color-action-warning-active: hsl(
 		from var(--color-action-warning) h calc(s * 1.2) calc(l * 1.1)
 	);
 
 	/* --- Action: Danger --- */
 	--color-action-danger-muted: hsl(from var(--color-action-danger) h calc(s * 0.8) calc(l * 1.2));
-	--color-action-danger-active: hsl(from var(--color-action-danger) h calc(s * 1.2) calc(l * 1.1));
+	--color-action-danger-active: hsl(
+		from var(--color-action-danger) h calc(s * 1.2) calc(l * 1.1)
+	);
 }

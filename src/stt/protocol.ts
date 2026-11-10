@@ -1,13 +1,13 @@
 /**
  * NDJSON wire protocol shared with `crates/speechtt-core/src/protocol.rs`.
  *
- * `stdin` carries `InboundCommand` lines (Rust -> Bun) and `stdout` carries
- * `OutboundEvent` lines (Bun -> Rust). Every message is one JSON object
- * terminated by `\n`. Nothing in this module may write to `stdout`.
+ * `stdin` carries `InboundCommand` lines (Rust -> Bun) and `stdout` carries `OutboundEvent` lines
+ * (Bun -> Rust). Every message is one JSON object terminated by `\n`. Nothing in this module may
+ * write to `stdout`.
  *
- * Read by `worker.ts`, which validates each line with [`parseInboundLine`] and
- * serializes every answer with [`serializeOutboundEvent`], and by
- * `adapters/types.ts`, which builds a session config from a `start` command.
+ * Read by `worker.ts`, which validates each line with [`parseInboundLine`] and serializes every
+ * answer with [`serializeOutboundEvent`], and by `adapters/types.ts`, which builds a session config
+ * from a `start` command.
  */
 
 import type { LanguageOption } from "./languages";
@@ -21,9 +21,9 @@ export type SttErrorCode =
 	| "aborted"
 	/** The requested path does not exist, is a directory, or is unreadable. */
 	| "file_not_found"
-	/** ffmpeg cannot demux the file: no audio stream or unsupported container. */
+	/** Ffmpeg cannot demux the file: no audio stream or unsupported container. */
 	| "unsupported_file"
-	/** ffmpeg started but failed mid-decode. */
+	/** Ffmpeg started but failed mid-decode. */
 	| "decode_failed"
 	/** `ffmpeg`/`ffprobe` are not installed or not on PATH. */
 	| "ffmpeg_missing"
@@ -39,8 +39,8 @@ export interface StartCommand {
 	model: string;
 	sampleRate: number;
 	/**
-	 * ISO-639-1 language of the dictation, e.g. `fr`. Absent leaves detection
-	 * to the provider, so an untouched setting keeps the original payload.
+	 * ISO-639-1 language of the dictation, e.g. `fr`. Absent leaves detection to the provider, so
+	 * an untouched setting keeps the original payload.
 	 */
 	language?: string;
 	apiKey?: string;
@@ -54,9 +54,8 @@ export interface AudioCommand {
 /**
  * Transcribe a file that already exists on the worker's host.
  *
- * Only the path crosses the bridge: the worker decodes the file locally with
- * ffmpeg (any container it supports) at a fixed 16 kHz mono, so no sample rate
- * is transmitted.
+ * Only the path crosses the bridge: the worker decodes the file locally with ffmpeg (any container
+ * it supports) at a fixed 16 kHz mono, so no sample rate is transmitted.
  */
 export interface TranscribeFileCommand {
 	type: "transcribeFile";
@@ -73,9 +72,9 @@ export interface TranscribeFileCommand {
 /**
  * Repairs a finished transcript with a language model.
  *
- * The worker answers with `CleanedEvent` on success or an `ErrorEvent` carrying
- * the same `requestId` on failure, so the answer always reaches the action that
- * asked. The command never disturbs an active transcription session.
+ * The worker answers with `CleanedEvent` on success or an `ErrorEvent` carrying the same
+ * `requestId` on failure, so the answer always reaches the action that asked. The command never
+ * disturbs an active transcription session.
  */
 export interface CleanTranscriptCommand {
 	type: "cleanTranscript";
@@ -88,8 +87,8 @@ export interface CleanTranscriptCommand {
 	/** The transcript to repair, exactly as displayed. */
 	text: string;
 	/**
-	 * ISO-639-1 language of the transcript, e.g. `fr`. Absent means "follow the
-	 * transcript's own language"; the prompt then omits the language clause.
+	 * ISO-639-1 language of the transcript, e.g. `fr`. Absent means "follow the transcript's own
+	 * language"; the prompt then omits the language clause.
 	 */
 	language?: string;
 	apiKey?: string;
@@ -108,9 +107,8 @@ export interface StopCommand {
 }
 
 /**
- * Read-only capability handshake. `requestId` is echoed back for correlation;
- * `apiKey` lets the UI test a key that is typed but not exported yet. The key
- * never appears in the response.
+ * Read-only capability handshake. `requestId` is echoed back for correlation; `apiKey` lets the UI
+ * test a key that is typed but not exported yet. The key never appears in the response.
  */
 export interface CapabilitiesCommand {
 	type: "capabilities";
@@ -142,9 +140,9 @@ export interface PartialEvent {
 	sessionId: string;
 	text: string;
 	/**
-	 * Identity of the utterance the text belongs to, when the provider
-	 * publishes one. Revisions of one utterance share it; the next utterance
-	 * carries a different one. Absent for a provider without ids.
+	 * Identity of the utterance the text belongs to, when the provider publishes one. Revisions of
+	 * one utterance share it; the next utterance carries a different one. Absent for a provider
+	 * without ids.
 	 */
 	segment?: string;
 }
@@ -176,7 +174,7 @@ export interface ProgressEvent {
 	sessionId: string;
 	/** Seconds of decoded audio consumed so far (monotonic, >= 0). */
 	processedSeconds: number;
-	/** ffprobe duration, or null when it cannot be determined. */
+	/** Ffprobe duration, or null when it cannot be determined. */
 	totalSeconds: number | null;
 }
 
@@ -256,11 +254,7 @@ function isLanguageCode(value: unknown): value is string {
 }
 
 function isBase64(value: unknown): value is string {
-	return (
-		typeof value === "string" &&
-		value.length % 4 === 0 &&
-		BASE64_PATTERN.test(value)
-	);
+	return typeof value === "string" && value.length % 4 === 0 && BASE64_PATTERN.test(value);
 }
 
 function parseStart(payload: Record<string, unknown>): ParseInboundResult {
@@ -292,7 +286,7 @@ function parseStart(payload: Record<string, unknown>): ParseInboundResult {
 		sessionId: payload.sessionId,
 		provider: payload.provider,
 		model: payload.model,
-		sampleRate: payload.sampleRate,
+		sampleRate: payload.sampleRate
 	};
 	if (typeof payload.language === "string") {
 		command.language = payload.language;
@@ -303,9 +297,7 @@ function parseStart(payload: Record<string, unknown>): ParseInboundResult {
 	return { ok: true, command };
 }
 
-function parseTranscribeFile(
-	payload: Record<string, unknown>,
-): ParseInboundResult {
+function parseTranscribeFile(payload: Record<string, unknown>): ParseInboundResult {
 	if (!isNonEmptyString(payload.sessionId)) {
 		return invalid("transcribeFile.sessionId must be a non-empty string");
 	}
@@ -320,17 +312,13 @@ function parseTranscribeFile(
 		payload.path.trim().length === 0 ||
 		payload.path.includes("\u0000")
 	) {
-		return invalid(
-			"transcribeFile.path must be a non-empty path without NUL bytes",
-		);
+		return invalid("transcribeFile.path must be a non-empty path without NUL bytes");
 	}
 	if (payload.apiKey !== undefined && typeof payload.apiKey !== "string") {
 		return invalid("transcribeFile.apiKey must be a string when present");
 	}
 	if (payload.language !== undefined && !isLanguageCode(payload.language)) {
-		return invalid(
-			"transcribeFile.language must be a non-empty string when present",
-		);
+		return invalid("transcribeFile.language must be a non-empty string when present");
 	}
 
 	const command: TranscribeFileCommand = {
@@ -338,7 +326,7 @@ function parseTranscribeFile(
 		sessionId: payload.sessionId,
 		provider: payload.provider,
 		model: payload.model,
-		path: payload.path,
+		path: payload.path
 	};
 	if (typeof payload.language === "string") {
 		command.language = payload.language;
@@ -349,9 +337,7 @@ function parseTranscribeFile(
 	return { ok: true, command };
 }
 
-function parseCleanTranscript(
-	payload: Record<string, unknown>,
-): ParseInboundResult {
+function parseCleanTranscript(payload: Record<string, unknown>): ParseInboundResult {
 	if (!isNonEmptyString(payload.requestId)) {
 		return invalid("cleanTranscript.requestId must be a non-empty string");
 	}
@@ -365,9 +351,7 @@ function parseCleanTranscript(
 		return invalid("cleanTranscript.text must be a non-empty string");
 	}
 	if (payload.language !== undefined && !isLanguageCode(payload.language)) {
-		return invalid(
-			"cleanTranscript.language must be a non-empty string when present",
-		);
+		return invalid("cleanTranscript.language must be a non-empty string when present");
 	}
 	if (payload.apiKey !== undefined && typeof payload.apiKey !== "string") {
 		return invalid("cleanTranscript.apiKey must be a string when present");
@@ -378,7 +362,7 @@ function parseCleanTranscript(
 		requestId: payload.requestId,
 		provider: payload.provider,
 		model: payload.model,
-		text: payload.text,
+		text: payload.text
 	};
 	if (typeof payload.language === "string") {
 		command.language = payload.language;
@@ -389,16 +373,9 @@ function parseCleanTranscript(
 	return { ok: true, command };
 }
 
-function parseCapabilities(
-	payload: Record<string, unknown>,
-): ParseInboundResult {
-	if (
-		payload.requestId !== undefined &&
-		!isNonEmptyString(payload.requestId)
-	) {
-		return invalid(
-			"capabilities.requestId must be a non-empty string when present",
-		);
+function parseCapabilities(payload: Record<string, unknown>): ParseInboundResult {
+	if (payload.requestId !== undefined && !isNonEmptyString(payload.requestId)) {
+		return invalid("capabilities.requestId must be a non-empty string when present");
 	}
 	if (payload.apiKey !== undefined && typeof payload.apiKey !== "string") {
 		return invalid("capabilities.apiKey must be a string when present");
@@ -415,9 +392,8 @@ function parseCapabilities(
 }
 
 /**
- * Parses one NDJSON line into a validated command. Malformed input never
- * throws: callers translate `invalid_protocol` into an `error` event and keep
- * reading the next line.
+ * Parses one NDJSON line into a validated command. Malformed input never throws: callers translate
+ * `invalid_protocol` into an `error` event and keep reading the next line.
  */
 export function parseInboundLine(line: string): ParseInboundResult {
 	const trimmed = line.trim();
@@ -447,7 +423,7 @@ export function parseInboundLine(line: string): ParseInboundResult {
 			}
 			return {
 				ok: true,
-				command: { type: "audio", pcm16Base64: payload.pcm16Base64 },
+				command: { type: "audio", pcm16Base64: payload.pcm16Base64 }
 			};
 
 		case "pause":
@@ -472,7 +448,7 @@ export function parseInboundLine(line: string): ParseInboundResult {
 			return invalid(
 				typeof payload.type === "string"
 					? `Unknown command type: ${payload.type}`
-					: "Missing command type",
+					: "Missing command type"
 			);
 	}
 }
@@ -483,9 +459,9 @@ export function serializeOutboundEvent(event: OutboundEvent): string {
 }
 
 /**
- * Returns a copy of `command` safe for diagnostics. An API key carried by a
- * `start`, `transcribeFile`, `cleanTranscript` or `capabilities` command is
- * replaced with `"[REDACTED]"`; all other commands pass through unchanged.
+ * Returns a copy of `command` safe for diagnostics. An API key carried by a `start`,
+ * `transcribeFile`, `cleanTranscript` or `capabilities` command is replaced with `"[REDACTED]"`;
+ * all other commands pass through unchanged.
  */
 export function redactCommand(command: InboundCommand): InboundCommand {
 	switch (command.type) {

@@ -160,38 +160,38 @@ echoed into logs or `Debug`.
 ## 4. TDD Tasks
 
 - [x] **T4.1 — Pure dialog state tests** (`controller.rs` unit tests):
-  - open/close Help and Settings; only one dialog active at a time.
-  - Settings draft starts invalid; selecting provider + model makes it valid
-    only when a key is present or `api_key_unchanged`.
-  - `save_settings()` returns the expected `SettingsChange`, closes the
-    dialog, and preserves the key verbatim (`Some("sk-…")`).
-  - `Debug` output of `SettingsChange` and `SettingsDraft` never contains the
-    key value.
-  - Opening Settings during Recording leaves `session_state()` unchanged.
+    - open/close Help and Settings; only one dialog active at a time.
+    - Settings draft starts invalid; selecting provider + model makes it valid
+      only when a key is present or `api_key_unchanged`.
+    - `save_settings()` returns the expected `SettingsChange`, closes the
+      dialog, and preserves the key verbatim (`Some("sk-…")`).
+    - `Debug` output of `SettingsChange` and `SettingsDraft` never contains the
+      key value.
+    - Opening Settings during Recording leaves `session_state()` unchanged.
 - [x] **T4.2 — Behaviour tests** (`tests/dialogs.rs`, controller-driven, no
-  `window.try_find`):
-  - `open_help` → `active_dialog() == Some(Dialog::Help)`;
-    `dismiss_dialog_with_escape` → `None`.
-  - `open_settings` → choose provider + model + key → `save_settings()`
-    returns the change and closes.
-  - Invalid draft (no provider) → `save_settings()` returns `None` and leaves
-    `Some(Dialog::Settings)` active.
-  - Cancel path discards the draft (reopening shows a fresh/default draft).
+      `window.try_find`):
+    - `open_help` → `active_dialog() == Some(Dialog::Help)`;
+      `dismiss_dialog_with_escape` → `None`.
+    - `open_settings` → choose provider + model + key → `save_settings()`
+      returns the change and closes.
+    - Invalid draft (no provider) → `save_settings()` returns `None` and leaves
+      `Some(Dialog::Settings)` active.
+    - Cancel path discards the draft (reopening shows a fresh/default draft).
 - [x] **T4.3 — `KeyCap` + dialog render smoke**:
-  - One `#[gpui_kit::test]` renders a frame with Help open and another with
-    Settings open; asserts no panic and, optionally, that the window has a
-    non-empty root. No placement assertions.
-  - Each dialog opens its own window: Help and Settings each add exactly one
-    window beside the widget, opening one replaces the other, and Escape
-    closes only the dialog window.
-  - A simulated `escape` keystroke on the focused dialog window closes it and
-    clears the controller state.
+    - One `#[gpui_kit::test]` renders a frame with Help open and another with
+      Settings open; asserts no panic and, optionally, that the window has a
+      non-empty root. No placement assertions.
+    - Each dialog opens its own window: Help and Settings each add exactly one
+      window beside the widget, opening one replaces the other, and Escape
+      closes only the dialog window.
+    - A simulated `escape` keystroke on the focused dialog window closes it and
+      clears the controller state.
 - [x] **T4.4 — Implementation**: `Dialog`/`SettingsDraft`/commands,
-  `KeyCap`, `views/dialogs/*`, floating windows + header wiring.
+      `KeyCap`, `views/dialogs/*`, floating windows + header wiring.
 - [x] **T4.5 — Visual QA (manual)**: side-by-side against
-  `mockups/dialogs/help.png` and `settings.png`; fix spacing/typography only.
+      `mockups/dialogs/help.png` and `settings.png`; fix spacing/typography only.
 - [x] **T4.6 — Gates**: `cargo fmt -- --check`,
-  `cargo clippy --all-targets -- -D warnings`, `cargo test` all clean.
+      `cargo clippy --all-targets -- -D warnings`, `cargo test` all clean.
 
 ## Acceptance Criteria
 
@@ -225,7 +225,7 @@ echoed into logs or `Debug`.
 - **Deferred opening.** Creating a window synchronously inside an entity
   update that renders `SpeechTtApp` trips GPUI's re-entrant borrow panic
   (`cannot read speechtt_ui::app::SpeechTtApp while it is already being
-  updated`), because the Settings root reads the app immediately. Opening is
+updated`), because the Settings root reads the app immediately. Opening is
   therefore scheduled with `cx.defer`: the deferred pass re-checks that the
   request is still current, opens the window outside any entity borrow, then
   records the handle. If the platform refuses the window, the controller is

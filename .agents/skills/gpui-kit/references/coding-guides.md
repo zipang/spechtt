@@ -680,23 +680,23 @@ framework terms when translation would reduce precision. Format identifiers as
 code, explain retained terms when needed, and do not mix languages merely to
 make ordinary prose sound technical.
 
-| Concept | Naming pattern | Example |
-| --- | --- | --- |
-| Value-like rendered control | noun | `Button`, `Checkbox`, `Tab` |
-| Retained behavioral model | `<Control>State` | `InputState`, `TableState` |
-| Imperative shared reference | `<Control>Handle` | `DialogHandle`, scroll handle |
-| Semantic notification | `<Control>Event` | `TableEvent`, `SelectEvent` |
-| Keyboard command | verb or intent noun | `Confirm`, `Cancel`, `SelectNext` |
-| Pluggable data/behavior owner | `<Role>Delegate` / `<Role>Provider` | `TableDelegate`, `CompletionProvider` |
-| Application-supplied presentation | `render_<part>` or `<part>_renderer` | `render_item` |
-| Construction | `new`, or a semantic constructor | `new`, `horizontal`, `vertical` |
-| Fluent property | noun/adjective | `label`, `disabled`, `selected`, `placement` |
-| General non-boolean replacement builder | `with_<field>` | `with_size`, `with_mode` |
-| In-place mutation | `set_<field>` | `set_items`, `set_selected_index` |
-| Boolean reader | `is_<adjective>` / `has_<noun>` | `is_open`, `is_closable`, `has_selection` |
-| Plain value reader | field noun | `placement`, `selected_value` |
-| Callback registration | `on_<event or intent>` | `on_click`, `on_open_change` |
-| Rendering a named region | `render_<region>` | `render_toolbar`, `render_content` |
+| Concept                                 | Naming pattern                       | Example                                      |
+| --------------------------------------- | ------------------------------------ | -------------------------------------------- |
+| Value-like rendered control             | noun                                 | `Button`, `Checkbox`, `Tab`                  |
+| Retained behavioral model               | `<Control>State`                     | `InputState`, `TableState`                   |
+| Imperative shared reference             | `<Control>Handle`                    | `DialogHandle`, scroll handle                |
+| Semantic notification                   | `<Control>Event`                     | `TableEvent`, `SelectEvent`                  |
+| Keyboard command                        | verb or intent noun                  | `Confirm`, `Cancel`, `SelectNext`            |
+| Pluggable data/behavior owner           | `<Role>Delegate` / `<Role>Provider`  | `TableDelegate`, `CompletionProvider`        |
+| Application-supplied presentation       | `render_<part>` or `<part>_renderer` | `render_item`                                |
+| Construction                            | `new`, or a semantic constructor     | `new`, `horizontal`, `vertical`              |
+| Fluent property                         | noun/adjective                       | `label`, `disabled`, `selected`, `placement` |
+| General non-boolean replacement builder | `with_<field>`                       | `with_size`, `with_mode`                     |
+| In-place mutation                       | `set_<field>`                        | `set_items`, `set_selected_index`            |
+| Boolean reader                          | `is_<adjective>` / `has_<noun>`      | `is_open`, `is_closable`, `has_selection`    |
+| Plain value reader                      | field noun                           | `placement`, `selected_value`                |
+| Callback registration                   | `on_<event or intent>`               | `on_click`, `on_open_change`                 |
+| Rendering a named region                | `render_<region>`                    | `render_toolbar`, `render_content`           |
 
 For new APIs, fluent builders omit `set_` because they consume and return
 `Self`; mutation through `&mut self` uses `set_`. Preserve established public
@@ -730,7 +730,7 @@ distinction that made it different. Because a builder is named `with_<field>`,
 shortening a field shortens its builder with it and the pair stays matched.
 
 Shorten only where the enclosing name really does disambiguate. When a short
-form is also the established term for a *different* quantity elsewhere in the
+form is also the established term for a _different_ quantity elsewhere in the
 ecosystem, say which one you mean in the doc comment rather than lengthening the
 identifier — the doc is read at the call, and it can explain what a longer name
 could only hint at.

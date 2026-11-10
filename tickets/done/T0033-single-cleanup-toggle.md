@@ -7,9 +7,9 @@
 - **Owner**: CTO
 - **Started**: 2026-11-05
 - **References**:
-  - `AGENTS.md` §2 (component rule), §3 (documentation), §5 (gates)
-  - `DESIGN.md` § "Screen footer"
-  - T0030's contract for the cleanup request and its cached result
+    - `AGENTS.md` §2 (component rule), §3 (documentation), §5 (gates)
+    - `DESIGN.md` § "Screen footer"
+    - T0030's contract for the cleanup request and its cached result
 
 ## Context & Goal
 
@@ -143,13 +143,13 @@ Rules:
 `views/session_end.rs` renders **one** `IconAction` in the trailing zone, before
 Copy and Save, whose glyph, label and effect come from `clean_status()`:
 
-| `CleanStatus` | Icon | Label | Effect |
-|---|---|---|---|
-| `Unavailable` | `WandSparkles` | "Clean up text" | disabled |
-| `Ready` | `WandSparkles` | "Clean up text" | `CleanToggle::Start` |
-| `Running` | `WandSparkles` | "Cleaning up…" | disabled |
-| `ShowingOriginal` | `WandSparkles` | "Show cleaned text" | flip to cleaned |
-| `Cleaned` | `RotateCcw` | "Show original text" | flip to original |
+| `CleanStatus`     | Icon           | Label                | Effect               |
+| ----------------- | -------------- | -------------------- | -------------------- |
+| `Unavailable`     | `WandSparkles` | "Clean up text"      | disabled             |
+| `Ready`           | `WandSparkles` | "Clean up text"      | `CleanToggle::Start` |
+| `Running`         | `WandSparkles` | "Cleaning up…"       | disabled             |
+| `ShowingOriginal` | `WandSparkles` | "Show cleaned text"  | flip to cleaned      |
+| `Cleaned`         | `RotateCcw`    | "Show original text" | flip to original     |
 
 The glyph names **the action**, not the state: the wand means "end up on the
 repaired text", the reverse arrow "go back to the original". The id stays
@@ -162,25 +162,25 @@ the original — the existing transient status slot, no new element.
 ## TDD Tasks
 
 - [x] **T33.1 — Red: the toggle contract.** Failing controller tests:
-  `clean_toggle` returns `Ready → Start`, `Cleaned → ShowOriginal`,
-  `ShowingOriginal → ShowCleaned`, `Running → Inert`, no model → `Inert`; a flip
-  to the original and back restores both texts exactly and issues no request;
-  `can_clean_transcript` stays true after a flip even when the model is gone.
+      `clean_toggle` returns `Ready → Start`, `Cleaned → ShowOriginal`,
+      `ShowingOriginal → ShowCleaned`, `Running → Inert`, no model → `Inert`; a flip
+      to the original and back restores both texts exactly and issues no request;
+      `can_clean_transcript` stays true after a flip even when the model is gone.
 - [x] **T33.2 — Red: one pass per take.** Failing tests: `apply_cleaned` caches
-  both halves; flipping twice is stable; `forget_clean` (new take, reset, cancel)
-  drops the cache; Copy/Save/auto-paste read whichever half is on screen.
+      both halves; flipping twice is stable; `forget_clean` (new take, reset, cancel)
+      drops the cache; Copy/Save/auto-paste read whichever half is on screen.
 - [x] **T33.3 — Green: controller.** Replace `clean_original` with
-  `clean_snapshot`, add `CleanToggle`, `clean_toggle`, `flip_clean_transcript`,
-  extend `CleanState`/`CleanStatus`, and remove `undo_clean_transcript`.
+      `clean_snapshot`, add `CleanToggle`, `clean_toggle`, `flip_clean_transcript`,
+      extend `CleanState`/`CleanStatus`, and remove `undo_clean_transcript`.
 - [x] **T33.4 — Green: the single button.** Rewrite the footer control in
-  `views/session_end.rs`; add `toggle_clean_transcript` on the app that switches
-  on `CleanToggle` (sending the command only for `Start`). Headless test: one
-  click cleans, a second shows the original, a third shows the cleaned text with
-  no new `CleanTranscript` command on the sink.
+      `views/session_end.rs`; add `toggle_clean_transcript` on the app that switches
+      on `CleanToggle` (sending the command only for `Start`). Headless test: one
+      click cleans, a second shows the original, a third shows the cleaned text with
+      no new `CleanTranscript` command on the sink.
 - [x] **T33.5 — Docs and gates.** `DESIGN.md` § "Screen footer" documents the
-  single toggle and its table. Then `cargo fmt -- --check`,
-  `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
-  `bun check src/stt`, `bun run design:validate`.
+      single toggle and its table. Then `cargo fmt -- --check`,
+      `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
+      `bun check src/stt`, `bun run design:validate`.
 
 ## Acceptance Criteria
 
@@ -225,14 +225,14 @@ the original — the existing transient status slot, no new element.
 
 ### Gates (repository root, zero warnings, no skipped tests)
 
-| Command | Result |
-|---|---|
-| `cargo fmt -- --check` | clean |
-| `cargo clippy --all-targets -- -D warnings` | clean |
-| `cargo test` | **549 passed, 0 failed** |
-| `bun test` | 317 passed, 0 failed |
-| `bun check src/stt` | 29 files, no type errors |
-| `bun run design:validate` | 66 tokens, 0 errors |
+| Command                                     | Result                   |
+| ------------------------------------------- | ------------------------ |
+| `cargo fmt -- --check`                      | clean                    |
+| `cargo clippy --all-targets -- -D warnings` | clean                    |
+| `cargo test`                                | **549 passed, 0 failed** |
+| `bun test`                                  | 317 passed, 0 failed     |
+| `bun check src/stt`                         | 29 files, no type errors |
+| `bun run design:validate`                   | 66 tokens, 0 errors      |
 
 ### Proof the pass runs once
 

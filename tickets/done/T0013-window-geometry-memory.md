@@ -44,7 +44,7 @@ pub struct WindowLayout { pub width: u32, pub height: u32, pub x: i32, pub y: i3
 - Logical pixels: DPI-independent, negative `x`/`y` allowed (multi-monitor).
 - `MIN_WIDTH = 420`, `MIN_HEIGHT = 320`; `is_usable()` requires both.
 - `Settings` gains `#[serde(default, skip_serializing_if = "Option::is_none")]
-  pub window: Option<WindowLayout>` (last field, so the pretty-print order test
+pub window: Option<WindowLayout>` (last field, so the pretty-print order test
   still holds).
 - `Settings::normalize_window_layout()` drops unusable layouts; it runs on
   load and save (next to `normalize_provider_ids`).
@@ -55,10 +55,10 @@ pub struct WindowLayout { pub width: u32, pub height: u32, pub x: i32, pub y: i3
 - `WIDGET_HEIGHT = 520` (fits four prominent rows plus the optional error
   strip; line height is 26 px in this theme).
 - `widget_window_options_for(layout: Option<WindowLayout>)`:
-  - size = saved layout clamped to at least the minimum size, else
-    `WIDGET_WIDTH × WIDGET_HEIGHT`;
-  - origin = saved position, clamped so at least 60 logical px of the window
-    remain inside the primary display's visible area; default `(0, 0)`.
+    - size = saved layout clamped to at least the minimum size, else
+      `WIDGET_WIDTH × WIDGET_HEIGHT`;
+    - origin = saved position, clamped so at least 60 logical px of the window
+      remain inside the primary display's visible area; default `(0, 0)`.
 - `run()` loads `JsonFileStore::default_path()` before creating the window and
   passes the stored layout.
 
@@ -81,14 +81,14 @@ pub struct WindowLayout { pub width: u32, pub height: u32, pub x: i32, pub y: i3
 ## TDD Tasks
 
 - [x] **T13.1** — core: round-trip, missing field, unusable layout dropped,
-  save/load preserves geometry and still normalizes provider ids.
+      save/load preserves geometry and still normalizes provider ids.
 - [x] **T13.2** — UI: `widget_window_options_for(Some(...))` restores size and
-  position; unusable/out-of-screen values clamp; no layout uses the 520 px
-  default.
+      position; unusable/out-of-screen values clamp; no layout uses the 520 px
+      default.
 - [x] **T13.3** — app: a stable layout is persisted after 600 ms; moving again
-  resets the debounce; saving settings keeps the geometry.
+      resets the debounce; saving settings keeps the geometry.
 - [x] **T13.4** — widget: a regression test computes the New Session height
-  from the real line height and asserts `WIDGET_HEIGHT` covers it.
+      from the real line height and asserts `WIDGET_HEIGHT` covers it.
 - [x] **T13.5** — gates.
 
 ## Acceptance Criteria

@@ -9,13 +9,13 @@
 - **References**: `PRODUCT.md` §3.3 (rewritten by this ticket) · `DESIGN.md`
   § "Shapes" (keycaps already exist as `components::KeyCap`; no new visual
   rule) · GPUI Kit documentation:
-  - KeyBinding (signature, keystroke grammar, context precedence, `cx.propagate`):
-    <https://gpui-kit.com/docs/keybinding.md>
-  - Action (declaring commands, `on_action`, propagation):
-    <https://gpui-kit.com/docs/action.md>
-  - Testing (`window.press`, `run_until_parked`, `Task::ready`):
-    <https://gpui-kit.com/docs/test.md>
-  - Action index (`llms.txt`): <https://gpui-kit.com/llms.txt>
+    - KeyBinding (signature, keystroke grammar, context precedence, `cx.propagate`):
+      <https://gpui-kit.com/docs/keybinding.md>
+    - Action (declaring commands, `on_action`, propagation):
+      <https://gpui-kit.com/docs/action.md>
+    - Testing (`window.press`, `run_until_parked`, `Task::ready`):
+      <https://gpui-kit.com/docs/test.md>
+    - Action index (`llms.txt`): <https://gpui-kit.com/llms.txt>
 
 ## Context & Goal
 
@@ -148,13 +148,13 @@ pub fn key_caps(binding: &Binding, is_mac: bool) -> Vec<&'static str>;
 
 Table (Help order):
 
-| `action` | `description` | `context` | `keys` | `mac_keys` |
-|---|---|---|---|---|
-| `ToggleRecording` | `Start · pause · resume recording` | `SpeechTT && Take` | `space` | `space` |
-| `StopRecording` | `Stop recording and show the transcript` | `SpeechTT && Take` | `enter` | `enter` |
-| `SaveTranscript` | `Save transcript to a file` | `SpeechTT && SessionEnd` | `ctrl-s` | `cmd-s` |
-| `ToggleHelp` | `Open or close Help` | `SpeechTT \|\| SpeechTTDialog` | `f1` | `f1` |
-| `ToggleSettings` | `Open or close Settings` | `SpeechTT \|\| SpeechTTDialog` | `f2` | `f2` |
+| `action`          | `description`                            | `context`                      | `keys`   | `mac_keys` |
+| ----------------- | ---------------------------------------- | ------------------------------ | -------- | ---------- |
+| `ToggleRecording` | `Start · pause · resume recording`       | `SpeechTT && Take`             | `space`  | `space`    |
+| `StopRecording`   | `Stop recording and show the transcript` | `SpeechTT && Take`             | `enter`  | `enter`    |
+| `SaveTranscript`  | `Save transcript to a file`              | `SpeechTT && SessionEnd`       | `ctrl-s` | `cmd-s`    |
+| `ToggleHelp`      | `Open or close Help`                     | `SpeechTT \|\| SpeechTTDialog` | `f1`     | `f1`       |
+| `ToggleSettings`  | `Open or close Settings`                 | `SpeechTT \|\| SpeechTTDialog` | `f2`     | `f2`       |
 
 **Documented API being used** (<https://gpui-kit.com/docs/keybinding.md>):
 
@@ -194,11 +194,11 @@ shortcuts::bind_keys(cx);
 `SpeechTtApp`'s root element declares **one context string that is rebuilt from
 the controller every frame** — the window fact plus exactly one state fact:
 
-| Fact | When it is on the root |
-|---|---|
-| `Take` | `view_state() == ViewState::Live` — the live take screen, Ready to start or already active |
-| `Active` | `session_state().is_active()` — Recording or Paused |
-| `SessionEnd` | `view_state() == ViewState::SessionEnd` — a finished transcript is on screen |
+| Fact         | When it is on the root                                                                     |
+| ------------ | ------------------------------------------------------------------------------------------ |
+| `Take`       | `view_state() == ViewState::Live` — the live take screen, Ready to start or already active |
+| `Active`     | `session_state().is_active()` — Recording or Paused                                        |
+| `SessionEnd` | `view_state() == ViewState::SessionEnd` — a finished transcript is on screen               |
 
 ```rust
 // SpeechTtApp::render
@@ -217,13 +217,13 @@ from one `match`.
 
 `bind_keys` registers each row under its own predicate (§B, `context` column):
 
-| Command | Predicate |
-|---|---|
-| `ToggleRecording` | `SpeechTT && Take` |
-| `StopRecording` | `SpeechTT && Take` |
-| `SaveTranscript` | `SpeechTT && SessionEnd` |
-| `ToggleHelp` | `SpeechTT \|\| SpeechTTDialog` |
-| `ToggleSettings` | `SpeechTT \|\| SpeechTTDialog` |
+| Command           | Predicate                      |
+| ----------------- | ------------------------------ |
+| `ToggleRecording` | `SpeechTT && Take`             |
+| `StopRecording`   | `SpeechTT && Take`             |
+| `SaveTranscript`  | `SpeechTT && SessionEnd`       |
+| `ToggleHelp`      | `SpeechTT \|\| SpeechTTDialog` |
+| `ToggleSettings`  | `SpeechTT \|\| SpeechTTDialog` |
 
 Why this split: the Help and Settings dialogs live in their **own windows**, so
 their dispatch path carries `SpeechTTDialog` and never `SpeechTT`, `Take` or
@@ -255,13 +255,13 @@ actions!(speechtt, [
 (§F).
 
 **Precedence note (from the KeyBinding page):** a contextual binding matches only
-when its context lies on the *focused* dispatch path, and an inner context ranks
+when its context lies on the _focused_ dispatch path, and an inner context ranks
 ahead of an ancestor. A focused `components` button therefore keeps its own
 Space/Enter activation; the window binding only wins when focus sits on the
 window root. Do not register a `None`-context binding.
 
 **Documented-API note:** `KeyBinding::new` takes `&'static str` for the
-predicate, so the predicates are static; only the *element's* context string is
+predicate, so the predicates are static; only the _element's_ context string is
 dynamic, which is what the `.key_context(...)` builder accepts.
 
 ### D. Dispatch and guards
@@ -378,13 +378,13 @@ serialized or that its value survives a round trip.
 
 `PRODUCT.md` §3.3 becomes the truth:
 
-| Action | Shortcut |
-|---|---|
-| Start / pause / resume recording | `Space` |
-| Stop recording | `Enter` |
-| Save transcript to file | `Ctrl+S` |
-| Open Help | `F1` |
-| Open Settings | `F2` |
+| Action                           | Shortcut |
+| -------------------------------- | -------- |
+| Start / pause / resume recording | `Space`  |
+| Stop recording                   | `Enter`  |
+| Save transcript to file          | `Ctrl+S` |
+| Open Help                        | `F1`     |
+| Open Settings                    | `F2`     |
 
 Paragraph: shortcuts are window-scoped (they act while the widget or one of its
 dialogs is focused), the set is fixed, and the Help tab is generated from the
@@ -418,13 +418,7 @@ bindings" sentence, which is no longer true.
       five actions; add `SPEECHTT_DIALOG_CONTEXT`.
 - [x] **T4.1 — Red: keystrokes reach the app.** New headless test file
       `crates/speechtt-ui/tests/shortcuts.rs` driving a real window with
-      `window.press("f1", cx)` etc. (KeyBinding/test pages):
-      - `f1` opens Help; `f1` again closes it;
-      - `f2` opens Settings;
-      - `space` from the live screen starts the take, then pauses, then resumes;
-      - `enter` while recording stops the take and shows the transcript;
-      - `space` on the mode chooser starts nothing;
-      - `f2` pressed in the Help dialog switches the open dialog to Settings.
+      `window.press("f1", cx)` etc. (KeyBinding/test pages): - `f1` opens Help; `f1` again closes it; - `f2` opens Settings; - `space` from the live screen starts the take, then pauses, then resumes; - `enter` while recording stops the take and shows the transcript; - `space` on the mode chooser starts nothing; - `f2` pressed in the Help dialog switches the open dialog to Settings.
 - [x] **T4.2 — Green: handlers.** `apply_action` per §D, `.on_action(...)` on the
       widget root, `cx.propagate()` on every `false`, and `views/recording.rs`
       delegating its record button to `app.toggle_recording(cx)`.
@@ -540,7 +534,7 @@ bindings" sentence, which is no longer true.
 3. **`SavePrompt` cannot report a platform failure.** As specified (and
    documented) the trait returns `Task<Option<PathBuf>>`, so a cancelled dialog
    and a dialog that could not open are the same `None`. `save_transcript` no
-   longer reports `AppError::FileDialogFailed` on this path; the file *picker*
+   longer reports `AppError::FileDialogFailed` on this path; the file _picker_
    (`pick_transcription_file`) still does. A richer return type (or a second
    trait method) would restore it and would deviate from the contract.
 4. **Documented-API gap: `cx.platform_info()` does not exist in the pinned
@@ -558,14 +552,14 @@ bindings" sentence, which is no longer true.
    remove it, and would place the replacement dialog with `window.window_handle()`
    of a window that is closing itself. Two additions make the switch safe and
    are documented in `app.rs`:
-   - `SpeechTtApp::release_dialog_window`: when the command arrives from the
-     dialog's own window, only the tracked handle is forgotten and the dialog
-     removes itself (`DialogWindow::forward` calls `window.remove_window()` when
-     it is no longer the active dialog); any other window closes it as before.
-   - `SpeechTtApp::shell_window` (captured at construction): the deferred dialog
-     open is always anchored to the widget window, so it never updates the
-     window that is disappearing. Observable behaviour matches §F: F2 in Help
-     replaces it with Settings (2 windows, no flicker of a closed dialog).
+    - `SpeechTtApp::release_dialog_window`: when the command arrives from the
+      dialog's own window, only the tracked handle is forgotten and the dialog
+      removes itself (`DialogWindow::forward` calls `window.remove_window()` when
+      it is no longer the active dialog); any other window closes it as before.
+    - `SpeechTtApp::shell_window` (captured at construction): the deferred dialog
+      open is always anchored to the widget window, so it never updates the
+      window that is disappearing. Observable behaviour matches §F: F2 in Help
+      replaces it with Settings (2 windows, no flicker of a closed dialog).
 6. **Help rows use element ids for the T6.1 assertion.** `Body` exposes no
    accessibility label and components are out of scope, so each row is a
    `test_support()` div with the stable id `help-shortcut-<action>`; the test
@@ -610,7 +604,7 @@ Polish pass after `POLISH_REQUIRED`, plus the CEO's state-scoping requirement
    pinned by the table tests in `shortcuts.rs`; a runtime absence proof is not
    available at the pinned framework version (see the second review round).
 3. **Ctrl+S reports a failed save dialog.** `SaveAnswer { Chosen, Cancelled,
-   Failed }` replaces `Task<Option<PathBuf>>`: `Ok(Ok(Some(path)))` → `Chosen`,
+Failed }` replaces `Task<Option<PathBuf>>`: `Ok(Ok(Some(path)))` → `Chosen`,
    `Ok(Ok(None))` → `Cancelled`, `Ok(Err(_)) | Err(_)` → `Failed`, and a
    `Failed` answer reports `AppError::FileDialogFailed`. `ScriptedSavePrompt`
    gained `chosen` / `cancelled` / `failed` (keeping `answering`), and two tests
@@ -635,11 +629,11 @@ Polish pass after `POLISH_REQUIRED`, plus the CEO's state-scoping requirement
    `close_dialog_window` call makes the test report three windows), so the test
    has teeth.
 8. **`SessionAction::ALL`** is `[ToggleRecording, StopRecording,
-   SaveTranscript, ToggleHelp, ToggleSettings]`, documented as declaration
+SaveTranscript, ToggleHelp, ToggleSettings]`, documented as declaration
    order, which is also the Help dialog's reading order; `BINDINGS` and both
    order tests agree.
 9. **Documentation corrections (AGENTS.md §3).** `app.rs`'s module header and
-   `apply_action` describe `cx.propagate()` as letting *action dispatch* continue
+   `apply_action` describe `cx.propagate()` as letting _action dispatch_ continue
    to the next candidate, and state separately that a focused component keeps
    its own Space/Enter through keybinding **precedence**. `actions.rs` no longer
    duplicates the key column and points at `crate::shortcuts::BINDINGS`; its
@@ -670,7 +664,7 @@ Polish pass on the second review's `POLISH_REQUIRED` list.
    asked for — `window.bindings_for_action(&ToggleRecording).is_empty()`, plus
    `StopRecording` and `SaveTranscript` — **could not be added**. The method
    exists on the pinned `Window` (gpui-pre 0.3.9) and compiles, but returns no
-   bindings for *any* action, and the CTO re-verified it independently after the
+   bindings for _any_ action, and the CTO re-verified it independently after the
    fact: with `f1` pressed in the widget window, Help opens (the binding
    demonstrably dispatches) while `bindings_for_action(&ToggleHelp)` still
    answers `0`, and `bindings_for_action(&CopySelection)` — bound in
@@ -723,7 +717,7 @@ Polish pass on the second review's `POLISH_REQUIRED` list.
    at all (no `SpeechTT` fact) and the dialog registers no take handler, so
    nothing is outranked there. `shortcuts.rs` names the `KeyContext` type as the
    authority for the stacked `SpeechTT Take` declaration (a context holds a
-   *set* of whitespace-separated identifiers), cites the KeyBinding page's
+   _set_ of whitespace-separated identifiers), cites the KeyBinding page's
    "Declare Key Contexts", and warns against rewriting it as
    `SpeechTT mode=take`. `AppError::FileDialogFailed` now renders "Could not
    open the file dialog.", true for the picker and the save prompt, and its
@@ -744,8 +738,8 @@ Gate output after this round, from the repository root:
 
 ## Validation
 
-Closed after the CEO/PM tested the shortcuts by hand. The report: *"le ticket
-T0035 est validé."*
+Closed after the CEO/PM tested the shortcuts by hand. The report: _"le ticket
+T0035 est validé."_
 
 Validated by observation, not by inference:
 

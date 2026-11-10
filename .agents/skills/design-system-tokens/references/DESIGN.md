@@ -8,89 +8,92 @@ name: Reference Design System
 # designer overrides their stylesheet fallback.
 # ============================================================================
 colors:
-  # Brand — primary and accent are required; secondary and tertiary are
-  # optional.
-  brand:
-    primary:   "#000000"   # --color-brand-primary   (headings, logo, contrast)
-    accent:    "#ffcc00"   # --color-brand-accent    (CTAs, highlights, selection)
-    secondary: "#333333"   # --color-brand-secondary (optional, overridden)
-    # tertiary: omitted → --color-brand-tertiary: var(--color-brand-primary)
+    # Brand — primary and accent are required; secondary and tertiary are
+    # optional.
+    brand:
+        primary: "#000000" # --color-brand-primary   (headings, logo, contrast)
+        accent: "#ffcc00" # --color-brand-accent    (CTAs, highlights, selection)
+        secondary: "#333333" # --color-brand-secondary (optional, overridden)
+        # tertiary: omitted → --color-brand-tertiary: var(--color-brand-primary)
 
-  # Action — all four are required
-  action:
-    success: "#2e7d4f"     # --color-action-success
-    info:    "#2a6f97"     # --color-action-info
-    warning: "#b7791f"     # --color-action-warning
-    danger:  "#b23a2e"     # --color-action-danger
+    # Action — all four are required
+    action:
+        success: "#2e7d4f" # --color-action-success
+        info: "#2a6f97" # --color-action-info
+        warning: "#b7791f" # --color-action-warning
+        danger: "#b23a2e" # --color-action-danger
 
-  # Text  (drop-.base rule: colors.text.base -> --color-text)
-  text:
-    base:    "#000000"     # --color-text
-    accent:  "#ffcc00"     # --color-text-accent (highlighted or selected text)
-    muted:   "#606060"     # --color-text-muted
-    ondark:  "#ffffff"     # --color-text-ondark
+    # Text  (drop-.base rule: colors.text.base -> --color-text)
+    text:
+        base: "#000000" # --color-text
+        accent: "#ffcc00" # --color-text-accent (highlighted or selected text)
+        muted: "#606060" # --color-text-muted
+        ondark: "#ffffff" # --color-text-ondark
 
-  # Surface  (drop-.base rule: colors.surface.base -> --color-surface)
-  surface:
-    base: "#ffffff"        # --color-surface
-    alt:  "#f2f2f2"        # --color-surface-alt
-    dark: "#0f0f0f"        # --color-surface-dark      (optional, overridden)
-    # card:  omitted → --color-surface-card: var(--color-surface)
+    # Surface  (drop-.base rule: colors.surface.base -> --color-surface)
+    surface:
+        base: "#ffffff" # --color-surface
+        alt: "#f2f2f2" # --color-surface-alt
+        dark: "#0f0f0f" # --color-surface-dark      (optional, overridden)
+        # card:  omitted → --color-surface-card: var(--color-surface)
 
 # ============================================================================
 # TYPOGRAPHY  —  entries are objects;
 # fontFamily, fontWeight, lineHeight, letterSpacing values MUST use existing preset values from design-tokens.css (CSS variables)
 # ============================================================================
 typography:
-  # Font families — No font size
-  base: {
-    fontFamily: 'ui-serif, "Palatino Linotype", Cambria, Georgia, serif',
-    fontWeight: "var(--font-weight-regular)",
-    lineHeight: "var(--line-height-regular)"
-  }
-  display: {
-    fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Helvetica, Verdana, sans-serif',
-    fontWeight: "var(--font-weight-bold)",
-    lineHeight: "var(--line-height-tight)",
-    letterSpacing: "var(--letter-spacing-tight)"
-  }
-  mono: {
-    fontFamily: 'ui-monospace, "Courier New", monospace',
-    fontWeight: "var(--font-weight-thin)",
-    lineHeight: "var(--line-height-regular)"
-  }
+    # Font families — No font size
+    base:
+        {
+            fontFamily: 'ui-serif, "Palatino Linotype", Cambria, Georgia, serif',
+            fontWeight: "var(--font-weight-regular)",
+            lineHeight: "var(--line-height-regular)"
+        }
+    display:
+        {
+            fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Helvetica, Verdana, sans-serif',
+            fontWeight: "var(--font-weight-bold)",
+            lineHeight: "var(--line-height-tight)",
+            letterSpacing: "var(--letter-spacing-tight)"
+        }
+    mono:
+        {
+            fontFamily: 'ui-monospace, "Courier New", monospace',
+            fontWeight: "var(--font-weight-thin)",
+            lineHeight: "var(--line-height-regular)"
+        }
 
 # ============================================================================
 # ROUNDED  —  corner radius presets (all five are required)
 # Values in rem, except full (100% for circular shapes).
 # ============================================================================
 rounded:
-  none: "0"
-  sm:   "0.25rem"
-  md:   "0.75rem"
-  lg:   "1.125rem"
-  full: "100%"   # circular — avatars, icons, pills
+    none: "0"
+    sm: "0.25rem"
+    md: "0.75rem"
+    lg: "1.125rem"
+    full: "100%" # circular — avatars, icons, pills
 
 # ============================================================================
 # SPACING  —  spatial rhythm scale, 4px linear (all required)
 # ============================================================================
 spacing:
-  xs:   "0.25rem"
-  sm:   "0.5rem"
-  md:   "0.75rem"
-  base: "1rem"
-  lg:   "1.25rem"
-  xl:   "2rem"
-  xxl:  "3rem"
+    xs: "0.25rem"
+    sm: "0.5rem"
+    md: "0.75rem"
+    base: "1rem"
+    lg: "1.25rem"
+    xl: "2rem"
+    xxl: "3rem"
 
 # ============================================================================
 # ELEVATION  —  custom top-level family (shadow presets; optional, default none)
 # Values match the flat preset (presets/elevation/flat.css).
 # ============================================================================
 elevation:
-  sm: "none"
-  md: "none"
-  lg: "none"
+    sm: "none"
+    md: "none"
+    lg: "none"
 
 # ============================================================================
 # BORDER  —  custom top-level family (border WIDTHS; all required)
@@ -98,9 +101,9 @@ elevation:
 # Border COLORS are not tokens — components pick them under `components`.
 # ============================================================================
 border:
-  sm: "1px"
-  md: "2px"
-  lg: "4px"
+    sm: "1px"
+    md: "2px"
+    lg: "4px"
 ---
 
 ## Overview
@@ -147,17 +150,18 @@ for any text on a surface: the `primary`, `accent`, `success`, `warning`, `dange
 
 ### Color variants
 
-This [color variants companion stylesheet](./color-variants.css) can be used to 
+This [color variants companion stylesheet](./color-variants.css) can be used to
 gain `*-muted` and `*-active` color variants derived from the theme's brand and action colors:
 
 The calculation is made with:
-- `muted`  — `hsl(from <base> h calc(s * 0.8) calc(l * 1.2))` — less
+
+- `muted` — `hsl(from <base> h calc(s * 0.8) calc(l * 1.2))` — less
   saturated, lighter; the softened, resting variant.
 - `active` — `hsl(from <base> h calc(s * 1.2) calc(l * 1.1))` — more
   saturated, lighter; the vivid hover/pressed variant.
 
-**Note:** Only `brand` and `action` colors carry these variants, because they are 
-intended to be used on interactive elements with _active/disabled_ states. 
+**Note:** Only `brand` and `action` colors carry these variants, because they are
+intended to be used on interactive elements with _active/disabled_ states.
 
 ## Typography
 
@@ -204,15 +208,15 @@ In the stylesheet this maps to:
 
 ```css
 a {
-    color: var(--color-text);
-    text-decoration: underline;
+	color: var(--color-text);
+	text-decoration: underline;
 }
 a:hover,
 a:active {
-    background: var(--color-brand-accent-muted);
+	background: var(--color-brand-accent-muted);
 }
 a:visited {
-    color: var(--color-text-muted);
+	color: var(--color-text-muted);
 }
 ```
 

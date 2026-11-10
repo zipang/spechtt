@@ -10,8 +10,8 @@
   borrowing this one)
 - **References**: `DESIGN.md` §Round button / §Press wave / §Record & transport
   controls, `AGENTS.md` §2 (component rule), CEO decision of this ticket:
-  *"the record button should feature a microphone icon, red and pulsating with
-  waves when recording, black and inert when not recording."* — where "red" is
+  _"the record button should feature a microphone icon, red and pulsating with
+  waves when recording, black and inert when not recording."_ — where "red" is
   the existing `brand.primary` Agfa orange, and "black" is the existing
   `Secondary` round-button surface. **No new colour is introduced.**
 
@@ -19,7 +19,7 @@
 
 The take screen borrowed the iconography of a media player: pause while
 recording, play while paused, a separate square Stop. That is the language of
-*playback*, not of *capture*. The user has to read two buttons to understand one
+_playback_, not of _capture_. The user has to read two buttons to understand one
 state, and Paused is a whole screen away from Recording even though nothing
 about the layout changes.
 
@@ -73,11 +73,11 @@ or spacing token. No layout, position or animation-snapshot test.
 `views/recording.rs` renders `ViewState::Live` in all three take states.
 `views/paused.rs` is deleted; there is no `ViewState::Paused`.
 
-| Take state | Status badge | Waveform |
-|---|---|---|
-| idle (no take open) | `READY`, muted dot | idle bars, still |
-| recording | `RECORDING`, primary dot pulsing | live FFT bars |
-| paused | `PAUSED`, warning dot, static | flat, low, secondary colour |
+| Take state          | Status badge                     | Waveform                    |
+| ------------------- | -------------------------------- | --------------------------- |
+| idle (no take open) | `READY`, muted dot               | idle bars, still            |
+| recording           | `RECORDING`, primary dot pulsing | live FFT bars               |
+| paused              | `PAUSED`, warning dot, static    | flat, low, secondary colour |
 
 The badge and waveform carry the state, exactly as `DESIGN.md` requires —
 colour is never the only signal.
@@ -101,15 +101,15 @@ impl RecordControl {
   and the repeating wave, and picks no colour of its own.
 - **`Off`** — the existing `RoundTone::Secondary` (surface fill, `brand.secondary`
   outline, `--color-text` glyph), still. No pulse, no wave, no shimmer. "Inert"
-  means *visually at rest*: the control still accepts a click, because pressing
+  means _visually at rest_: the control still accepts a click, because pressing
   it is how a take starts and how a paused take resumes.
 - **`On`** — the existing `RoundTone::Primary` (`brand.primary` fill and
   outline, `--color-text` glyph), plus two continuous animations:
-  - a **pulse** of the disc's scale (1.00 → 1.06 → 1.00) over
-    `RECORD_PULSE_PERIOD` (1.6 s), repeating;
-  - one **ring wave** per period, starting at the button diameter and expanding
-    to `RECORD_WAVE_MAX_SIZE` while fading 1 → 0, in `brand.primary` — the
-    button's own colour, exactly like the existing press wave.
+    - a **pulse** of the disc's scale (1.00 → 1.06 → 1.00) over
+      `RECORD_PULSE_PERIOD` (1.6 s), repeating;
+    - one **ring wave** per period, starting at the button diameter and expanding
+      to `RECORD_WAVE_MAX_SIZE` while fading 1 → 0, in `brand.primary` — the
+      button's own colour, exactly like the existing press wave.
 - Both animations start on the transition to `On` and stop on the transition to
   `Off`; a paused take is `Off` and therefore completely still.
 - The existing press wave (`RippleRing` at the window root) is unchanged: a
@@ -123,18 +123,18 @@ pub const RECORD_WAVE_MAX_SIZE: f32;
 #[must_use] pub fn record_wave_frame(phase: f32) -> (f32, f32); // (diameter, opacity)
 ```
 
-  Phase outside `0..=1` clamps, exactly like `ripple_frame`.
+Phase outside `0..=1` clamps, exactly like `ripple_frame`.
 
 ### 3. Footer actions
 
 Uses T0021's `ScreenFooter`:
 
-| Zone | Control | Behaviour |
-|---|---|---|
-| Leading | `IconAction` `ArrowBigLeft`, label "Cancel" | Stops capture, discards the take if one is open, `change_mode()` → mode chooser |
-| Primary | `RecordControl` | `Off` in idle and paused → starts capture / resumes; `On` while recording → pauses |
-| Trailing | `IconAction` `RotateCcw`, label "Reset" | `reset_take()`: clears transcript, elapsed and waveform and returns the screen to idle **on the same screen**. Disabled in idle and for a file take |
-| Trailing | `IconAction` `Square`, label "Stop" | `finish_take()` → stopped screen. Enabled whenever a take is open (recording **or** paused) |
+| Zone     | Control                                     | Behaviour                                                                                                                                           |
+| -------- | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Leading  | `IconAction` `ArrowBigLeft`, label "Cancel" | Stops capture, discards the take if one is open, `change_mode()` → mode chooser                                                                     |
+| Primary  | `RecordControl`                             | `Off` in idle and paused → starts capture / resumes; `On` while recording → pauses                                                                  |
+| Trailing | `IconAction` `RotateCcw`, label "Reset"     | `reset_take()`: clears transcript, elapsed and waveform and returns the screen to idle **on the same screen**. Disabled in idle and for a file take |
+| Trailing | `IconAction` `Square`, label "Stop"         | `finish_take()` → stopped screen. Enabled whenever a take is open (recording **or** paused)                                                         |
 
 - Cancel is always enabled, including mid-take.
 - Stop no longer requires a pause first: with the mic owning pause/resume, Stop
@@ -150,19 +150,19 @@ Uses T0021's `ScreenFooter`:
 ### 4. Reset semantics (`controller` + `core`)
 
 - `SessionMachine::discard_take() -> Result<(), SessionError>`:
-  - from `Recording` or `Paused`: drop the take, **keep** provider/model/audio
-    source, return to `Ready`;
-  - from `Blank` or `Ready`: no-op success.
+    - from `Recording` or `Paused`: drop the take, **keep** provider/model/audio
+      source, return to `Ready`;
+    - from `Blank` or `Ready`: no-op success.
 - `SessionController::reset_take() -> bool`:
-  - returns `false` (and changes nothing) when no take is open or when the take
-    is a file take;
-  - otherwise sends `SttCommand::Stop` to the worker, ignores any late event of
-    the discarded session, clears transcript, live tail, waveform, elapsed,
-    progress and output status, and lands on the idle Live screen with the
-    configuration intact;
-  - reports no error and sets no output status;
-  - the reset take's transcript can never reach Copy/Save: the finished result
-    stays `None`.
+    - returns `false` (and changes nothing) when no take is open or when the take
+      is a file take;
+    - otherwise sends `SttCommand::Stop` to the worker, ignores any late event of
+      the discarded session, clears transcript, live tail, waveform, elapsed,
+      progress and output status, and lands on the idle Live screen with the
+      configuration intact;
+    - reports no error and sets no output status;
+    - the reset take's transcript can never reach Copy/Save: the finished result
+      stays `None`.
 - `SessionController::cancel_take()`: `discard_take()` when a take is open (for
   a file take, also abort the decode via `SttCommand::Stop`), then the existing
   `change_mode()`.
@@ -173,12 +173,12 @@ Uses T0021's `ScreenFooter`:
 
 - **No token, theme role or round-button tone is added.** The two states map
   onto the two tones `DESIGN.md` already defines:
-  - `On` ⇒ `RoundTone::Primary` — `--color-brand-primary` fill and outline,
-    `--color-text` glyph. That brand orange *is* the "red" that was asked for;
-    no palette entry is added.
-  - `Off` ⇒ `RoundTone::Secondary` — `--color-surface` fill,
-    `--color-brand-secondary` outline, `--color-text` glyph. That near-black
-    resting face *is* the "black and inert" look; no palette entry is added.
+    - `On` ⇒ `RoundTone::Primary` — `--color-brand-primary` fill and outline,
+      `--color-text` glyph. That brand orange _is_ the "red" that was asked for;
+      no palette entry is added.
+    - `Off` ⇒ `RoundTone::Secondary` — `--color-surface` fill,
+      `--color-brand-secondary` outline, `--color-text` glyph. That near-black
+      resting face _is_ the "black and inert" look; no palette entry is added.
 - `DESIGN.md` §Record & transport controls is rewritten: microphone glyph in
   both states, on/off reading, pulse and repeating waves while recording, and
   the three footer actions. The Paused-screen paragraph becomes a take-state
@@ -249,7 +249,7 @@ Uses T0021's `ScreenFooter`:
 
 - **The pulse is drawn, not transformed.** GPUI exposes a transform only for
   SVG elements, so "scale the disc" is implemented the way the press wave
-  already works: the same disc in the button's own colour, painted *behind* the
+  already works: the same disc in the button's own colour, painted _behind_ the
   face at `pulse_scale` of the diameter. The overlap is invisible and only the
   sliver past the edge reads, so the button appears to swell without the footer
   moving. Both layers live in a square larger than the face
@@ -278,14 +278,14 @@ Uses T0021's `ScreenFooter`:
 During visual review the CEO approved the pulse and asked for the `READY` chip
 to be green "at the start of a recording". Implemented in `StatusBadge`:
 
-| State | Dot | Label | Before |
-|---|---|---|---|
-| idle | `action.success` (mint) | `action.success` | muted dot + muted label |
-| recording | `action.danger` | `text.muted` | unchanged |
-| paused | `action.warning` | `action.warning` | unchanged |
+| State     | Dot                     | Label            | Before                  |
+| --------- | ----------------------- | ---------------- | ----------------------- |
+| idle      | `action.success` (mint) | `action.success` | muted dot + muted label |
+| recording | `action.danger`         | `text.muted`     | unchanged               |
+| paused    | `action.warning`        | `action.warning` | unchanged               |
 
-The mint is the existing `--color-action-success` role (it already means *saved*
-and *connected*), so no token, theme role or component is added. `BadgeTone`
+The mint is the existing `--color-action-success` role (it already means _saved_
+and _connected_), so no token, theme role or component is added. `BadgeTone`
 gained a small `role_rgb()` accessor so the decision is unit-tested without
 pixels: ready is success, paused is amber, recording is red, and the three can
 never collapse onto one colour. `DESIGN.md` §Status pill documents the table.
@@ -297,10 +297,10 @@ footer) should in fact be a continue arrow, just like in the session_setup
 screen". The action is unchanged — it still ends the take — but its glyph is now
 `ArrowBigRight`, the exact mirror of the footer's back arrow:
 
-| Zone | Before | After |
-|---|---|---|
-| Trailing (1st) | `RotateCcw` Reset | unchanged |
-| Trailing (2nd) | `Square` Stop | `ArrowBigRight` Stop |
+| Zone           | Before            | After                |
+| -------------- | ----------------- | -------------------- |
+| Trailing (1st) | `RotateCcw` Reset | unchanged            |
+| Trailing (2nd) | `Square` Stop     | `ArrowBigRight` Stop |
 
 The reasoning is the footer's own rule (T0021): back goes one step towards the
 chooser, forward goes one step onward — here, to the transcript. Ending a take
@@ -317,8 +317,8 @@ Third visual-review revision:
 
 1. **`RecordControl` is now `components::ToggleRoundButton`** (module
    `toggle_round_button.rs`), with `ToggleState::{Off, On}`. The CEO's point is
-   exactly right: it is not a record control, it is a *switch built on the round
-   button* — the take screen merely decides that "on" means "the microphone is
+   exactly right: it is not a record control, it is a _switch built on the round
+   button_ — the take screen merely decides that "on" means "the microphone is
    capturing". The component is now take-agnostic: it takes `(id, icon, state)`
    and knows nothing about sessions. Constants follow the name
    (`TOGGLE_PULSE_PERIOD`, `TOGGLE_PULSE_AMPLITUDE`, `TOGGLE_WAVE_MAX_SIZE`,
@@ -327,7 +327,7 @@ Third visual-review revision:
 2. **The streaming/batched chip left the take screen.** `TransportHeader` now
    takes `(elapsed, progress)` only, so the top-right corner carries one
    read-out: the `mm:ss` timer. The chip still appears wherever a model is
-   *chosen* (setup form, Settings default, Help catalogue), because there it
+   _chosen_ (setup form, Settings default, Help catalogue), because there it
    explains the choice; `DESIGN.md` §Toggle round button records why it is
    absent from the take screen.
 
@@ -338,7 +338,7 @@ Third visual-review revision:
   wrapper with no other caller.
 - **`App::is_capturing_audio` added** as a headless test surface: "Reset and
   Cancel release the device" is otherwise unobservable without real audio
-  hardware. The headless fixture has no audio factory, so a *second* take after
+  hardware. The headless fixture has no audio factory, so a _second_ take after
   Reset cannot re-open a source there; production re-opens through the factory
   that `SpeechTtApp::new` installs.
 - **A file take disables the microphone and Reset** as a temporary branch
@@ -378,7 +378,7 @@ that render each take state.
 ### Documentation hygiene
 
 Component and module docs describe what a piece **is** and what it can do — its
-purpose, its states, its options. Any prose about what a piece was *not*, or what
+purpose, its states, its options. Any prose about what a piece was _not_, or what
 it did before, is removed: that reasoning lives in this ticket and the commit,
 and the source keeps only the current contract.
 

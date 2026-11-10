@@ -164,13 +164,13 @@ name: Tests
 on: [push, pull_request]
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Run tests
-        run: cargo test --features test-support
+    test:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v3
+            - uses: dtolnay/rust-toolchain@stable
+            - name: Run tests
+              run: cargo test --features test-support
 ```
 
 GPUI's testing framework provides deterministic, fast, and comprehensive testing capabilities that mirror real application behavior while providing the control needed for thorough testing of complex UI and async scenarios.

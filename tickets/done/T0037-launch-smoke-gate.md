@@ -5,22 +5,22 @@
 - **Depends on**: T0036
 - **Blocks**: nothing
 - **References**:
-  - `AGENTS.md` §5 (quality gates), §6 (hermetic testing, no GUI runs)
-  - `tickets/done/T0036-gpui-kit-0-9-migration.md` — the failure this gate exists
-    to catch, and the honest limit its startup gate declares
-  - `https://docs.rs/gpui-kit/0.9.1/gpui_kit/fn.application.html`
-    (`gpui_kit::application() -> Application`, `.run(cx)`)
+    - `AGENTS.md` §5 (quality gates), §6 (hermetic testing, no GUI runs)
+    - `tickets/done/T0036-gpui-kit-0-9-migration.md` — the failure this gate exists
+      to catch, and the honest limit its startup gate declares
+    - `https://docs.rs/gpui-kit/0.9.1/gpui_kit/fn.application.html`
+      (`gpui_kit::application() -> Application`, `.run(cx)`)
 
 ## Context & Goal
 
 T0036 shipped with every gate green and the application panicking before its
 first frame: `KeyBinding::new("secondary-c", …)` is rejected by
 `gpui-pre 0.3.12`. The fix added a startup seam (`startup::init_app`) and a
-source/headless gate over it, which closes every *registration* the application
+source/headless gate over it, which closes every _registration_ the application
 performs. It does not close the loop, by its own admission:
 
 > `gpui_kit::application().run()`'s event loop is never executed headlessly, so
-> what the gate covers is […] not *the application starts*.
+> what the gate covers is […] not _the application starts_.
 
 A defect that only appears once the framework's loop drives a real window — a
 panic in `run()`'s closure below the seam, a failed window creation, a GPU
@@ -97,7 +97,7 @@ A pure timeout cannot distinguish "still initialising" from "running". If a smal
 honest positive signal exists — one line the binary emits once its window is open,
 on `stderr`, through the existing `diagnostics` module — add it and let the test
 wait for that line instead of for a fixed window, with the timeout as a backstop.
-This is a *diagnostic*, must not leak secrets or paths, and must not change what
+This is a _diagnostic_, must not leak secrets or paths, and must not change what
 the widget does. If no clean signal is possible without touching behaviour, say so
 in the notes and ship the liveness window alone.
 
@@ -173,7 +173,7 @@ display connection fails deterministically.
   costs nothing on a healthy run, which reaches the signal in well under a
   second.
 - `SETTLE_WINDOW = 3 s` — the window must survive the first frame's layout. That
-  is the failure mode that lands *after* `open_window` returns, and it is
+  is the failure mode that lands _after_ `open_window` returns, and it is
   invisible to the signal alone.
 - `POLL_INTERVAL = 100 ms` — the sampling rate for the child's status and its
   captured stderr, per §A.
@@ -190,7 +190,7 @@ restating it, so the gate cannot drift from the binary it launches, and
 `the_launch_signal_is_one_path_free_line` pins that it stays path-free.
 
 The signal alone is not treated as success: a panic in the first frame happens
-*after* it, which is exactly why the settle window exists.
+_after_ it, which is exactly why the settle window exists.
 
 ### §D behaviour: headless, no skip
 
@@ -262,34 +262,34 @@ imports it needed are deleted.
 - **Red check (correction 1, headless):** with `secondary-c` restored in
   `shortcuts.rs`, the headless gate fails with the child's own panic text in
   0.20 s:
-  ```
-  test the_built_binary_reaches_a_running_window ... FAILED
+    ```
+    test the_built_binary_reaches_a_running_window ... FAILED
 
-  thread 'the_built_binary_reaches_a_running_window' panicked at crates/speechtt-ui/tests/launch.rs:110:9:
-  the widget exited (exit status: 101) before reporting that its window is open: a panic while starting up looks like this
-  --- widget stderr ---
+    thread 'the_built_binary_reaches_a_running_window' panicked at crates/speechtt-ui/tests/launch.rs:110:9:
+    the widget exited (exit status: 101) before reporting that its window is open: a panic while starting up looks like this
+    --- widget stderr ---
 
-  thread 'main' (316747) panicked at .../gpui-pre-0.3.12/src/keymap/binding.rs:47:10:
-  called `Result::unwrap()` on an `Err` value: InvalidKeystrokeError { keystroke: "secondary-c" }
-  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+    thread 'main' (316747) panicked at .../gpui-pre-0.3.12/src/keymap/binding.rs:47:10:
+    called `Result::unwrap()` on an `Err` value: InvalidKeystrokeError { keystroke: "secondary-c" }
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 
-  test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
-  ```
-  Reverted → `4 passed; 0 failed`, `3.31s`.
+    test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+    ```
+    Reverted → `4 passed; 0 failed`, `3.31s`.
 - **Red check (correction 2, redirection):** with
   `.env("XDG_CONFIG_HOME", sandbox.config())` temporarily removed from
   `widget_command`, only the deterministic test fails:
-  ```
-  test the_child_resolves_its_settings_inside_the_sandbox ... FAILED
+    ```
+    test the_child_resolves_its_settings_inside_the_sandbox ... FAILED
 
-  thread 'the_child_resolves_its_settings_inside_the_sandbox' panicked at crates/speechtt-ui/tests/launch.rs:142:9:
-  assertion `left == right` failed: the child must be spawned with XDG_CONFIG_HOME pointing into its throwaway settings root, got None instead of "/tmp/speechtt-launch-304402-1794235480636484726/config"
-    left: None
-   right: Some("/tmp/speechtt-launch-304402-1794235480636484726/config")
+    thread 'the_child_resolves_its_settings_inside_the_sandbox' panicked at crates/speechtt-ui/tests/launch.rs:142:9:
+    assertion `left == right` failed: the child must be spawned with XDG_CONFIG_HOME pointing into its throwaway settings root, got None instead of "/tmp/speechtt-launch-304402-1794235480636484726/config"
+      left: None
+     right: Some("/tmp/speechtt-launch-304402-1794235480636484726/config")
 
-  test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.82s
-  ```
-  Reverted → `4 passed; 0 failed`.
+    test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.82s
+    ```
+    Reverted → `4 passed; 0 failed`.
 - **Racy failure is gone**: two concurrent `cargo test -p speechtt-ui --test launch`
   runs both passed — `A: 4 passed … 4.22s`, `B: 4 passed … 4.22s` — and a real
   `target/debug/speechtt-ui` (PID 290232) was running the whole time, which is the
@@ -297,7 +297,6 @@ imports it needed are deleted.
 - Rust test count: **614** (610 before the ticket; `launch.rs` reports
   `running 4 tests`, and the deterministic test replaced no test because
   `file_state` was a helper).
-
 
 ### Cleanup on every path
 

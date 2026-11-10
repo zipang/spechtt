@@ -1,19 +1,19 @@
 /**
  * File-session adapter: transcribe a local audio or video file.
  *
- * Unlike a live session, nothing is pushed over the bridge: the worker owns a
- * path, decodes it with ffmpeg ([`decodeFileToPcm16`]) and feeds the PCM to the
- * same [`Segmenter`] the live adapters use, so silence alignment, hangover,
- * segment merging and junction dedupe are shared rather than reimplemented.
+ * Unlike a live session, nothing is pushed over the bridge: the worker owns a path, decodes it with
+ * ffmpeg ([`decodeFileToPcm16`]) and feeds the PCM to the same [`Segmenter`] the live adapters use,
+ * so silence alignment, hangover, segment merging and junction dedupe are shared rather than
+ * reimplemented.
  *
  * Two deliberate differences from the live cadence:
  *
- * - Segmentation is **file-tuned** ([`FILE_SEGMENTATION`]): larger segments mean
- *   fewer requests and more context for the model, and batch transcription is
- *   faster than realtime so latency does not matter.
- * - Segments are transcribed **strictly sequentially**, and the decoder is not
- *   pulled again until the previous segment has been transcribed, so memory
- *   stays bounded by one segment no matter how long the recording is.
+ * - Segmentation is **file-tuned** ([`FILE_SEGMENTATION`]): larger segments mean fewer requests and
+ *   more context for the model, and batch transcription is faster than realtime so latency does not
+ *   matter.
+ * - Segments are transcribed **strictly sequentially**, and the decoder is not pulled again until the
+ *   previous segment has been transcribed, so memory stays bounded by one segment no matter how
+ *   long the recording is.
  *
  * The session never emits `partial` or `delta`: there is no live hypothesis.
  */
@@ -27,41 +27,32 @@ import { languageProviderOptions } from "../languages";
 import type { OutboundEvent, SttErrorCode } from "../protocol";
 import { mergeTranscript } from "../transcript-merge";
 import { pcm16ToWav } from "./mistral";
-import type {
-	EmitFn,
-	ProviderOptions,
-	SttSession,
-	SttSessionConfig,
-} from "./types";
+import type { EmitFn, ProviderOptions, SttSession, SttSessionConfig } from "./types";
 import { mergeProviderOptions } from "./types";
 import type { TranscribeFn } from "./mistral";
 
 /**
  * Segmentation cadence used for files.
  *
- * `targetMs`/`maxSegmentMs` are raised well above the live 3 s / 7 s cadence;
- * every other knob (silence alignment, hangover, min-speech merge, overlap)
- * keeps its [`Segmenter`] default.
+ * `targetMs`/`maxSegmentMs` are raised well above the live 3 s / 7 s cadence; every other knob
+ * (silence alignment, hangover, min-speech merge, overlap) keeps its [`Segmenter`] default.
  */
 export const FILE_SEGMENTATION = {
 	targetMs: 30_000,
-	maxSegmentMs: 60_000,
+	maxSegmentMs: 60_000
 } as const;
 
 /** Injectable collaborators; every one is faked in tests. */
 export interface FileSessionDeps {
 	/** Streams 16 kHz mono PCM16 bytes decoded from `path`. */
-	decode(
-		path: string,
-		options: { signal: AbortSignal },
-	): AsyncIterable<Uint8Array>;
+	decode(path: string, options: { signal: AbortSignal }): AsyncIterable<Uint8Array>;
 	/** Best-effort container duration in seconds. */
 	probeDuration(path: string, signal: AbortSignal): Promise<number | null>;
 	transcribe: TranscribeFn;
 	resolveModel(config: SttSessionConfig): TranscriptionModel;
 	/**
-	 * Options the caller already wants on every `transcribe` call. The
-	 * dictation language is merged on top, never in place of them.
+	 * Options the caller already wants on every `transcribe` call. The dictation language is merged
+	 * on top, never in place of them.
 	 */
 	providerOptions?: ProviderOptions;
 	/** Overrides [`FILE_SEGMENTATION`] (tests use a much shorter cadence). */
@@ -97,21 +88,21 @@ class FileSession implements SttSession {
 		readonly sessionId: string,
 		config: SttSessionConfig & { path: string },
 		private readonly emit: EmitFn,
-		private readonly deps: FileSessionDeps,
+		private readonly deps: FileSessionDeps
 	) {
 		this.path = config.path;
 		this.config = config;
 		this.segmenter = new Segmenter({
 			sampleRate: config.sampleRate,
 			...FILE_SEGMENTATION,
-			...deps.segmentation,
+			...deps.segmentation
 		});
 		this.runPromise = this.run();
 	}
 
 	/**
-	 * No-ops: a file session has no live audio input. They exist because
-	 * [`SttSession`] is shared with the streaming adapters.
+	 * No-ops: a file session has no live audio input. They exist because [`SttSession`] is shared
+	 * with the streaming adapters.
 	 */
 	pushAudio(): void {}
 
@@ -159,7 +150,7 @@ class FileSession implements SttSession {
 			this.emit({ type: "started", sessionId: this.sessionId });
 
 			const chunks = this.deps.decode(this.path, {
-				signal: this.decodeController.signal,
+				signal: this.decodeController.signal
 			});
 			try {
 				for await (const chunk of chunks) {
@@ -205,7 +196,7 @@ class FileSession implements SttSession {
 			this.emit({
 				type: "stopped",
 				sessionId: this.sessionId,
-				fullText: this.accumulated,
+				fullText: this.accumulated
 			});
 		} catch (error) {
 			if (this.aborted) {
@@ -220,14 +211,14 @@ class FileSession implements SttSession {
 	/** WAV-frames one segment, transcribes it and commits the new text only. */
 	private async transcribeSegment(
 		segment: AudioSegment,
-		model: TranscriptionModel,
+		model: TranscriptionModel
 	): Promise<void> {
 		if (segment.pcm16.length === 0) {
 			return;
 		}
 
 		console.error(
-			`[stt-worker] file segment index=${segment.index} reason=${segment.reason} durationMs=${segment.durationMs} speechMs=${segment.speechMs} rmsDb=${segment.rmsDb.toFixed(1)} overlap=${segment.startsWithOverlap}`,
+			`[stt-worker] file segment index=${segment.index} reason=${segment.reason} durationMs=${segment.durationMs} speechMs=${segment.speechMs} rmsDb=${segment.rmsDb.toFixed(1)} overlap=${segment.startsWithOverlap}`
 		);
 
 		const wav = pcm16ToWav(segment.pcm16, this.config.sampleRate);
@@ -235,13 +226,13 @@ class FileSession implements SttSession {
 		// adapters do: a file take is batched, so every request needs it.
 		const providerOptions = mergeProviderOptions(
 			this.deps.providerOptions,
-			languageProviderOptions(this.config.provider, this.config.language),
+			languageProviderOptions(this.config.provider, this.config.language)
 		);
 		const result = await this.deps.transcribe({
 			model,
 			audio: wav,
 			abortSignal: this.transcribeController.signal,
-			...(providerOptions === undefined ? {} : { providerOptions }),
+			...(providerOptions === undefined ? {} : { providerOptions })
 		});
 		if (this.aborted) {
 			return;
@@ -253,7 +244,7 @@ class FileSession implements SttSession {
 		}
 
 		const merged = mergeTranscript(this.accumulated, text, {
-			allowSingleWordOverlap: segment.startsWithOverlap,
+			allowSingleWordOverlap: segment.startsWithOverlap
 		});
 		const appended = merged.slice(this.accumulated.length).trim();
 		this.accumulated = merged;
@@ -265,13 +256,13 @@ class FileSession implements SttSession {
 			type: "committed",
 			sessionId: this.sessionId,
 			text: appended,
-			segment: String(segment.index),
+			segment: String(segment.index)
 		});
 	}
 
 	/**
-	 * Reports the decoded position. Monotonic by construction: a reading that
-	 * does not advance is skipped, so the UI never jumps backwards.
+	 * Reports the decoded position. Monotonic by construction: a reading that does not advance is
+	 * skipped, so the UI never jumps backwards.
 	 */
 	private emitProgress(): void {
 		const processedSeconds = this.decodedSamples / this.config.sampleRate;
@@ -283,7 +274,7 @@ class FileSession implements SttSession {
 			type: "progress",
 			sessionId: this.sessionId,
 			processedSeconds,
-			totalSeconds: this.totalSeconds,
+			totalSeconds: this.totalSeconds
 		});
 	}
 
@@ -298,16 +289,16 @@ class FileSession implements SttSession {
 			{
 				provider: this.config.provider,
 				model: this.config.model,
-				language: this.config.language,
+				language: this.config.language
 			},
 			error,
-			message,
+			message
 		);
 		this.emit({
 			type: "error",
 			sessionId: this.sessionId,
 			code: errorCode(error),
-			message,
+			message
 		});
 	}
 }
@@ -315,13 +306,13 @@ class FileSession implements SttSession {
 /**
  * Creates a session that transcribes `config.path`.
  *
- * Work starts immediately (probe → `started` → decode loop); `stop()` and
- * `abort()` both await it. `abort()` emits nothing.
+ * Work starts immediately (probe → `started` → decode loop); `stop()` and `abort()` both await it.
+ * `abort()` emits nothing.
  */
 export function createFileSession(
 	config: SttSessionConfig & { path: string },
 	emit: EmitFn,
-	deps: FileSessionDeps,
+	deps: FileSessionDeps
 ): SttSession {
 	return new FileSession(config.sessionId, config, emit, deps);
 }

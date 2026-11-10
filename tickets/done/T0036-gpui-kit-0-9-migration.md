@@ -9,24 +9,24 @@
 - **Owner**: coding sub-agent, supervised by CTO
 - **Started**: 2026-11-09
 - **References**:
-  - crates.io API: `<https://crates.io/api/v1/crates/gpui-kit>` (version +
-    publish dates), `<https://crates.io/api/v1/crates/gpui-kit/0.9.1/dependencies>`
-    (exact framework pins)
-  - `gpui-kit` docs for the pinned target: `<https://docs.rs/gpui-kit/0.9.1>`
-  - Markdown guide index: `<https://gpui-kit.com/llms.txt>` (already documents
-    0.9.x, so the repository is behind its own reference documentation)
-  - KeyBinding / Action / Testing pages:
-    `<https://gpui-kit.com/docs/keybinding.md>`,
-    `<https://gpui-kit.com/docs/action.md>`,
-    `<https://gpui-kit.com/docs/test.md>`
-  - `AGENTS.md` §6 "Official documentation sources — the registry"
+    - crates.io API: `<https://crates.io/api/v1/crates/gpui-kit>` (version +
+      publish dates), `<https://crates.io/api/v1/crates/gpui-kit/0.9.1/dependencies>`
+      (exact framework pins)
+    - `gpui-kit` docs for the pinned target: `<https://docs.rs/gpui-kit/0.9.1>`
+    - Markdown guide index: `<https://gpui-kit.com/llms.txt>` (already documents
+      0.9.x, so the repository is behind its own reference documentation)
+    - KeyBinding / Action / Testing pages:
+      `<https://gpui-kit.com/docs/keybinding.md>`,
+      `<https://gpui-kit.com/docs/action.md>`,
+      `<https://gpui-kit.com/docs/test.md>`
+    - `AGENTS.md` §6 "Official documentation sources — the registry"
 
 ## Context & Goal
 
 The workspace pins `gpui-kit = "0.8"`, which resolves to **0.8.0** (published
 2026-10-19) and drags `gpui-pre 0.3.9`. The framework has since published
 **0.8.1** (2026-10-26), **0.9.0** (2026-11-02) and **0.9.1** (2026-11-09), so the
-repository is two minor versions behind the crate *and* behind the
+repository is two minor versions behind the crate _and_ behind the
 `gpui-kit.com` documentation it is instructed to treat as authoritative
 (`AGENTS.md` §6). Every guide page fetched today describes 0.9.x, which means an
 implementing agent following the documented API can write code that does not
@@ -39,14 +39,14 @@ that were worked around under 0.8.0, and re-run every gate.
 
 `gpui-kit 0.9.1` pins its layers exactly:
 
-| Crate | Now (0.8.0) | Target (0.9.1) |
-|---|---|---|
-| `gpui-kit` | 0.8.0 | 0.9.1 |
-| `gpui-base` | 0.8.0 | 0.9.1 |
-| `gpui-component` | 0.8.0 | 0.9.1 |
-| `gpui-kit-assets` | 0.8.0 | 0.9.1 |
-| `gpui-pre` | 0.3.9 | **=0.3.12** (exact pin) |
-| `gpui-fast` | 0.1.10 | ^0.1.14 |
+| Crate             | Now (0.8.0) | Target (0.9.1)          |
+| ----------------- | ----------- | ----------------------- |
+| `gpui-kit`        | 0.8.0       | 0.9.1                   |
+| `gpui-base`       | 0.8.0       | 0.9.1                   |
+| `gpui-component`  | 0.8.0       | 0.9.1                   |
+| `gpui-kit-assets` | 0.8.0       | 0.9.1                   |
+| `gpui-pre`        | 0.3.9       | **=0.3.12** (exact pin) |
+| `gpui-fast`       | 0.1.10      | ^0.1.14                 |
 
 `gpui-pre` is pre-1.0 and pinned exactly, so a patch bump is a real API surface
 change, not a bugfix. Everything the UI re-exports through `gpui_kit` moves with
@@ -59,18 +59,18 @@ Both were discovered while implementing T0035 and are recorded there as gaps.
 1. **`App::platform_info()` exists in 0.9.1.**
    `https://docs.rs/gpui-kit/0.9.1/gpui_kit/struct.App.html`:
 
-   > `pub fn platform_info(self) -> PlatformInfo` — *Returns the host OS and
-   > application target reported by the backend.*
+    > `pub fn platform_info(self) -> PlatformInfo` — _Returns the host OS and
+    > application target reported by the backend._
 
-   `shortcuts::is_mac()` currently answers `cfg!(target_os = "macos")` because
-   neither `App` nor the `Platform` trait exposed the host OS at 0.3.9. The
-   documented snippet in `keybinding.md` (`cx.platform_info().is_mac()`) can
-   finally be followed. Behaviour today is correct for a native build; the point
-   is to stop guessing and to match the documentation.
+    `shortcuts::is_mac()` currently answers `cfg!(target_os = "macos")` because
+    neither `App` nor the `Platform` trait exposed the host OS at 0.3.9. The
+    documented snippet in `keybinding.md` (`cx.platform_info().is_mac()`) can
+    finally be followed. Behaviour today is correct for a native build; the point
+    is to stop guessing and to match the documentation.
 
 2. **`Window::bindings_for_action` may become usable as an oracle.**
-   The method exists in both versions and is documented as returning *"key
-   bindings that invoke an action on the currently focused element"*. Under
+   The method exists in both versions and is documented as returning _"key
+   bindings that invoke an action on the currently focused element"_. Under
    0.8.0 it returned no bindings for any action, including `ToggleHelp` and
    `CopySelection` while `f1` demonstrably dispatched and opened the Help dialog
    (re-verified independently during T0035's second review round). If 0.3.12
@@ -298,7 +298,7 @@ six gates to be green while `bun run ui` panicked, and both had to go:
 2. **The test fixture was a mirror, not a caller.** `tests/common/mod.rs::init_kit`
    re-listed the startup steps itself (`gpui_kit::init`, `theme::apply`,
    `bind_keys`). A hand-maintained copy drifts the moment one side changes, and it
-   already had: production bound the table *and* the copy shortcut, the copy bound
+   already had: production bound the table _and_ the copy shortcut, the copy bound
    only the table. Every UI test was green against a different startup than the
    real one.
 
@@ -319,13 +319,13 @@ diverge, and the `init_kit`/`open_window` docs say so.
 **What the gate forbids.** `tests/startup.rs::run_wires_and_the_fixture_calls_the_seam`
 reads `src/lib.rs` and `tests/common/mod.rs` as source and enforces both directions:
 
-- *Absence*: `run()` and the fixture may not carry a startup step. The needles are
+- _Absence_: `run()` and the fixture may not carry a startup step. The needles are
   the ways a key string can enter the tree — `gpui_kit::init`, `cx.bind_keys`,
   `KeyBinding::new`, `KeyBinding::load`, `Keystroke::parse`, `KeyContext::parse`,
   `theme::apply`, `bind_app_keys`, `bind_keys` — with the same list for both
   files, so a copy of `bind_app_keys` or of a bare `cx.bind_keys` in the fixture
   is caught, not just `bind_keys`.
-- *Presence*: `run()` must still contain `startup::init_app(cx)` and
+- _Presence_: `run()` must still contain `startup::init_app(cx)` and
   `startup::window_options(`, and the fixture must contain
   `speechtt_ui::startup::init_app`. Without this half, deleting the seam call
   from `run()` — a plausible refactor accident — ships a widget with no
@@ -338,9 +338,9 @@ half was proven to bite before being left green (see the Red evidence below).
 **What the gate cannot cover.** Two honest limits.
 
 1. `gpui_kit::application().run()`'s event loop is never executed headlessly, so
-   what the gate covers is *every registration `init_app` performs, the whole
+   what the gate covers is _every registration `init_app` performs, the whole
    `BINDINGS` table on both platforms' key columns, and the window-option
-   assembler* — not *the application starts*. A defect that only appears once the
+   assembler_ — not _the application starts_. A defect that only appears once the
    framework's loop drives a real window, a real GPU surface or a real backend is
    outside `cargo test`.
 2. The absence half is a needle list. A registration introduced through a **new
@@ -351,7 +351,7 @@ half was proven to bite before being left green (see the Red evidence below).
    proof of exhaustiveness.
 
 The gate therefore makes shipping an unparsable registration, a macOS-only
-keystroke, or a dropped seam call *hard*, not impossible. It does not make the
+keystroke, or a dropped seam call _hard_, not impossible. It does not make the
 widget's startup unconditionally safe.
 
 **Red evidence for the gate itself.**
@@ -398,19 +398,19 @@ onto windows that ask to be smaller. Each item and its evidence:
 - **Positive half.** `run()` must still contain `startup::init_app(cx)` and
   `startup::window_options(`, and the fixture `speechtt_ui::startup::init_app`.
   Proven by deleting the seam call from `run()`:
-  ```
-  thread 'run_wires_and_the_fixture_calls_the_seam' (198877) panicked at crates/speechtt-ui/tests/startup.rs:160:5:
-  `run()` must install the startup seam: call `startup::init_app(cx)` in its application closure, or the widget opens with no application keymap and the default theme (AGENTS.md §6 startup rule)
-  ```
+    ```
+    thread 'run_wires_and_the_fixture_calls_the_seam' (198877) panicked at crates/speechtt-ui/tests/startup.rs:160:5:
+    `run()` must install the startup seam: call `startup::init_app(cx)` in its application closure, or the widget opens with no application keymap and the default theme (AGENTS.md §6 startup rule)
+    ```
 - **One needle list for both files**, now including `bind_app_keys`,
   `KeyBinding::load`, `Keystroke::parse` and `KeyContext::parse`. The
   `bind_app_keys` false negative was real (`"bind_keys"` is not a substring of
   `"bind_app_keys"`); proven by copying the call into `init_kit`:
-  ```
-  thread 'run_wires_and_the_fixture_calls_the_seam' (199679) panicked at crates/speechtt-ui/tests/startup.rs:176:5:
-  startup steps belong in `startup::init_app`; the fixture must call the seam, never copy it — replace each of these with a call to `startup::init_app` (1 offender(s), AGENTS.md §6 startup rule):
-  tests/common/mod.rs:271: speechtt_ui::shortcuts::bind_app_keys(cx);
-  ```
+    ```
+    thread 'run_wires_and_the_fixture_calls_the_seam' (199679) panicked at crates/speechtt-ui/tests/startup.rs:176:5:
+    startup steps belong in `startup::init_app`; the fixture must call the seam, never copy it — replace each of these with a call to `startup::init_app` (1 offender(s), AGENTS.md §6 startup rule):
+    tests/common/mod.rs:271: speechtt_ui::shortcuts::bind_app_keys(cx);
+    ```
 - **Both platform columns.** `bind_keys` registers one column per host, so on
   Linux the whole `mac_keys` column was never parsed — the same mechanism as
   `secondary-c`. `shortcuts::tests::every_keystroke_of_both_platform_columns_parses`
@@ -453,13 +453,13 @@ onto windows that ask to be smaller. Each item and its evidence:
 `Cargo.toml` workspace dependency is `gpui-kit = "0.9.1"`. `cargo update -p
 gpui-kit` moved the whole family; `Cargo.lock` now resolves:
 
-| Crate | Resolved |
-|---|---|
-| `gpui-kit` | 0.9.1 |
-| `gpui-base` | 0.9.1 |
-| `gpui-component` | 0.9.1 |
-| `gpui-kit-assets` | 0.9.1 |
-| `gpui-pre` (and every `gpui-pre-*` layer) | 0.3.12 |
+| Crate                                     | Resolved |
+| ----------------------------------------- | -------- |
+| `gpui-kit`                                | 0.9.1    |
+| `gpui-base`                               | 0.9.1    |
+| `gpui-component`                          | 0.9.1    |
+| `gpui-kit-assets`                         | 0.9.1    |
+| `gpui-pre` (and every `gpui-pre-*` layer) | 0.3.12   |
 
 `cargo tree -d 2>/dev/null | grep -E '^gpui'` prints nothing: no `gpui-*`
 crate appears at more than one version. The bump also swapped
@@ -503,7 +503,7 @@ argument was supplied`), then passed after the implementation.
 
 The expectation is computed in the test as `cfg!(target_os = "macos")`, which is
 the fact the previous implementation hard-coded. The test therefore pins the
-*answer* for the host running the suite, not the mechanism: on a native host it
+_answer_ for the host running the suite, not the mechanism: on a native host it
 cannot distinguish a framework report from a build-target guess, and the two only
 separate where the compile target and the host disagree (a cross-target run). It
 asserts nothing about layout.
@@ -532,7 +532,7 @@ A throwaway `crates/speechtt-ui/tests/probe_bindings.rs` opened the production
 widget, pressed `f1` (Help opened — `cx.windows().len() == 2`, asserted), and
 then queried **both** accessors, in the widget window and in the dialog window.
 
-**Window used.** §C step 3 named a *Settings* dialog; the probe used the **Help**
+**Window used.** §C step 3 named a _Settings_ dialog; the probe used the **Help**
 dialog, because that is the window the `f1` dispatch in step 1 actually opens, so
 one fixture answers both questions. Nothing in the result depends on which dialog
 it is — as recorded below, the context-scoped accessor returns the same numbers
@@ -576,18 +576,18 @@ the earlier conclusions survives:
   focus-path resolution and is not something this repository can pin.
 - `Window::bindings_for_action_in_context(&action, context)` **does consult the
   application keymap**: it returns `1` for exactly the actions whose registered
-  predicate the *supplied* `KeyContext` satisfies, and `0` otherwise. The
+  predicate the _supplied_ `KeyContext` satisfies, and `0` otherwise. The
   defaults-only context and the deliberately wrong contexts (`ToggleRecording`
   under `SpeechTT` or `SpeechTTDialog`, `ToggleHelp` under an unrelated
   identifier) all answer `0`, so it is not blanket-returning.
 
-  But its answer is **identical in the widget window and in the dialog window**,
-  for every action and every context. It evaluates the predicate against the
-  context it is handed and never looks at the window's focus path.
+    But its answer is **identical in the widget window and in the dialog window**,
+    for every action and every context. It evaluates the predicate against the
+    context it is handed and never looks at the window's focus path.
 
 **Verdict.**
 `bindings_for_action_in_context` cannot serve as T0035's oracle: the assertion it
-would need is "in a *dialog* window the take commands are absent", and since the
+would need is "in a _dialog_ window the take commands are absent", and since the
 accessor returns the same `1` in the dialog window it does not observe the
 window at all. Passing the take predicate to it re-states the literal it is
 supposed to check rather than testing the runtime scoping.

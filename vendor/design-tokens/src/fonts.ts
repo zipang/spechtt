@@ -210,8 +210,9 @@ const googleFontNames = new Map(
 );
 
 /**
- * The families named in a CSS font stack, in order, with quotes and generic keywords
- * removed. Unresolved `var()` fragments are dropped, so resolve the value first.
+ * The families named in a CSS font stack, in order, with quotes and generic keywords removed.
+ * Unresolved `var()` fragments are dropped, so resolve the value first.
+ *
  * @param stack - The CSS font stack to split.
  * @returns The non-generic family names, in stack order.
  */
@@ -233,6 +234,7 @@ export const fontStackFamilies = (stack: string): string[] =>
 
 /**
  * The canonical Google Font name for `family`, or undefined when it is not in the catalog.
+ *
  * @param family - The family name to look up, matched case-insensitively.
  * @returns The catalog spelling of the family, or `undefined` when unknown.
  */
@@ -240,10 +242,11 @@ export const googleFontName = (family: string): string | undefined =>
 	googleFontNames.get(family.trim().toLowerCase());
 
 /**
- * Build the Google Fonts `@import` for the catalog families among `families`, loading
- * the given weights. Returns `""` when none is a Google Font, so system-only themes stay
- * import-free. Google serves a family's available faces for any requested weight set, so
- * a shared list is safe even for single-weight display faces.
+ * Build the Google Fonts `@import` for the catalog families among `families`, loading the given
+ * weights. Returns `""` when none is a Google Font, so system-only themes stay import-free. Google
+ * serves a family's available faces for any requested weight set, so a shared list is safe even for
+ * single-weight display faces.
+ *
  * @param families - The family names to import; unknown families are skipped.
  * @param weights - The requested weights, filtered to the 100-900 range.
  * @returns The `@import` rule, or `""` when no family is hosted.

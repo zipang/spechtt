@@ -31,7 +31,7 @@ snapped to the bottom on the next word.
 ## Current Behaviour (audit, before the change)
 
 - **Buffer** (`crates/speechtt-core/src/transcript.rs`): `committed: String` +
-  `live: String`. `partial` *replaces* `live`; `delta` appends to `live`;
+  `live: String`. `partial` _replaces_ `live`; `delta` appends to `live`;
   `committed` appends `text` to `committed` and clears `live`; `stopped`
   replaces `committed` with the authoritative `full_text` (or flushes the tail).
 - **Events**: `partial` / `delta` / `committed` carry only `sessionId` and text.
@@ -101,15 +101,15 @@ The emitted text payloads are otherwise unchanged, so a legacy `partial` without
 `TranscriptBuffer` keeps `committed`, `live`, and the identity of the live tail
 (`live_segment: Option<String>`). Rules:
 
-| Event | Rule |
-|---|---|
-| `partial { segment: Some(s), text }` | If a non-empty tail belongs to another segment, **append that tail to `committed` first**, then `live = text.trim()`. Same segment ⇒ plain replacement of the hypothesis. |
-| `partial { segment: None, text }` | Historic behaviour: replace `live`. |
-| `delta { segment: Some(s), delta }` | Same settle rule, then append `delta` to `live`. |
-| `delta { segment: None, delta }` | Append to `live`. |
-| `committed { segment, text }` | If the tail belongs to this segment (same id, or the event has no id) it is **superseded, not appended**; a non-empty tail of an older segment is appended first. Then append `text` to `committed`, clear the tail. |
-| `stopped { full_text }` | Unchanged: a non-empty `full_text` is authoritative and replaces `committed`; empty flushes the tail. |
-| others | Unchanged. |
+| Event                                | Rule                                                                                                                                                                                                                 |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `partial { segment: Some(s), text }` | If a non-empty tail belongs to another segment, **append that tail to `committed` first**, then `live = text.trim()`. Same segment ⇒ plain replacement of the hypothesis.                                            |
+| `partial { segment: None, text }`    | Historic behaviour: replace `live`.                                                                                                                                                                                  |
+| `delta { segment: Some(s), delta }`  | Same settle rule, then append `delta` to `live`.                                                                                                                                                                     |
+| `delta { segment: None, delta }`     | Append to `live`.                                                                                                                                                                                                    |
+| `committed { segment, text }`        | If the tail belongs to this segment (same id, or the event has no id) it is **superseded, not appended**; a non-empty tail of an older segment is appended first. Then append `text` to `committed`, clear the tail. |
+| `stopped { full_text }`              | Unchanged: a non-empty `full_text` is authoritative and replaces `committed`; empty flushes the tail.                                                                                                                |
+| others                               | Unchanged.                                                                                                                                                                                                           |
 
 Invariants, pinned by tests:
 
@@ -151,44 +151,44 @@ behaviour, the rest is reviewed by the user in the running widget.
 ## TDD Tasks
 
 - [x] **T26.1 — Reducer specs (red)**: in `transcript.rs`, add failing unit tests
-  for: a new segment settles the previous hypothesis (`"hello"` then `"world"`
-  ⇒ committed `"hello"`, live `"world"`); a revision inside one segment only
-  replaces the tail; deltas of a new segment settle the old tail; a final for
-  the live segment supersedes it without duplication; a final for the next
-  segment settles an older unsettled tail; `segment: None` keeps today's
-  replacement behaviour; whitespace-only text settles nothing; and a sequence
-  over four segments whose `full_text()` holds every word once.
+      for: a new segment settles the previous hypothesis (`"hello"` then `"world"`
+      ⇒ committed `"hello"`, live `"world"`); a revision inside one segment only
+      replaces the tail; deltas of a new segment settle the old tail; a final for
+      the live segment supersedes it without duplication; a final for the next
+      segment settles an older unsettled tail; `segment: None` keeps today's
+      replacement behaviour; whitespace-only text settles nothing; and a sequence
+      over four segments whose `full_text()` holds every word once.
 - [x] **T26.2 — Protocol specs (red)**: in `protocol.rs`, assert the legacy
-  `partial`/`delta`/`committed` JSON is unchanged (no `segment` key, parses to
-  `None`) and that a payload carrying `segment` round-trips.
+      `partial`/`delta`/`committed` JSON is unchanged (no `segment` key, parses to
+      `None`) and that a payload carrying `segment` round-trips.
 - [x] **T26.3 — Reducer + protocol implementation**: add `segment` to the three
-  Rust variants, thread `live_segment` through the reducer, keep `stopped`
-  authoritative, and fix the existing tests/fixtures for the new field.
+      Rust variants, thread `live_segment` through the reducer, keep `stopped`
+      authoritative, and fix the existing tests/fixtures for the new field.
 - [x] **T26.4 — Worker specs (red)**: `vercel-ai-sdk.spec.ts` — a
-  `transcript-partial`/`transcript-delta`/`transcript-final` with an `id`
-  produces an event with that `segment`; a part without `id` produces an event
-  with no `segment` key. `mistral.spec.ts` and `file.spec.ts` — a committed
-  event names its segment index.
+      `transcript-partial`/`transcript-delta`/`transcript-final` with an `id`
+      produces an event with that `segment`; a part without `id` produces an event
+      with no `segment` key. `mistral.spec.ts` and `file.spec.ts` — a committed
+      event names its segment index.
 - [x] **T26.5 — Worker implementation**: forward `part.id` in the SDK adapter,
-  add the index to the two segmented adapters, and update `protocol.ts`.
+      add the index to the two segmented adapters, and update `protocol.ts`.
 - [x] **T26.6 — Caption well specs (red)**: unit tests for `follows_bottom` —
-  at the bottom (`offset_y == -max_offset_y`), part-way up, on an unscrollable
-  view, and inside the tolerance.
+      at the bottom (`offset_y == -max_offset_y`), part-way up, on an unscrollable
+      view, and inside the tolerance.
 - [x] **T26.7 — Caption well implementation**: move the text into an
-  `overflow_y_scroll` area inside the `SurfaceBox`, add the `follow` builder
-  and the handle plumbing on `SpeechTtApp`, wire the live view to it, retire
-  `SurfaceBox::clip` if now unused, and drop the stale "window decides how much
-  is visible" comments.
+      `overflow_y_scroll` area inside the `SurfaceBox`, add the `follow` builder
+      and the handle plumbing on `SpeechTtApp`, wire the live view to it, retire
+      `SurfaceBox::clip` if now unused, and drop the stale "window decides how much
+      is visible" comments.
 - [x] **T26.8 — Integration coverage**: a controller-level live sequence over
-  several segments asserting `transcript_committed()` grows and never shrinks;
-  a widget smoke pass that feeds a long transcript to the live screen and
-  renders frames without panicking.
+      several segments asserting `transcript_committed()` grows and never shrinks;
+      a widget smoke pass that feeds a long transcript to the live screen and
+      renders frames without panicking.
 - [x] **T26.9 — Docs**: `DESIGN.md` §Transcript well states the follow rule,
-  the absence of a scrollbar and the kept-full-transcript rule; `PRODUCT.md` §7
-  lists the optional `segment`; module docs describe the reducer as it is.
+      the absence of a scrollbar and the kept-full-transcript rule; `PRODUCT.md` §7
+      lists the optional `segment`; module docs describe the reducer as it is.
 - [x] **T26.10 — Gates**: `cargo fmt -- --check`,
-  `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
-  `bun check src/stt`, `bun run design:validate`.
+      `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
+      `bun check src/stt`, `bun run design:validate`.
 
 ## Acceptance Criteria
 
@@ -229,7 +229,7 @@ the carrying case.
   behaviour change outside the segment rules, and it is required by invariant 4.
 - `clear()` and an authoritative `stopped` reset the identity too.
 - Nine unit tests cover the rules table and all five invariants, including a
-  four-segment sequence that asserts `committed` is append-only after *every*
+  four-segment sequence that asserts `committed` is append-only after _every_
   event and `full_text()` holds each word once.
 
 ### Worker (`src/stt/`)
@@ -293,14 +293,14 @@ the ticket lists (`session_flow.rs`, `widget.rs`, `end_to_end.rs`).
 
 ### Gate results
 
-| Command | Result |
-|---|---|
-| `cargo fmt -- --check` | clean, no diff |
-| `cargo clippy --all-targets -- -D warnings` | clean, zero warnings |
-| `cargo test` | 427 passed, 0 failed (core lib 201, bridge_smoke 3, session_machine 14, ui lib 45, design_system 3, dialogs 11, end_to_end 33, error_ux 14, session_flow 74, theme_contract 4, widget 25) |
-| `bun test` | 221 passed, 0 failed across 12 files (796 assertions) |
-| `bun check src/stt` | no type errors in 23 files |
-| `bun run design:validate` | design contract valid — 66 tokens, 0 errors |
+| Command                                     | Result                                                                                                                                                                                    |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cargo fmt -- --check`                      | clean, no diff                                                                                                                                                                            |
+| `cargo clippy --all-targets -- -D warnings` | clean, zero warnings                                                                                                                                                                      |
+| `cargo test`                                | 427 passed, 0 failed (core lib 201, bridge_smoke 3, session_machine 14, ui lib 45, design_system 3, dialogs 11, end_to_end 33, error_ux 14, session_flow 74, theme_contract 4, widget 25) |
+| `bun test`                                  | 221 passed, 0 failed across 12 files (796 assertions)                                                                                                                                     |
+| `bun check src/stt`                         | no type errors in 23 files                                                                                                                                                                |
+| `bun run design:validate`                   | design contract valid — 66 tokens, 0 errors                                                                                                                                               |
 
 New test count: +14 in `speechtt-core` (11 for the segment and delta rules,
 three for the polish round), +5 in the `speechtt-ui` unit tests, +1 in
@@ -354,14 +354,14 @@ below (B1), so the worker no longer writes per-part diagnostics.
 
 **Follow-up gate run after this change**
 
-| Command | Result |
-|---|---|
-| `cargo fmt -- --check` | clean, no diff |
-| `cargo clippy --all-targets -- -D warnings` | clean, zero warnings |
-| `cargo test` | 449 passed, 0 failed (core lib 210 — +6 delta-classification tests and +3 polish tests, bridge_smoke 3, session_machine 14, ui lib 58, design_system 3, dialogs 11, end_to_end 33, error_ux 14, session_flow 74, theme_contract 4, widget 25) |
-| `bun test` | 221 passed, 0 failed across 12 files (796 assertions) |
-| `bun check src/stt` | no type errors in 23 files |
-| `bun run design:validate` | design contract valid — 66 tokens, 0 errors |
+| Command                                     | Result                                                                                                                                                                                                                                        |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cargo fmt -- --check`                      | clean, no diff                                                                                                                                                                                                                                |
+| `cargo clippy --all-targets -- -D warnings` | clean, zero warnings                                                                                                                                                                                                                          |
+| `cargo test`                                | 449 passed, 0 failed (core lib 210 — +6 delta-classification tests and +3 polish tests, bridge_smoke 3, session_machine 14, ui lib 58, design_system 3, dialogs 11, end_to_end 33, error_ux 14, session_flow 74, theme_contract 4, widget 25) |
+| `bun test`                                  | 221 passed, 0 failed across 12 files (796 assertions)                                                                                                                                                                                         |
+| `bun check src/stt`                         | no type errors in 23 files                                                                                                                                                                                                                    |
+| `bun run design:validate`                   | design contract valid — 66 tokens, 0 errors                                                                                                                                                                                                   |
 
 The total includes the tests T0027 added between the two runs; 210 and 58 are
 the counts of this final run, not of the run right after the delta classifier.
@@ -422,15 +422,14 @@ Five findings from the CTO review were applied without widening the scope.
 
 Final gate run of this round:
 
-| Command | Result |
-|---|---|
-| `cargo fmt -- --check` | clean, no diff |
-| `cargo clippy --all-targets -- -D warnings` | clean, zero warnings |
-| `cargo test` | 451 passed, 0 failed |
-| `bun test` | 221 passed, 0 failed across 12 files (796 assertions) |
-| `bun check src/stt` | no type errors in 23 files |
-| `bun run design:validate` | design contract valid — 66 tokens, 0 errors |
-
+| Command                                     | Result                                                |
+| ------------------------------------------- | ----------------------------------------------------- |
+| `cargo fmt -- --check`                      | clean, no diff                                        |
+| `cargo clippy --all-targets -- -D warnings` | clean, zero warnings                                  |
+| `cargo test`                                | 451 passed, 0 failed                                  |
+| `bun test`                                  | 221 passed, 0 failed across 12 files (796 assertions) |
+| `bun check src/stt`                         | no type errors in 23 files                            |
+| `bun run design:validate`                   | design contract valid — 66 tokens, 0 errors           |
 
 ### Field test — a 1:13 live take on the Gemini live model
 
@@ -478,11 +477,11 @@ Two tests pin the reported sequence
 `crate::diagnostics`, so the next occurrence yields the exact sequence. It is
 off unless the variable is `1`.
 
-| Command | Result |
-|---|---|
-| `cargo fmt -- --check` | clean, no diff |
-| `cargo clippy --all-targets -- -D warnings` | clean, zero warnings |
-| `cargo test` | 456 passed, 0 failed |
-| `bun test` | 221 passed, 0 failed across 12 files (796 assertions) |
-| `bun check src/stt` | no type errors in 23 files |
-| `bun run design:validate` | design contract valid — 66 tokens, 0 errors |
+| Command                                     | Result                                                |
+| ------------------------------------------- | ----------------------------------------------------- |
+| `cargo fmt -- --check`                      | clean, no diff                                        |
+| `cargo clippy --all-targets -- -D warnings` | clean, zero warnings                                  |
+| `cargo test`                                | 456 passed, 0 failed                                  |
+| `bun test`                                  | 221 passed, 0 failed across 12 files (796 assertions) |
+| `bun check src/stt`                         | no type errors in 23 files                            |
+| `bun run design:validate`                   | design contract valid — 66 tokens, 0 errors           |

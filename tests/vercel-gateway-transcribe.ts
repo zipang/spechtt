@@ -1,16 +1,15 @@
 /**
- * Diagnostic: call the Vercel AI Gateway transcription service exactly the way
- * the Bun STT backend does.
+ * Diagnostic: call the Vercel AI Gateway transcription service exactly the way the Bun STT backend
+ * does.
  *
- * Run with:
- *   bun run tests/vercel-gateway-transcribe.ts
+ * Run with: bun run tests/vercel-gateway-transcribe.ts
  *
- * Bun auto-loads `.env.local`, so no key handling is required beyond exporting
- * `AI_GATEWAY_API_KEY` or `VERCEL_AI_GATEWAY_API_KEY` there.
+ * Bun auto-loads `.env.local`, so no key handling is required beyond exporting `AI_GATEWAY_API_KEY`
+ * or `VERCEL_AI_GATEWAY_API_KEY` there.
  *
- * This script bypasses the Rust frontend and the NDJSON worker entirely: if it
- * fails with the same "Invalid API key or token" error, the key itself is
- * rejected by Vercel. If it succeeds, the problem is in the Rust → Bun path.
+ * This script bypasses the Rust frontend and the NDJSON worker entirely: if it fails with the same
+ * "Invalid API key or token" error, the key itself is rejected by Vercel. If it succeeds, the
+ * problem is in the Rust → Bun path.
  */
 
 import { createGateway, transcribe } from "ai";
@@ -18,12 +17,11 @@ import { createGateway, transcribe } from "ai";
 const MODEL = "mistral/voxtral-mini-transcribe-3";
 const AUDIO_PATH = "tests/test-record.wav";
 
-const apiKey =
-	process.env.AI_GATEWAY_API_KEY ?? process.env.VERCEL_AI_GATEWAY_API_KEY;
+const apiKey = process.env.AI_GATEWAY_API_KEY ?? process.env.VERCEL_AI_GATEWAY_API_KEY;
 
 if (apiKey === undefined || apiKey.trim().length === 0) {
 	console.error(
-		"Missing gateway key. Set AI_GATEWAY_API_KEY or VERCEL_AI_GATEWAY_API_KEY in .env.local.",
+		"Missing gateway key. Set AI_GATEWAY_API_KEY or VERCEL_AI_GATEWAY_API_KEY in .env.local."
 	);
 	process.exit(2);
 }
@@ -34,7 +32,7 @@ const source =
 		? "AI_GATEWAY_API_KEY"
 		: "VERCEL_AI_GATEWAY_API_KEY";
 console.log(
-	`key source: ${source} (len=${apiKey.length}, prefix=${apiKey.slice(0, 4)}, suffix=${apiKey.slice(-4)})`,
+	`key source: ${source} (len=${apiKey.length}, prefix=${apiKey.slice(0, 4)}, suffix=${apiKey.slice(-4)})`
 );
 console.log(`model: ${MODEL}`);
 console.log(`audio: ${AUDIO_PATH}`);

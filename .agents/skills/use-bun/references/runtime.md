@@ -7,6 +7,7 @@
 <!-- curated:end -->
 
 <!-- generated:start -->
+
 _52 pages · Bun v1.4.4 · updated 2026-10-23. Regenerate with `bun .agents/skills/use-bun/scripts/update.ts`._
 
 - [Bun Runtime](https://bun.com/docs/runtime.md): Execute JavaScript/TypeScript files, package.json scripts, and executable packages with Bun's fast runtime.
@@ -61,4 +62,5 @@ _52 pages · Bun v1.4.4 · updated 2026-10-23. Regenerate with `bun .agents/skil
 - [Workers](https://bun.com/docs/runtime/workers.md): Use Bun's Workers API to create and communicate with a new JavaScript instance running on a separate thread while sharing I/O resources with the main thread
 - [XML](https://bun.com/docs/runtime/xml.md): Use Bun's built-in support for XML through both runtime APIs and bundler integration
 - [YAML](https://bun.com/docs/runtime/yaml.md): Use Bun's built-in support for YAML files through both runtime APIs and bundler integration
+
 <!-- generated:end -->

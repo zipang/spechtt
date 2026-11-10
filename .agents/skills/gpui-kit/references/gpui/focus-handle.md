@@ -7,6 +7,7 @@
 GPUI's focus system enables keyboard navigation and focus management.
 
 **Key Concepts:**
+
 - **FocusHandle**: Reference to focusable element
 - **Focus tracking**: Current focused element
 - **Keyboard navigation**: Tab/Shift-Tab between elements
@@ -261,4 +262,3 @@ The ring is painted 3px outside the element, so an ancestor with
 div()
     .on_action(cx.listener(Self::on_enter))
 ```
-

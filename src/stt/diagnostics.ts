@@ -1,18 +1,16 @@
 /**
  * Failure descriptions for the transcription adapters and the worker loop.
  *
- * Used by `adapters/vercel-ai-sdk.ts`, `adapters/mistral.ts`,
- * `adapters/file.ts` and `worker.ts`, each of which turns a rejection into one
- * short bridge event plus one diagnostic line.
+ * Used by `adapters/vercel-ai-sdk.ts`, `adapters/mistral.ts`, `adapters/file.ts` and `worker.ts`,
+ * each of which turns a rejection into one short bridge event plus one diagnostic line.
  *
- * The two are deliberately different sizes. The bridge event is user-facing and
- * short, so the screen can show it; the `stderr` line is the only place the full
- * cause fits, and it is what makes a provider failure diagnosable. Both are
- * bounded, and the line is redacted.
+ * The two are deliberately different sizes. The bridge event is user-facing and short, so the
+ * screen can show it; the `stderr` line is the only place the full cause fits, and it is what makes
+ * a provider failure diagnosable. Both are bounded, and the line is redacted.
  *
- * A rejection is not always an `Error`: the AI SDK can reject with a plain
- * object, a wrapper around another error, or a string, so [`describeError`] reads
- * every documented shape before it gives up on a fallback sentence.
+ * A rejection is not always an `Error`: the AI SDK can reject with a plain object, a wrapper around
+ * another error, or a string, so [`describeError`] reads every documented shape before it gives up
+ * on a fallback sentence.
  *
  * `stdout` stays NDJSON-only: nothing here writes to it.
  */
@@ -23,8 +21,8 @@ const MAX_DIAGNOSTIC_LENGTH = 300;
 /**
  * Collapses whitespace, redacts credentials and bounds the length.
  *
- * Applied to every string that reaches `stderr`, so a provider echoing an
- * `Authorization` header cannot leak a key into a log.
+ * Applied to every string that reaches `stderr`, so a provider echoing an `Authorization` header
+ * cannot leak a key into a log.
  */
 export function sanitizeDiagnostic(raw: string): string {
 	const collapsed = raw
@@ -46,11 +44,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /**
  * A short, user-facing description of a rejection.
  *
- * Reads, in order: an `Error`'s `message`, a string, then any object's
- * `message`/`cause`/`error` field, and finally a bounded JSON rendering. The
- * last resort is a serialization rather than a fixed sentence, so a future
- * provider that rejects with an unexpected shape still produces a message that
- * names it.
+ * Reads, in order: an `Error`'s `message`, a string, then any object's `message`/`cause`/`error`
+ * field, and finally a bounded JSON rendering. The last resort is a serialization rather than a
+ * fixed sentence, so a future provider that rejects with an unexpected shape still produces a
+ * message that names it.
  *
  * `fallback` is used only when nothing at all can be read from `error`.
  */
@@ -93,16 +90,15 @@ export function describeError(error: unknown, fallback: string): string {
 /**
  * Writes one redacted diagnostic line for a failure.
  *
- * `context` is a short tag such as `stream`, `batch` or `file`; `details` are
- * `key=value` pairs the caller already knows (provider, model, language). The
- * raw rejection is included so the next failure is diagnosable from `stderr`
- * alone, without a rebuild.
+ * `context` is a short tag such as `stream`, `batch` or `file`; `details` are `key=value` pairs the
+ * caller already knows (provider, model, language). The raw rejection is included so the next
+ * failure is diagnosable from `stderr` alone, without a rebuild.
  */
 export function logFailure(
 	context: string,
 	details: Record<string, string | number | undefined>,
 	error: unknown,
-	fallback: string,
+	fallback: string
 ): void {
 	const pairs = Object.entries(details)
 		.filter(([, value]) => value !== undefined && value !== "")

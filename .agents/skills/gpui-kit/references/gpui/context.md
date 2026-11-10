@@ -7,6 +7,7 @@
 GPUI uses different context types for different scenarios:
 
 **Context Types:**
+
 - **`App`**: Global app state, entity creation
 - **`Window`**: Window-specific operations, painting, layout
 - **`Context<T>`**: Entity-specific context for component `T`
@@ -198,6 +199,7 @@ let _subscription = cx.subscribe_in(&input, window, |this, state, event, window,
 ```
 
 `subscribe` vs `subscribe_in`:
+
 - `subscribe(&entity, |this, source, event, cx|)` — no window access
 - `subscribe_in(&entity, window, |this, source, event, window, cx|)` — has window access
 

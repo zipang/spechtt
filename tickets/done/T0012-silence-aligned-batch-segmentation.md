@@ -78,70 +78,70 @@ Do **not** touch:
 export type SegmentReason = "silence" | "max" | "pause" | "stop";
 
 export interface AudioSegment {
-  /** Little-endian PCM16 mono bytes, WAV-ready (no header). */
-  readonly pcm16: Uint8Array;
-  /** Monotonic segment index within the session (0-based). */
-  readonly index: number;
-  readonly reason: SegmentReason;
-  /** True when this segment repeats audio from the previous one (forced cut). */
-  readonly startsWithOverlap: boolean;
-  /** Speech duration, excluding pre-roll and tail padding. */
-  readonly speechMs: number;
-  /** Total duration, including padding. */
-  readonly durationMs: number;
-  /** Mean energy over speech frames, in dBFS (negative). */
-  readonly rmsDb: number;
+	/** Little-endian PCM16 mono bytes, WAV-ready (no header). */
+	readonly pcm16: Uint8Array;
+	/** Monotonic segment index within the session (0-based). */
+	readonly index: number;
+	readonly reason: SegmentReason;
+	/** True when this segment repeats audio from the previous one (forced cut). */
+	readonly startsWithOverlap: boolean;
+	/** Speech duration, excluding pre-roll and tail padding. */
+	readonly speechMs: number;
+	/** Total duration, including padding. */
+	readonly durationMs: number;
+	/** Mean energy over speech frames, in dBFS (negative). */
+	readonly rmsDb: number;
 }
 
 export interface SegmenterOptions {
-  readonly sampleRate: number;
-  /** Analysis window; default 20 ms. */
-  readonly frameMs?: number;
-  /** Audio kept before speech onset; default 300 ms. */
-  readonly preRollMs?: number;
-  /** Silence appended after the last speech frame; default 200 ms. */
-  readonly tailPadMs?: number;
-  /** Voiced audio below this is merged forward, not transcribed; default 1200 ms. */
-  readonly minSpeechMs?: number;
-  /** Nominal length used only for diagnostics; default 3000 ms. */
-  readonly targetMs?: number;
-  /** Hard cap before a forced cut; default 7000 ms. */
-  readonly maxSegmentMs?: number;
-  /** Silence run that closes a segment; default 500 ms. */
-  readonly hangoverMs?: number;
-  /** Audio repeated at the start of the segment after a forced cut; default 250 ms. */
-  readonly overlapMs?: number;
-  /** EMA factor for the noise floor; default 0.05. */
-  readonly noiseFloorAlpha?: number;
-  /** Speech onset threshold, as a multiple of the noise floor; default 2.5. */
-  readonly speechTriggerRatio?: number;
-  /** Silence threshold, as a multiple of the noise floor; default 1.5. */
-  readonly silenceRatio?: number;
+	readonly sampleRate: number;
+	/** Analysis window; default 20 ms. */
+	readonly frameMs?: number;
+	/** Audio kept before speech onset; default 300 ms. */
+	readonly preRollMs?: number;
+	/** Silence appended after the last speech frame; default 200 ms. */
+	readonly tailPadMs?: number;
+	/** Voiced audio below this is merged forward, not transcribed; default 1200 ms. */
+	readonly minSpeechMs?: number;
+	/** Nominal length used only for diagnostics; default 3000 ms. */
+	readonly targetMs?: number;
+	/** Hard cap before a forced cut; default 7000 ms. */
+	readonly maxSegmentMs?: number;
+	/** Silence run that closes a segment; default 500 ms. */
+	readonly hangoverMs?: number;
+	/** Audio repeated at the start of the segment after a forced cut; default 250 ms. */
+	readonly overlapMs?: number;
+	/** EMA factor for the noise floor; default 0.05. */
+	readonly noiseFloorAlpha?: number;
+	/** Speech onset threshold, as a multiple of the noise floor; default 2.5. */
+	readonly speechTriggerRatio?: number;
+	/** Silence threshold, as a multiple of the noise floor; default 1.5. */
+	readonly silenceRatio?: number;
 }
 
 export class Segmenter {
-  constructor(options: SegmenterOptions);
-  /** Appends PCM16 LE bytes; returns every segment completed by this push. */
-  push(pcm16: Uint8Array): AudioSegment[];
-  /** Pads and closes the open segment; `pause` and `stop` are the only reasons. */
-  flush(reason: "pause" | "stop"): AudioSegment[];
-  /** Drops all buffered audio and resets indices (abort/teardown). */
-  reset(): void;
+	constructor(options: SegmenterOptions);
+	/** Appends PCM16 LE bytes; returns every segment completed by this push. */
+	push(pcm16: Uint8Array): AudioSegment[];
+	/** Pads and closes the open segment; `pause` and `stop` are the only reasons. */
+	flush(reason: "pause" | "stop"): AudioSegment[];
+	/** Drops all buffered audio and resets indices (abort/teardown). */
+	reset(): void;
 }
 ```
 
 Default constants (exported for tests):
 
-| Constant | Value |
-|---|---|
-| `DEFAULT_FRAME_MS` | `20` |
-| `DEFAULT_PRE_ROLL_MS` | `300` |
-| `DEFAULT_TAIL_PAD_MS` | `200` |
-| `DEFAULT_MIN_SPEECH_MS` | `1200` |
-| `DEFAULT_TARGET_MS` | `3000` |
+| Constant                 | Value  |
+| ------------------------ | ------ |
+| `DEFAULT_FRAME_MS`       | `20`   |
+| `DEFAULT_PRE_ROLL_MS`    | `300`  |
+| `DEFAULT_TAIL_PAD_MS`    | `200`  |
+| `DEFAULT_MIN_SPEECH_MS`  | `1200` |
+| `DEFAULT_TARGET_MS`      | `3000` |
 | `DEFAULT_MAX_SEGMENT_MS` | `7000` |
-| `DEFAULT_HANGOVER_MS` | `500` |
-| `DEFAULT_OVERLAP_MS` | `250` |
+| `DEFAULT_HANGOVER_MS`    | `500`  |
+| `DEFAULT_OVERLAP_MS`     | `250`  |
 
 Rules (all sample-count driven — **no wall clock, no randomness**):
 
@@ -150,7 +150,7 @@ Rules (all sample-count driven — **no wall clock, no randomness**):
    trim and cut is sample-aligned (even byte offsets). A partial frame is only
    processed by `flush()`.
 2. **Energy**: `rms = sqrt(mean(sample²)) / 32768` over the frame; `rmsDb =
-   20 × log10(rms)`, clamped to `-120` for digital silence.
+20 × log10(rms)`, clamped to `-120` for digital silence.
 3. **Noise floor**: starts at `0.001` (−60 dBFS), clamped to `[1e-5, 0.05]`,
    and updates **only on frames classified as silence**:
    `floor = floor × (1 − α) + rms × α`.
@@ -190,17 +190,13 @@ Rules (all sample-count driven — **no wall clock, no randomness**):
 
 ```ts
 export interface MergeOptions {
-  /** Longest repeated word run removed at a junction; default 4. */
-  readonly maxOverlapWords?: number;
-  /** Allow a 1-word overlap to be removed; default false. */
-  readonly allowSingleWordOverlap?: boolean;
+	/** Longest repeated word run removed at a junction; default 4. */
+	readonly maxOverlapWords?: number;
+	/** Allow a 1-word overlap to be removed; default false. */
+	readonly allowSingleWordOverlap?: boolean;
 }
 
-export function mergeTranscript(
-  previous: string,
-  next: string,
-  options?: MergeOptions,
-): string;
+export function mergeTranscript(previous: string, next: string, options?: MergeOptions): string;
 ```
 
 - Compares word sequences after normalization (lowercase, strip leading and
@@ -231,11 +227,11 @@ export function mergeTranscript(
 - Each `committed` event keeps the exact current shape
   (`{ type: "committed", sessionId, text }`); the protocol is unchanged.
 - Text composition: `mergeTranscript(accumulated, text, { allowSingleWordOverlap:
-  segment.startsWithOverlap })`, replacing the direct `appendSegment` call for
+segment.startsWithOverlap })`, replacing the direct `appendSegment` call for
   segmented sessions. Empty/whitespace results are skipped as today.
 - Diagnostics to `stderr` only, one line per dispatched segment:
   `[stt-worker] segment index=3 reason=silence durationMs=2840 speechMs=2410
-  rmsDb=-21.4 overlap=false`. Never log transcript text, audio, or keys.
+rmsDb=-21.4 overlap=false`. Never log transcript text, audio, or keys.
 - `MistralAdapterOptions.segmentSeconds` is **removed** and replaced by
   `segmentation?: Partial<Omit<SegmenterOptions, "sampleRate">>`; `sampleRate`
   always comes from `SttSessionConfig`. `new MistralAdapter()` must keep
@@ -246,37 +242,37 @@ export function mergeTranscript(
 ## TDD Tasks
 
 - [x] **T12.1 — `segmentation.spec.ts` (energy + onset)**: frame RMS in dBFS;
-  noise floor adapts to a noisy floor and ignores speech; hysteresis uses
-  `speechTriggerRatio`/`silenceRatio`; digital silence never triggers; onset
-  includes exactly `preRollMs` of leading audio.
+      noise floor adapts to a noisy floor and ignores speech; hysteresis uses
+      `speechTriggerRatio`/`silenceRatio`; digital silence never triggers; onset
+      includes exactly `preRollMs` of leading audio.
 - [x] **T12.2 — `segmentation.spec.ts` (close on silence)**: a 3 s tone
-  followed by 1 s of silence yields one `silence` segment whose last samples
-  are silence, `speechMs ≈ tone length`, and the cut lands inside the silence
-  run; three sentences separated by 600 ms yield exactly three segments; total
-  audio outside segments is silence only.
+      followed by 1 s of silence yields one `silence` segment whose last samples
+      are silence, `speechMs ≈ tone length`, and the cut lands inside the silence
+      run; three sentences separated by 600 ms yield exactly three segments; total
+      audio outside segments is silence only.
 - [x] **T12.3 — `segmentation.spec.ts` (edge policies)**: a 200 ms blip before
-  speech merges forward into one call; a blip with no following speech is
-  dropped; `pause` zero-pads and closes; `stop` emits short voiced audio; a
-  continuous 20 s tone is split at the quietest frame near 7 s with
-  `startsWithOverlap` and `overlapMs` repeated; `reset()` restores initial
-  state; chunk-boundary fuzz (random chunk sizes, same audio) produces
-  identical segments.
+      speech merges forward into one call; a blip with no following speech is
+      dropped; `pause` zero-pads and closes; `stop` emits short voiced audio; a
+      continuous 20 s tone is split at the quietest frame near 7 s with
+      `startsWithOverlap` and `overlapMs` repeated; `reset()` restores initial
+      state; chunk-boundary fuzz (random chunk sizes, same audio) produces
+      identical segments.
 - [x] **T12.4 — `transcript-merge.spec.ts`**: 2-word and 4-word overlaps
-  removed; 5-word run capped at 4; single-word overlap only with
-  `allowSingleWordOverlap`; `"very very"` preserved; punctuation/case
-  differences still match but original casing is emitted; empty sides; fully
-  contained `next`.
+      removed; 5-word run capped at 4; single-word overlap only with
+      `allowSingleWordOverlap`; `"very very"` preserved; punctuation/case
+      differences still match but original casing is emitted; empty sides; fully
+      contained `next`.
 - [x] **T12.5 — `mistral.spec.ts` (integration, fake `transcribe`)**: segments
-  are WAV-framed and sent in order; no call for silence-only audio; one call
-  per sentence; `committed` texts concatenate without duplicated junction
-  words; `stop` drains the queue before `stopped`; `abort` cancels in-flight
-  work; the recorded segment durations stay within `[minSpeechMs,
-  maxSegmentMs]`; diagnostics go to `stderr` only.
+      are WAV-framed and sent in order; no call for silence-only audio; one call
+      per sentence; `committed` texts concatenate without duplicated junction
+      words; `stop` drains the queue before `stopped`; `abort` cancels in-flight
+      work; the recorded segment durations stay within `[minSpeechMs,
+maxSegmentMs]`; diagnostics go to `stderr` only.
 - [x] **T12.6 — Implementation**: `segmentation.ts`, `transcript-merge.ts`,
-  adapter rewiring, option migration, diagnostics.
+      adapter rewiring, option migration, diagnostics.
 - [x] **T12.7 — Gates**: `bun test`, `bun check src/stt`,
-  `cargo fmt -- --check`, `cargo clippy --all-targets -- -D warnings`,
-  `cargo test`.
+      `cargo fmt -- --check`, `cargo clippy --all-targets -- -D warnings`,
+      `cargo test`.
 
 ## Acceptance Criteria
 

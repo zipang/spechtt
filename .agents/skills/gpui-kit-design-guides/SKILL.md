@@ -20,23 +20,23 @@ Read the whole guide for a new screen or a redesign. For a narrow change, read
 "Design thesis" and "Start from the task" first, then the section for the
 change. Sections, in order (`grep -n '^## ' references/design-guides.md`):
 
-| Section                              | Read when                                                              |
-| ------------------------------------ | ---------------------------------------------------------------------- |
-| Design thesis                        | Always                                                                 |
-| Learning from Shadcn                 | Choosing what to borrow from web component libraries                   |
-| Start from the task                  | Always; task hierarchy, interaction promise, what to leave out         |
-| Visual language                      | Color, typography, spacing, radius, borders, elevation, density, icons |
-| Layout patterns                      | Window structure, sidebars, toolbars, panels, forms, resizable regions |
-| Components and composition           | Picking a component, composing parts, when to build a new one          |
-| Interaction states                   | Hover, focus, pressed, selected, disabled, loading, validation, danger |
-| Feedback and overlays                | Dialog, sheet, popover, menu, notification, tooltip, dismissal, focus  |
-| Motion                               | Any animation or transition                                            |
-| Designing data-heavy interfaces      | Tables, lists, trees, dashboards, dense inspectors                     |
-| Interface language                   | Any user-facing text: labels, buttons, titles, errors, empty states    |
-| Internationalization and platform fit | Multi-locale copy, Chinese terminology, macOS/Windows conventions     |
-| Guidance for AI-generated interfaces | Always when an agent produces UI                                       |
-| Accessibility checklist              | Before finishing                                                       |
-| Design review checklist              | Before finishing; run every item against the work                     |
+| Section                               | Read when                                                              |
+| ------------------------------------- | ---------------------------------------------------------------------- |
+| Design thesis                         | Always                                                                 |
+| Learning from Shadcn                  | Choosing what to borrow from web component libraries                   |
+| Start from the task                   | Always; task hierarchy, interaction promise, what to leave out         |
+| Visual language                       | Color, typography, spacing, radius, borders, elevation, density, icons |
+| Layout patterns                       | Window structure, sidebars, toolbars, panels, forms, resizable regions |
+| Components and composition            | Picking a component, composing parts, when to build a new one          |
+| Interaction states                    | Hover, focus, pressed, selected, disabled, loading, validation, danger |
+| Feedback and overlays                 | Dialog, sheet, popover, menu, notification, tooltip, dismissal, focus  |
+| Motion                                | Any animation or transition                                            |
+| Designing data-heavy interfaces       | Tables, lists, trees, dashboards, dense inspectors                     |
+| Interface language                    | Any user-facing text: labels, buttons, titles, errors, empty states    |
+| Internationalization and platform fit | Multi-locale copy, Chinese terminology, macOS/Windows conventions      |
+| Guidance for AI-generated interfaces  | Always when an agent produces UI                                       |
+| Accessibility checklist               | Before finishing                                                       |
+| Design review checklist               | Before finishing; run every item against the work                      |
 
 ## Non-negotiables
 

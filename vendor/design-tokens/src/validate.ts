@@ -35,8 +35,9 @@ const hostedFontsIn = (stack: string): string[] =>
 	fontStackFamilies(stack).filter((family) => googleFontName(family) !== undefined);
 
 /**
- * Check a parsed contract against the section 10 rules of the design-system-tokens
- * skill. Returns one issue per violation; an empty array means the contract is valid.
+ * Check a parsed contract against the section 10 rules of the design-system-tokens skill. Returns
+ * one issue per violation; an empty array means the contract is valid.
+ *
  * @param input - The parsed halves and front-matter bookkeeping to validate.
  * @returns One issue per violation; empty when the contract is valid.
  */

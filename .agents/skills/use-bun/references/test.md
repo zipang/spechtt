@@ -7,6 +7,7 @@
 <!-- curated:end -->
 
 <!-- generated:start -->
+
 _13 pages · Bun v1.4.4 · updated 2026-10-23. Regenerate with `bun .agents/skills/use-bun/scripts/update.ts`._
 
 - [Test runner](https://bun.com/docs/test.md): Bun's fast, built-in, Jest-compatible test runner with TypeScript support, lifecycle hooks, mocking, and watch mode
@@ -22,4 +23,5 @@ _13 pages · Bun v1.4.4 · updated 2026-10-23. Regenerate with `bun .agents/skil
 - [Runtime behavior](https://bun.com/docs/test/runtime-behavior.md): Learn about Bun test's runtime integration, environment variables, timeouts, and error handling
 - [Snapshots](https://bun.com/docs/test/snapshots.md): Learn how to use snapshot testing in Bun to save and compare output between test runs
 - [Writing tests](https://bun.com/docs/test/writing-tests.md): Write tests with Bun's Jest-compatible API, including async tests, timeouts, and test modifiers
+
 <!-- generated:end -->

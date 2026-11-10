@@ -1,6 +1,7 @@
 # ElementId
 
 `ElementId` is a unique identifier for a GPUI element. It is required for elements that need:
+
 - Mouse event handling (`on_click`, `on_hover`, etc.)
 - State storage via `window.use_keyed_state`
 - Interaction tracking

@@ -77,14 +77,14 @@ pub enum ViewState {
   after T0023 the file flow is picker → form → take, so a "file ready" state
   has nothing left to show.
 - `SessionState::Ready` in `speechtt-core` is unchanged: it still means "the
-  configuration is complete". Only the *view* collapses.
+  configuration is complete". Only the _view_ collapses.
 - `view_state()`:
-  - a finished take ⇒ `Stopped`;
-  - `Blank` + `Screen::Mode` ⇒ `Mode`;
-  - `Blank` + `Screen::Form` ⇒ `Form`;
-  - live mode with a complete configuration (`Ready`, `Recording`, `Paused`) ⇒
-    `Live`;
-  - file mode ⇒ `Live` only while a file take is running, otherwise `Form`.
+    - a finished take ⇒ `Stopped`;
+    - `Blank` + `Screen::Mode` ⇒ `Mode`;
+    - `Blank` + `Screen::Form` ⇒ `Form`;
+    - live mode with a complete configuration (`Ready`, `Recording`, `Paused`) ⇒
+      `Live`;
+    - file mode ⇒ `Live` only while a file take is running, otherwise `Form`.
 - `choose_mode(SessionMode::Live)` leaves the machine `Ready` and shows `Live`
   immediately. **Microphone capture does not start**: capture starts on the
   take screen's own control (T0022). No `SttCommand::Start` is sent here.
@@ -132,12 +132,12 @@ Rules:
 
 ### 3. Per-screen action table
 
-| View | Leading (left) | Primary (centre) | Trailing (right) |
-|---|---|---|---|
-| `welcome` | — | — | — (no footer) |
-| `session_setup` | Back → `cancel_form()` (discards a pending file) | Continue (`ActionButton::primary`, disabled until the draft is complete) | — |
-| `recording` (live) | Back/Cancel → home (T0022) | Take control (T0022) | Reset + Stop (T0022) |
-| `stopped` | Back → `new_take()` | — | Copy, Save, or Open file (as today) |
+| View               | Leading (left)                                   | Primary (centre)                                                         | Trailing (right)                    |
+| ------------------ | ------------------------------------------------ | ------------------------------------------------------------------------ | ----------------------------------- |
+| `welcome`          | —                                                | —                                                                        | — (no footer)                       |
+| `session_setup`    | Back → `cancel_form()` (discards a pending file) | Continue (`ActionButton::primary`, disabled until the draft is complete) | —                                   |
+| `recording` (live) | Back/Cancel → home (T0022)                       | Take control (T0022)                                                     | Reset + Stop (T0022)                |
+| `stopped`          | Back → `new_take()`                              | —                                                                        | Copy, Save, or Open file (as today) |
 
 - The stopped screen's header no longer carries "New take": going home is now
   the footer's back action everywhere.
@@ -257,11 +257,11 @@ that we are in the middle of something: go forward or go back". Implemented as
 specified by that instruction, which supersedes the ticket's original row for
 `session_setup`:
 
-| Zone | Before | After |
-|---|---|---|
-| Leading | Back (`ArrowBigLeft`) | unchanged |
-| Primary | `ActionButton::primary("Continue")` | **empty** |
-| Trailing | — | `IconAction` `ArrowBigRight`, label "Continue", disabled until the draft is complete |
+| Zone     | Before                              | After                                                                                |
+| -------- | ----------------------------------- | ------------------------------------------------------------------------------------ |
+| Leading  | Back (`ArrowBigLeft`)               | unchanged                                                                            |
+| Primary  | `ActionButton::primary("Continue")` | **empty**                                                                            |
+| Trailing | —                                   | `IconAction` `ArrowBigRight`, label "Continue", disabled until the draft is complete |
 
 `ArrowBigRight` is registered in `AppIcons` (append-only). The centre zone stays
 empty on purpose: the two arrows are the screen's whole story, and the middle

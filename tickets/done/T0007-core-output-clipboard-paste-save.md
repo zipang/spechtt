@@ -174,25 +174,25 @@ No secret or full transcript content in error messages.
 ## 6. TDD Tasks
 
 - [x] **T7.1 — Clipboard tests**: exact content for committed-only,
-  live-only and mixed transcripts; single space join; trimming; empty →
-  `EmptyTranscript` and sink untouched; `CopySummary` counts.
+      live-only and mixed transcripts; single space join; trimming; empty →
+      `EmptyTranscript` and sink untouched; `CopySummary` counts.
 - [x] **T7.2 — Paste tests**: copy-then-paste order via a recording mock;
-  copy failure short-circuits paste; paste failure propagates.
+      copy failure short-circuits paste; paste failure propagates.
 - [x] **T7.3 — Filename/sanitisation tests**: spaces/case/`/`/`..`/NUL/
-  unicode handling; 64-char cap; empty fallback; collision avoidance
-  (`-2` suffix); `.md` vs `.txt` selection and `UnsupportedFormat` for
-  `.pdf`.
+      unicode handling; 64-char cap; empty fallback; collision avoidance
+      (`-2` suffix); `.md` vs `.txt` selection and `UnsupportedFormat` for
+      `.pdf`.
 - [x] **T7.4 — File content tests**: markdown heading + trimmed body + one
-  trailing newline; text body only; `save_transcript_at` deterministic name;
-  parent directory created; previous file preserved on injected write
-  failure.
+      trailing newline; text body only; `save_transcript_at` deterministic name;
+      parent directory created; previous file preserved on injected write
+      failure.
 - [x] **T7.5 — `FileOpener` contract test**: `MockOpener` records the path;
-  opener failure maps to `OutputError::OpenFile`.
+      opener failure maps to `OutputError::OpenFile`.
 - [x] **T7.6 — Implementation**: add `arboard` + `enigo`, implement
-  `output.rs`, register the module.
+      `output.rs`, register the module.
 - [x] **T7.7 — Gates**: `cargo fmt -- --check`,
-  `cargo clippy --all-targets -- -D warnings`, `cargo test` clean; no test
-  accesses a real clipboard, X11/Wayland input, or launches an editor.
+      `cargo clippy --all-targets -- -D warnings`, `cargo test` clean; no test
+      accesses a real clipboard, X11/Wayland input, or launches an editor.
 
 ## Acceptance Criteria
 
@@ -211,7 +211,7 @@ No secret or full transcript content in error messages.
 ### Files touched
 
 - `crates/speechtt-core/Cargo.toml` — appended `arboard = { version = "3",
-  default-features = false }` and `enigo = "0.6"`; every pre-existing line is
+default-features = false }` and `enigo = "0.6"`; every pre-existing line is
   unchanged. `default-features = false` keeps arboard's image payload out of
   the build; only text clipboard support is needed. enigo keeps its default
   `x11rb` backend (pure Rust, no `libxdo` system dependency).
@@ -278,12 +278,12 @@ fakes, file tests use unique `std::env::temp_dir()` directories removed on
 `Drop`, and no test constructs `SystemClipboard` (only checks that `Default`
 does not connect), `SystemPaste` (only checks its size) or `SystemOpener`.
 
-| Area | Tests | Highlights |
-|---|---:|---|
-| `clipboard` | 9 | committed-only, live-only, mixed single-space join, trimming, newline preservation, empty rejected with sink untouched, copy failure propagation, Unicode scalar and line counts, lazy system clipboard |
-| `paste` | 6 | copy-before-paste ordering, copy failure short-circuits paste, empty transcript touches neither sink, paste failure propagates after copying, summary passthrough, zero-sized system paste |
-| `file` | 30 | Markdown/Text rendering, deterministic timestamp, UTC/epoch/leap-day formatting, directory creation, temp-file cleanup, empty transcript, sanitisation (spaces, case, separators, `..`, NUL, Unicode, 64-char cap, edge separators), fallback names, `-2`/`-3` collisions, no overwrite, injected write failure, `File`/`Memory` targets, `.md`/`.txt`/`.pdf` handling, `MockOpener` path recording and typed failure |
-| errors | 2 | stable `thiserror` messages, no transcript text in errors |
+| Area        | Tests | Highlights                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ----------- | ----: | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `clipboard` |     9 | committed-only, live-only, mixed single-space join, trimming, newline preservation, empty rejected with sink untouched, copy failure propagation, Unicode scalar and line counts, lazy system clipboard                                                                                                                                                                                                               |
+| `paste`     |     6 | copy-before-paste ordering, copy failure short-circuits paste, empty transcript touches neither sink, paste failure propagates after copying, summary passthrough, zero-sized system paste                                                                                                                                                                                                                            |
+| `file`      |    30 | Markdown/Text rendering, deterministic timestamp, UTC/epoch/leap-day formatting, directory creation, temp-file cleanup, empty transcript, sanitisation (spaces, case, separators, `..`, NUL, Unicode, 64-char cap, edge separators), fallback names, `-2`/`-3` collisions, no overwrite, injected write failure, `File`/`Memory` targets, `.md`/`.txt`/`.pdf` handling, `MockOpener` path recording and typed failure |
+| errors      |     2 | stable `thiserror` messages, no transcript text in errors                                                                                                                                                                                                                                                                                                                                                             |
 
 ### TDD evidence
 

@@ -1,10 +1,9 @@
 /**
  * Junction-safe transcript merging for segmented transcription.
  *
- * Silence-aligned segments may overlap by a few hundred milliseconds after a
- * forced cut, so the same words can be transcribed twice. `mergeTranscript`
- * removes a genuine suffix/prefix word run at the junction while preserving
- * legitimate repetitions such as "very very".
+ * Silence-aligned segments may overlap by a few hundred milliseconds after a forced cut, so the
+ * same words can be transcribed twice. `mergeTranscript` removes a genuine suffix/prefix word run
+ * at the junction while preserving legitimate repetitions such as "very very".
  */
 
 export interface MergeOptions {
@@ -28,17 +27,17 @@ function normalize(word: string): string {
 }
 
 /**
- * Joins `next` to `previous`, removing the longest word run that appears both
- * at the end of `previous` and at the start of `next`.
+ * Joins `next` to `previous`, removing the longest word run that appears both at the end of
+ * `previous` and at the start of `next`.
  *
- * The comparison ignores case and edge punctuation, but the returned text keeps
- * the original spelling of both sides. A one-word overlap is only removed when
- * `allowSingleWordOverlap` is set, so ordinary repetitions survive.
+ * The comparison ignores case and edge punctuation, but the returned text keeps the original
+ * spelling of both sides. A one-word overlap is only removed when `allowSingleWordOverlap` is set,
+ * so ordinary repetitions survive.
  */
 export function mergeTranscript(
 	previous: string,
 	next: string,
-	options: MergeOptions = {},
+	options: MergeOptions = {}
 ): string {
 	const nextText = next.trim();
 	if (previous.trim().length === 0) {
@@ -50,10 +49,7 @@ export function mergeTranscript(
 
 	const previousWords = words(previous);
 	const nextWords = words(nextText);
-	const maxOverlap = Math.max(
-		1,
-		options.maxOverlapWords ?? DEFAULT_MAX_OVERLAP_WORDS,
-	);
+	const maxOverlap = Math.max(1, options.maxOverlapWords ?? DEFAULT_MAX_OVERLAP_WORDS);
 	const minimum = options.allowSingleWordOverlap === true ? 1 : 2;
 
 	let overlap = 0;

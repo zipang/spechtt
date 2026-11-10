@@ -4,15 +4,15 @@ Use this page to predict a component's shape before reading its detailed API. Th
 
 ## Choose the family
 
-| Task | Family and constructor | State owner | Event or composition |
-| --- | --- | --- | --- |
-| Execute a command | `Button::new("save")` | Application owns the operation | `on_click` receives a click event |
-| Change a boolean | `Checkbox::new("remember")`, `Switch::new("enabled")`, `Radio::new("choice")` | Application supplies `checked(bool)` | `on_change` receives the requested `&bool` |
-| Choose one radio option | `RadioGroup::new("delivery")` | Application supplies `selected_index(Option<usize>)` | `on_change` receives the requested `&usize` |
-| Edit retained text | `Input::new(&self.input)` | View retains `Entity<InputState>` | Retain the subscription; handle `InputEvent` |
-| Display a supplied patch | `Diff::new(&self.diff)` | View retains `Entity<DiffState>`; application parses supplied unified/Git diff with `DiffFile::parse`; one state shows all files | Readonly `RenderOnce` element; retain subscriptions to `DiffEvent` when needed |
-| Lay out fields | `Form::new()` | Children retain their own state | `child(Field)`, `columns`, `label_layout`, `footer` |
-| Supply a compound part | `Field::new()`, `Tab::new()` | Containing component owns placement/selection | Read the parent's accepted child type |
+| Task                     | Family and constructor                                                        | State owner                                                                                                                      | Event or composition                                                           |
+| ------------------------ | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Execute a command        | `Button::new("save")`                                                         | Application owns the operation                                                                                                   | `on_click` receives a click event                                              |
+| Change a boolean         | `Checkbox::new("remember")`, `Switch::new("enabled")`, `Radio::new("choice")` | Application supplies `checked(bool)`                                                                                             | `on_change` receives the requested `&bool`                                     |
+| Choose one radio option  | `RadioGroup::new("delivery")`                                                 | Application supplies `selected_index(Option<usize>)`                                                                             | `on_change` receives the requested `&usize`                                    |
+| Edit retained text       | `Input::new(&self.input)`                                                     | View retains `Entity<InputState>`                                                                                                | Retain the subscription; handle `InputEvent`                                   |
+| Display a supplied patch | `Diff::new(&self.diff)`                                                       | View retains `Entity<DiffState>`; application parses supplied unified/Git diff with `DiffFile::parse`; one state shows all files | Readonly `RenderOnce` element; retain subscriptions to `DiffEvent` when needed |
+| Lay out fields           | `Form::new()`                                                                 | Children retain their own state                                                                                                  | `child(Field)`, `columns`, `label_layout`, `footer`                            |
+| Supply a compound part   | `Field::new()`, `Tab::new()`                                                  | Containing component owns placement/selection                                                                                    | Read the parent's accepted child type                                          |
 
 Constructors establish the component family's ownership model. Do not infer that every `new` takes an ID or that every `child` accepts an arbitrary element. Keep domain IDs stable when controls are reordered. Positional selection APIs remain positional; applications map them to domain identity when needed.
 
@@ -35,12 +35,12 @@ Replace Switch with Checkbox or Radio without changing the boolean callback shap
 
 ## Form layout has independent decisions
 
-| Decision | API | Default |
-| --- | --- | --- |
-| Label above or beside its control | `label_layout(Axis::Vertical / Horizontal)` | Above |
-| Number of field columns | `columns(count)` | One |
-| A field spanning several columns | `Field::col_span(count)` | One |
-| Commands after the fields | `footer(element)` | No footer; supplied footer spans all columns and aligns to the trailing edge |
+| Decision                          | API                                         | Default                                                                      |
+| --------------------------------- | ------------------------------------------- | ---------------------------------------------------------------------------- |
+| Label above or beside its control | `label_layout(Axis::Vertical / Horizontal)` | Above                                                                        |
+| Number of field columns           | `columns(count)`                            | One                                                                          |
+| A field spanning several columns  | `Field::col_span(count)`                    | One                                                                          |
+| Commands after the fields         | `footer(element)`                           | No footer; supplied footer spans all columns and aligns to the trailing edge |
 
 `Form::horizontal()` and `h_form()` mean labels beside controls. They do not put all fields into one horizontal row. `Form::vertical()`, `v_form()`, and `layout(Axis)` remain supported.
 

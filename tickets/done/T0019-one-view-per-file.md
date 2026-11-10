@@ -38,10 +38,10 @@ expectation: this ticket changes file layout, not behaviour or pixels.
   `welcome`, `session_setup`, `ready`, `recording`, `paused`, `stopped`.
 - `views/setup.rs` and `views/transport.rs` are deleted.
 - Fragments used by more than one screen move to `components/`:
-  - `TransportHeader::new(elapsed, progress, mode)` — elapsed/progress
-    read-out plus the transcription-mode badge.
-  - `StopControl::new(enabled).on_click(..)` — the square Stop action, inert
-    while recording.
+    - `TransportHeader::new(elapsed, progress, mode)` — elapsed/progress
+      read-out plus the transcription-mode badge.
+    - `StopControl::new(enabled).on_click(..)` — the square Stop action, inert
+      while recording.
 - `views/` contains no private copy helpers: the mode chooser's three copy
   helpers stay local to `welcome.rs` (T0018 replaces them with the text
   components).
@@ -49,18 +49,18 @@ expectation: this ticket changes file layout, not behaviour or pixels.
 ## TDD Tasks
 
 - [x] **T19.1 — Red: module surface**: a test asserts the view module list is
-  exactly the six screens (guards against a second screen creeping back into
-  a file).
+      exactly the six screens (guards against a second screen creeping back into
+      a file).
 - [x] **T19.2 — Split**: create the six files, move each renderer unchanged,
-  rename to `render`.
+      rename to `render`.
 - [x] **T19.3 — Components**: extract `TransportHeader` and `StopControl`,
-  delete `views/transport.rs`.
+      delete `views/transport.rs`.
 - [x] **T19.4 — Rewire**: update `views/mod.rs` and the `app.rs` route table.
 - [x] **T19.5 — Gates**: `cargo fmt -- --check`,
-  `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
-  `bun check src/stt`, `bun run design:validate`.
+      `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
+      `bun check src/stt`, `bun run design:validate`.
 - [x] **T19.6 — Bare visual check**: the chooser and every transport screen
-  still render identically (screenshot at 600x460).
+      still render identically (screenshot at 600x460).
 
 ## Acceptance Criteria
 

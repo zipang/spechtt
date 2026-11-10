@@ -27,13 +27,13 @@ with a stateless Bun worker doing the speech-to-text behind a local pipe.
 
 ## Requirements
 
-| Component | Needed for | Notes |
-|---|---|---|
-| Linux, macOS or Windows | everything | Linux is the primary platform; macOS and Windows are best effort. |
-| Rust 1.92 or later | building | Install with [rustup](https://rust-lang.org/tools/install/). |
-| `bun` ≥ 1.4.0 | live and file transcription | Runs the STT worker as a child process. |
+| Component                     | Needed for                  | Notes                                                               |
+| ----------------------------- | --------------------------- | ------------------------------------------------------------------- |
+| Linux, macOS or Windows       | everything                  | Linux is the primary platform; macOS and Windows are best effort.   |
+| Rust 1.92 or later            | building                    | Install with [rustup](https://rust-lang.org/tools/install/).        |
+| `bun` ≥ 1.4.0                 | live and file transcription | Runs the STT worker as a child process.                             |
 | `ffmpeg` ≥ 6.0 with `ffprobe` | **file transcription only** | Live dictation needs `bun` alone; `ffmpeg` decodes the picked file. |
-| A Vercel AI Gateway key | transcription | `AI_GATEWAY_API_KEY` or `VERCEL_AI_GATEWAY_API_KEY`. |
+| A Vercel AI Gateway key       | transcription               | `AI_GATEWAY_API_KEY` or `VERCEL_AI_GATEWAY_API_KEY`.                |
 
 Verify and install the two runtime binaries with one command per platform:
 
@@ -130,13 +130,13 @@ from the mode chooser.
 
 ## Keyboard shortcuts
 
-| Action | Shortcut |
-|---|---|
-| Start · pause · resume recording | `Space` |
-| Stop recording and show the transcript | `Enter` |
-| Save transcript to a file | `Ctrl`+`S` (`Cmd`+`S` on macOS) |
-| Open or close Help | `F1` |
-| Open or close Settings | `F2` |
+| Action                                 | Shortcut                        |
+| -------------------------------------- | ------------------------------- |
+| Start · pause · resume recording       | `Space`                         |
+| Stop recording and show the transcript | `Enter`                         |
+| Save transcript to a file              | `Ctrl`+`S` (`Cmd`+`S` on macOS) |
+| Open or close Help                     | `F1`                            |
+| Open or close Settings                 | `F2`                            |
 
 `Ctrl`+`C` (`Cmd`+`C` on macOS) copies the selected transcript text. It is bound
 in the same place as the table above but is not one of its rows, so it does not
@@ -280,12 +280,12 @@ network or a real user configuration directory. Write the failing test first.
 
 ## Documentation map
 
-| Document | What it answers |
-|---|---|
-| [`PRODUCT.md`](PRODUCT.md) | Vision, users, functional requirements, provider plan, open questions |
-| [`DESIGN.md`](DESIGN.md) | The design-system contract: token roles, component states, usage rules |
-| [`AGENTS.md`](AGENTS.md) | Architecture, module boundaries, engineering rules, quality gates |
-| [`tickets/README.md`](tickets/README.md) | The Kanban board: how work is specified, tracked and reviewed |
+| Document                                 | What it answers                                                        |
+| ---------------------------------------- | ---------------------------------------------------------------------- |
+| [`PRODUCT.md`](PRODUCT.md)               | Vision, users, functional requirements, provider plan, open questions  |
+| [`DESIGN.md`](DESIGN.md)                 | The design-system contract: token roles, component states, usage rules |
+| [`AGENTS.md`](AGENTS.md)                 | Architecture, module boundaries, engineering rules, quality gates      |
+| [`tickets/README.md`](tickets/README.md) | The Kanban board: how work is specified, tracked and reviewed          |
 
 ## Status
 

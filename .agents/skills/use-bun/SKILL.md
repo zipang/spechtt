@@ -24,26 +24,26 @@ To configure the formatter in a project, read
 
 ## When Bun replaces a common tool
 
-| Instead of | Use | Docs |
-| --- | --- | --- |
-| `node script.ts`, `tsx`, `ts-node` | `bun script.ts` — runs TS/JSX directly | `references/runtime.md` |
-| `nodemon` | `bun --watch`, or `bun --hot` for in-place reload | `references/runtime.md` |
-| `npm install` / `npm run` | `bun install` / `bun run` (also runs `package.json` scripts) | `references/package-manager.md` |
-| `npx pkg` | `bunx pkg` | `references/package-manager.md` |
-| `tsc --noEmit` | `bun check` — TypeScript 7 semantics, all cores | `references/tooling.md` |
-| ESLint | `bun lint` — 1,000+ rules, zero config | `references/tooling.md` |
-| Prettier | `bun fmt` | `references/tooling.md` |
-| Vitest / Jest | `bun test` — Jest-compatible, snapshot, DOM, coverage | `references/test.md` |
-| Vite (build + dev server) | `Bun.build` / `Bun.serve` fullstack dev server, HMR | `references/bundler.md` |
-| Express / Fastify (new code) | `Bun.serve({ routes })` | `references/server.md` |
-| `dotenv` | automatic `.env` loading via `process.env` / `Bun.env` | `references/runtime.md` |
-| `fs.readFile` + `JSON.parse` | `Bun.file(path).json()` / `.text()` | `references/runtime.md` |
-| `glob`, `semver`, `nanoid`, `bcrypt` | `Bun.Glob`, `Bun.semver`, `crypto.randomUUID()`, `Bun.password` | `references/runtime.md` |
-| `pg` / `mysql2` / `better-sqlite3` | `Bun.SQL`, `bun:sqlite` | `references/runtime.md` |
-| `ioredis` | `Bun.redis` / `RedisClient` | `references/runtime.md` |
-| `yaml`, `toml`, `fast-xml-parser`, `json5` | native imports and `Bun.YAML` / `Bun.TOML` / `Bun.XML` / `Bun.JSON5` | `references/runtime.md` |
-| `sharp` | `Bun.Image` | `references/runtime.md` |
-| `esbuild` | `Bun.build` | `references/bundler.md` |
+| Instead of                                 | Use                                                                  | Docs                            |
+| ------------------------------------------ | -------------------------------------------------------------------- | ------------------------------- |
+| `node script.ts`, `tsx`, `ts-node`         | `bun script.ts` — runs TS/JSX directly                               | `references/runtime.md`         |
+| `nodemon`                                  | `bun --watch`, or `bun --hot` for in-place reload                    | `references/runtime.md`         |
+| `npm install` / `npm run`                  | `bun install` / `bun run` (also runs `package.json` scripts)         | `references/package-manager.md` |
+| `npx pkg`                                  | `bunx pkg`                                                           | `references/package-manager.md` |
+| `tsc --noEmit`                             | `bun check` — TypeScript 7 semantics, all cores                      | `references/tooling.md`         |
+| ESLint                                     | `bun lint` — 1,000+ rules, zero config                               | `references/tooling.md`         |
+| Prettier                                   | `bun fmt`                                                            | `references/tooling.md`         |
+| Vitest / Jest                              | `bun test` — Jest-compatible, snapshot, DOM, coverage                | `references/test.md`            |
+| Vite (build + dev server)                  | `Bun.build` / `Bun.serve` fullstack dev server, HMR                  | `references/bundler.md`         |
+| Express / Fastify (new code)               | `Bun.serve({ routes })`                                              | `references/server.md`          |
+| `dotenv`                                   | automatic `.env` loading via `process.env` / `Bun.env`               | `references/runtime.md`         |
+| `fs.readFile` + `JSON.parse`               | `Bun.file(path).json()` / `.text()`                                  | `references/runtime.md`         |
+| `glob`, `semver`, `nanoid`, `bcrypt`       | `Bun.Glob`, `Bun.semver`, `crypto.randomUUID()`, `Bun.password`      | `references/runtime.md`         |
+| `pg` / `mysql2` / `better-sqlite3`         | `Bun.SQL`, `bun:sqlite`                                              | `references/runtime.md`         |
+| `ioredis`                                  | `Bun.redis` / `RedisClient`                                          | `references/runtime.md`         |
+| `yaml`, `toml`, `fast-xml-parser`, `json5` | native imports and `Bun.YAML` / `Bun.TOML` / `Bun.XML` / `Bun.JSON5` | `references/runtime.md`         |
+| `sharp`                                    | `Bun.Image`                                                          | `references/runtime.md`         |
+| `esbuild`                                  | `Bun.build`                                                          | `references/bundler.md`         |
 
 Prefer the built-in even when the project already has the npm package: fewer
 dependencies, fewer configs, and Bun's versions are faster.
@@ -61,18 +61,20 @@ dependencies, fewer configs, and Bun's versions are faster.
 ## Documentation index
 
 <!-- generated:start -->
+
 Bun **v1.4.4** · 319 official doc pages indexed · updated 2026-10-23
 
-| Task | Read | Pages |
-| --- | --- | --- |
-| Installing Bun, scaffolding a project (`bun init`, `bun create`). | [references/getting-started.md](references/getting-started.md) | 5 |
-| `bun check`, `bun lint`, `bun fmt`, and TypeScript 6/7 setup. | [references/tooling.md](references/tooling.md) | 7 |
-| `Bun.serve`, routes, TLS, WebSockets, TCP/UDP/DNS, `fetch`. | [references/server.md](references/server.md) | 11 |
-| File I/O, shell, spawn, SQL/SQLite, Redis, S3, hashing, glob, streams, workers, ... | [references/runtime.md](references/runtime.md) | 52 |
-| `bun install`/`add`/`remove`/`update`, workspaces, catalogs, lockfile, registries. | [references/package-manager.md](references/package-manager.md) | 28 |
-| `Bun.build`, HMR, fullstack dev server, CSS, HTML, executables, minifier. | [references/bundler.md](references/bundler.md) | 13 |
-| `bun test`, mocks, snapshots, DOM testing, coverage, parallel runs. | [references/test.md](references/test.md) | 13 |
-| Task-oriented recipes: file conversions, HTTP patterns, ecosystems. | [references/guides.md](references/guides.md) | 190 |
+| Task                                                                                | Read                                                           | Pages |
+| ----------------------------------------------------------------------------------- | -------------------------------------------------------------- | ----- |
+| Installing Bun, scaffolding a project (`bun init`, `bun create`).                   | [references/getting-started.md](references/getting-started.md) | 5     |
+| `bun check`, `bun lint`, `bun fmt`, and TypeScript 6/7 setup.                       | [references/tooling.md](references/tooling.md)                 | 7     |
+| `Bun.serve`, routes, TLS, WebSockets, TCP/UDP/DNS, `fetch`.                         | [references/server.md](references/server.md)                   | 11    |
+| File I/O, shell, spawn, SQL/SQLite, Redis, S3, hashing, glob, streams, workers, ... | [references/runtime.md](references/runtime.md)                 | 52    |
+| `bun install`/`add`/`remove`/`update`, workspaces, catalogs, lockfile, registries.  | [references/package-manager.md](references/package-manager.md) | 28    |
+| `Bun.build`, HMR, fullstack dev server, CSS, HTML, executables, minifier.           | [references/bundler.md](references/bundler.md)                 | 13    |
+| `bun test`, mocks, snapshots, DOM testing, coverage, parallel runs.                 | [references/test.md](references/test.md)                       | 13    |
+| Task-oriented recipes: file conversions, HTTP patterns, ecosystems.                 | [references/guides.md](references/guides.md)                   | 190   |
+
 <!-- generated:end -->
 
 ## Keeping this skill current

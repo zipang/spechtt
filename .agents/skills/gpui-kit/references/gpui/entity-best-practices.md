@@ -6,7 +6,7 @@
 
 ### Avoid Re-entrant Entity Access (Same Entity)
 
-**Problem:** GPUI locks an entity for the entire duration of its render or update pass. Any attempt to `read` or `update` that *same* entity while the lock is held panics:
+**Problem:** GPUI locks an entity for the entire duration of its render or update pass. Any attempt to `read` or `update` that _same_ entity while the lock is held panics:
 
 ```
 cannot update … while it is already being updated
@@ -24,11 +24,11 @@ entity_a.update(cx, |_, cx| {
 });
 ```
 
-**Note:** Updating two *different* entities in a nested fashion is safe. The restriction is strictly about re-entering the *same* entity's lock.
+**Note:** Updating two _different_ entities in a nested fashion is safe. The restriction is strictly about re-entering the _same_ entity's lock.
 
 ### `defer_in` Re-locks the Entity — Same Rules Apply
 
-`cx.defer_in(window, callback)` schedules `callback` to run *on the entity the context refers to*. GPUI re-acquires that entity's lock to execute the deferred callback, so the re-entrancy rules apply equally inside it:
+`cx.defer_in(window, callback)` schedules `callback` to run _on the entity the context refers to_. GPUI re-acquires that entity's lock to execute the deferred callback, so the re-entrancy rules apply equally inside it:
 
 ```rust
 // ❌ Panic: defer_in runs with ListState locked; calling list.update re-enters

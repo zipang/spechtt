@@ -3,18 +3,14 @@ import type { StreamTranscriptionResult, TranscriptionStreamPart } from "ai";
 import { MockTranscriptionModelV4, simulateReadableStream } from "ai/test";
 import type { OutboundEvent } from "../protocol";
 import { type SttSessionConfig, sessionConfigFromStart } from "./types";
-import {
-	type StreamTranscribeFn,
-	VercelAiSdkAdapter,
-	isEmptyInputFailure,
-} from "./vercel-ai-sdk";
+import { type StreamTranscribeFn, VercelAiSdkAdapter, isEmptyInputFailure } from "./vercel-ai-sdk";
 
 const config: SttSessionConfig = {
 	sessionId: "session-1",
 	provider: "vercel",
 	model: "openai/gpt-realtime-whisper",
 	sampleRate: 24000,
-	apiKey: "sk-test",
+	apiKey: "sk-test"
 };
 
 /** 40 ms of digital silence: what the capture layer sends when nothing is heard. */
@@ -29,7 +25,7 @@ interface FakeResultOptions {
 function fakeResult({
 	parts = [],
 	finalText = "",
-	failWith,
+	failWith
 }: FakeResultOptions = {}): StreamTranscriptionResult {
 	const fullStream = (async function* () {
 		yield* parts;
@@ -46,7 +42,7 @@ function fakeResult({
 		durationInSeconds: Promise.resolve(undefined),
 		warnings: Promise.resolve([]),
 		responses: Promise.resolve([]),
-		providerMetadata: Promise.resolve({}),
+		providerMetadata: Promise.resolve({})
 	} as unknown as StreamTranscriptionResult;
 }
 
@@ -65,14 +61,14 @@ describe("VercelAiSdkAdapter", () => {
 		const { events, emit } = collect();
 		const adapter = new VercelAiSdkAdapter({
 			streamTranscribe,
-			resolveModel: () => "test-model",
+			resolveModel: () => "test-model"
 		});
 
 		const session = await adapter.start(config, emit);
 		expect(events).toEqual([{ type: "started", sessionId: "session-1" }]);
 		expect(received?.inputAudioFormat).toEqual({
 			type: "audio/pcm",
-			rate: 24000,
+			rate: 24000
 		});
 		expect(received?.model).toBe("test-model");
 
@@ -96,7 +92,7 @@ describe("VercelAiSdkAdapter", () => {
 		const { emit } = collect();
 		const adapter = new VercelAiSdkAdapter({
 			streamTranscribe,
-			resolveModel: () => "test-model",
+			resolveModel: () => "test-model"
 		});
 
 		const session = await adapter.start(config, emit);
@@ -120,14 +116,14 @@ describe("VercelAiSdkAdapter", () => {
 					{ type: "transcript-delta", delta: "lo" },
 					{ type: "transcript-final", text: "hello" },
 					{ type: "transcript-partial", text: "wor" },
-					{ type: "transcript-final", text: "world" },
+					{ type: "transcript-final", text: "world" }
 				],
-				finalText: "",
+				finalText: ""
 			});
 		const { events, emit } = collect();
 		const adapter = new VercelAiSdkAdapter({
 			streamTranscribe,
-			resolveModel: () => "test-model",
+			resolveModel: () => "test-model"
 		});
 
 		const session = await adapter.start(config, emit);
@@ -141,8 +137,8 @@ describe("VercelAiSdkAdapter", () => {
 			{
 				type: "stopped",
 				sessionId: "session-1",
-				fullText: "hello world",
-			},
+				fullText: "hello world"
+			}
 		]);
 	});
 
@@ -152,13 +148,13 @@ describe("VercelAiSdkAdapter", () => {
 				parts: [
 					{ type: "transcript-partial", id: "session-1:0", text: "hel" },
 					{ type: "transcript-delta", id: "session-1:0", delta: "lo" },
-					{ type: "transcript-final", id: "session-1:0", text: "hello" },
-				],
+					{ type: "transcript-final", id: "session-1:0", text: "hello" }
+				]
 			});
 		const { events, emit } = collect();
 		const adapter = new VercelAiSdkAdapter({
 			streamTranscribe,
-			resolveModel: () => "test-model",
+			resolveModel: () => "test-model"
 		});
 
 		const session = await adapter.start(config, emit);
@@ -170,15 +166,15 @@ describe("VercelAiSdkAdapter", () => {
 				type: "partial",
 				sessionId: "session-1",
 				text: "hel",
-				segment: "session-1:0",
+				segment: "session-1:0"
 			},
 			{
 				type: "delta",
 				sessionId: "session-1",
 				delta: "lo",
-				segment: "session-1:0",
+				segment: "session-1:0"
 			},
-			{ type: "stopped", sessionId: "session-1", fullText: "hello" },
+			{ type: "stopped", sessionId: "session-1", fullText: "hello" }
 		]);
 	});
 
@@ -188,20 +184,20 @@ describe("VercelAiSdkAdapter", () => {
 				parts: [
 					{ type: "transcript-partial", text: "hel" },
 					{ type: "transcript-delta", delta: "lo" },
-					{ type: "transcript-final", text: "hello" },
-				],
+					{ type: "transcript-final", text: "hello" }
+				]
 			});
 		const { events, emit } = collect();
 		const adapter = new VercelAiSdkAdapter({
 			streamTranscribe,
-			resolveModel: () => "test-model",
+			resolveModel: () => "test-model"
 		});
 
 		const session = await adapter.start(config, emit);
 		await session.stop();
 
 		const transcripts = events.filter(
-			(event) => event.type === "partial" || event.type === "delta",
+			(event) => event.type === "partial" || event.type === "delta"
 		);
 		expect(transcripts).toHaveLength(2);
 		for (const event of transcripts) {
@@ -213,12 +209,12 @@ describe("VercelAiSdkAdapter", () => {
 		const streamTranscribe: StreamTranscribeFn = () =>
 			fakeResult({
 				parts: [{ type: "transcript-final", text: "hello" }],
-				finalText: "hello from the provider",
+				finalText: "hello from the provider"
 			});
 		const { events, emit } = collect();
 		const adapter = new VercelAiSdkAdapter({
 			streamTranscribe,
-			resolveModel: () => "test-model",
+			resolveModel: () => "test-model"
 		});
 
 		const session = await adapter.start(config, emit);
@@ -227,7 +223,7 @@ describe("VercelAiSdkAdapter", () => {
 		expect(events.at(-1)).toEqual({
 			type: "stopped",
 			sessionId: "session-1",
-			fullText: "hello from the provider",
+			fullText: "hello from the provider"
 		});
 	});
 
@@ -237,7 +233,7 @@ describe("VercelAiSdkAdapter", () => {
 		const { events, emit } = collect();
 		const adapter = new VercelAiSdkAdapter({
 			streamTranscribe,
-			resolveModel: () => "test-model",
+			resolveModel: () => "test-model"
 		});
 
 		const session = await adapter.start(config, emit);
@@ -248,25 +244,25 @@ describe("VercelAiSdkAdapter", () => {
 			type: "error",
 			sessionId: "session-1",
 			code: "stream_failed",
-			message: "provider down",
+			message: "provider down"
 		});
 		expect(events.filter((event) => event.type === "error")).toHaveLength(1);
 		expect(events.at(-1)).toEqual({
 			type: "stopped",
 			sessionId: "session-1",
-			fullText: "",
+			fullText: ""
 		});
 	});
 
 	test("a silent stop never surfaces a provider empty-input failure", async () => {
 		const streamTranscribe: StreamTranscribeFn = () =>
 			fakeResult({
-				failWith: new Error("no audio to transcribe"),
+				failWith: new Error("no audio to transcribe")
 			});
 		const { events, emit } = collect();
 		const adapter = new VercelAiSdkAdapter({
 			streamTranscribe,
-			resolveModel: () => "test-model",
+			resolveModel: () => "test-model"
 		});
 
 		const session = await adapter.start(config, emit);
@@ -274,7 +270,7 @@ describe("VercelAiSdkAdapter", () => {
 
 		expect(events).toEqual([
 			{ type: "started", sessionId: "session-1" },
-			{ type: "stopped", sessionId: "session-1", fullText: "" },
+			{ type: "stopped", sessionId: "session-1", fullText: "" }
 		]);
 		expect(events.some((event) => event.type === "error")).toBe(false);
 	});
@@ -285,7 +281,7 @@ describe("VercelAiSdkAdapter", () => {
 		const { events, emit } = collect();
 		const adapter = new VercelAiSdkAdapter({
 			streamTranscribe,
-			resolveModel: () => "test-model",
+			resolveModel: () => "test-model"
 		});
 
 		const session = await adapter.start(config, emit);
@@ -298,7 +294,7 @@ describe("VercelAiSdkAdapter", () => {
 
 		expect(events).toEqual([
 			{ type: "started", sessionId: "session-1" },
-			{ type: "stopped", sessionId: "session-1", fullText: "" },
+			{ type: "stopped", sessionId: "session-1", fullText: "" }
 		]);
 	});
 
@@ -308,7 +304,7 @@ describe("VercelAiSdkAdapter", () => {
 		const { events, emit } = collect();
 		const adapter = new VercelAiSdkAdapter({
 			streamTranscribe,
-			resolveModel: () => "test-model",
+			resolveModel: () => "test-model"
 		});
 
 		const session = await adapter.start(config, emit);
@@ -319,7 +315,7 @@ describe("VercelAiSdkAdapter", () => {
 		expect(events.at(-1)).toEqual({
 			type: "stopped",
 			sessionId: "session-1",
-			fullText: "",
+			fullText: ""
 		});
 	});
 
@@ -327,12 +323,12 @@ describe("VercelAiSdkAdapter", () => {
 		const streamTranscribe: StreamTranscribeFn = () =>
 			fakeResult({
 				parts: [{ type: "transcript-final", text: "hello" }],
-				failWith: new Error("Nothing was recorded."),
+				failWith: new Error("Nothing was recorded.")
 			});
 		const { events, emit } = collect();
 		const adapter = new VercelAiSdkAdapter({
 			streamTranscribe,
-			resolveModel: () => "test-model",
+			resolveModel: () => "test-model"
 		});
 
 		const session = await adapter.start(config, emit);
@@ -343,7 +339,7 @@ describe("VercelAiSdkAdapter", () => {
 			type: "error",
 			sessionId: "session-1",
 			code: "stream_failed",
-			message: "Nothing was recorded.",
+			message: "Nothing was recorded."
 		});
 	});
 
@@ -353,15 +349,11 @@ describe("VercelAiSdkAdapter", () => {
 			"no speech detected",
 			"audio is empty",
 			"the request contained no audio",
-			"There is nothing to transcribe",
+			"There is nothing to transcribe"
 		]) {
 			expect(isEmptyInputFailure(message)).toBe(true);
 		}
-		for (const message of [
-			"provider down",
-			"401 invalid api key",
-			"socket closed",
-		]) {
+		for (const message of ["provider down", "401 invalid api key", "socket closed"]) {
 			expect(isEmptyInputFailure(message)).toBe(false);
 		}
 	});
@@ -373,7 +365,7 @@ describe("VercelAiSdkAdapter", () => {
 		const { events, emit } = collect();
 		const adapter = new VercelAiSdkAdapter({
 			streamTranscribe,
-			resolveModel: () => "test-model",
+			resolveModel: () => "test-model"
 		});
 
 		const session = await adapter.start(config, emit);
@@ -382,15 +374,15 @@ describe("VercelAiSdkAdapter", () => {
 				type: "error",
 				sessionId: "session-1",
 				code: "stream_failed",
-				message: "model does not support streaming",
-			},
+				message: "model does not support streaming"
+			}
 		]);
 
 		await session.stop();
 		expect(events.at(-1)).toEqual({
 			type: "stopped",
 			sessionId: "session-1",
-			fullText: "",
+			fullText: ""
 		});
 	});
 
@@ -403,16 +395,16 @@ describe("VercelAiSdkAdapter", () => {
 						{ type: "transcript-partial", text: "hel" },
 						{ type: "transcript-delta", delta: "lo" },
 						{ type: "transcript-final", text: "hello" },
-						{ type: "finish", text: "hello", segments: [] },
+						{ type: "finish", text: "hello", segments: [] }
 					],
 					initialDelayInMs: 0,
-					chunkDelayInMs: 0,
-				}),
-			}),
+					chunkDelayInMs: 0
+				})
+			})
 		});
 		const { events, emit } = collect();
 		const adapter = new VercelAiSdkAdapter({
-			resolveModel: () => model,
+			resolveModel: () => model
 		});
 
 		const session = await adapter.start(config, emit);
@@ -422,7 +414,7 @@ describe("VercelAiSdkAdapter", () => {
 			{ type: "started", sessionId: "session-1" },
 			{ type: "partial", sessionId: "session-1", text: "hel" },
 			{ type: "delta", sessionId: "session-1", delta: "lo" },
-			{ type: "stopped", sessionId: "session-1", fullText: "hello" },
+			{ type: "stopped", sessionId: "session-1", fullText: "hello" }
 		]);
 	});
 
@@ -433,13 +425,13 @@ describe("VercelAiSdkAdapter", () => {
 			})();
 			return {
 				...fakeResult(),
-				fullStream,
+				fullStream
 			} as unknown as StreamTranscriptionResult;
 		};
 		const { events, emit } = collect();
 		const adapter = new VercelAiSdkAdapter({
 			streamTranscribe,
-			resolveModel: () => "test-model",
+			resolveModel: () => "test-model"
 		});
 
 		const session = await adapter.start(config, emit);
@@ -459,7 +451,7 @@ describe("VercelAiSdkAdapter dictation language", () => {
 		const { emit } = collect();
 		const adapter = new VercelAiSdkAdapter({
 			streamTranscribe,
-			resolveModel: () => "test-model",
+			resolveModel: () => "test-model"
 		});
 
 		// `GatewayProviderOptions` has no `language`: sending it made the gateway
@@ -480,17 +472,17 @@ describe("VercelAiSdkAdapter dictation language", () => {
 		const { emit } = collect();
 		const adapter = new VercelAiSdkAdapter({
 			streamTranscribe,
-			resolveModel: () => "test-model",
+			resolveModel: () => "test-model"
 		});
 
 		const session = await adapter.start(
 			{ ...config, provider: "openai", language: "fr" },
-			emit,
+			emit
 		);
 		await session.stop();
 
 		expect(received?.providerOptions).toEqual({
-			openai: { language: "fr" },
+			openai: { language: "fr" }
 		});
 	});
 
@@ -503,7 +495,7 @@ describe("VercelAiSdkAdapter dictation language", () => {
 		const { emit } = collect();
 		const adapter = new VercelAiSdkAdapter({
 			streamTranscribe,
-			resolveModel: () => "test-model",
+			resolveModel: () => "test-model"
 		});
 
 		const session = await adapter.start(config, emit);
@@ -525,8 +517,8 @@ describe("VercelAiSdkAdapter dictation language", () => {
 			resolveModel: () => "test-model",
 			providerOptions: {
 				gateway: { streaming: { delay: "low" } },
-				openai: { store: false },
-			},
+				openai: { store: false }
+			}
 		});
 
 		const session = await adapter.start({ ...config, language: "fr" }, emit);
@@ -534,7 +526,7 @@ describe("VercelAiSdkAdapter dictation language", () => {
 
 		expect(received?.providerOptions).toEqual({
 			gateway: { streaming: { delay: "low" } },
-			openai: { store: false },
+			openai: { store: false }
 		});
 	});
 
@@ -548,14 +540,14 @@ describe("VercelAiSdkAdapter dictation language", () => {
 		const adapter = new VercelAiSdkAdapter({
 			streamTranscribe,
 			resolveModel: () => "test-model",
-			providerOptions: { gateway: { streaming: { delay: "low" } } },
+			providerOptions: { gateway: { streaming: { delay: "low" } } }
 		});
 
 		const session = await adapter.start(config, emit);
 		await session.stop();
 
 		expect(received?.providerOptions).toEqual({
-			gateway: { streaming: { delay: "low" } },
+			gateway: { streaming: { delay: "low" } }
 		});
 	});
 });
@@ -566,19 +558,17 @@ describe("sessionConfigFromStart", () => {
 		sessionId: "session-1",
 		provider: "vercel-ai-gateway",
 		model: "openai/gpt-transcribe",
-		sampleRate: 16000,
+		sampleRate: 16000
 	};
 
 	test("copies the dictation language", () => {
-		expect(
-			sessionConfigFromStart({ ...command, language: "fr" }, "sk-test"),
-		).toEqual({
+		expect(sessionConfigFromStart({ ...command, language: "fr" }, "sk-test")).toEqual({
 			sessionId: "session-1",
 			provider: "vercel-ai-gateway",
 			model: "openai/gpt-transcribe",
 			sampleRate: 16000,
 			apiKey: "sk-test",
-			language: "fr",
+			language: "fr"
 		});
 	});
 

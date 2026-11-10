@@ -1,18 +1,11 @@
-import {
-	afterEach,
-	beforeEach,
-	describe,
-	expect,
-	spyOn,
-	test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { type OutboundEvent, serializeOutboundEvent } from "./protocol";
 import type {
 	EmitFn,
 	SttAdapter,
 	SttAdapterFactory,
 	SttSession,
-	SttSessionConfig,
+	SttSessionConfig
 } from "./adapters/types";
 import { MistralAdapter } from "./adapters/mistral";
 import { VercelAiSdkAdapter } from "./adapters/vercel-ai-sdk";
@@ -26,7 +19,7 @@ import {
 	type FileDeps,
 	defaultAdapterFactory,
 	runWorkerLoop,
-	sanitizeDiagnostic,
+	sanitizeDiagnostic
 } from "./worker";
 
 const START = JSON.stringify({
@@ -35,13 +28,13 @@ const START = JSON.stringify({
 	provider: "vercel",
 	model: "openai/gpt-realtime-whisper",
 	sampleRate: 16000,
-	apiKey: "sk-test",
+	apiKey: "sk-test"
 });
 
 const audio = (marker: string) =>
 	JSON.stringify({
 		type: "audio",
-		pcm16Base64: Buffer.from(marker).toString("base64").padEnd(4, "="),
+		pcm16Base64: Buffer.from(marker).toString("base64").padEnd(4, "=")
 	});
 
 async function* linesOf(items: string[]): AsyncGenerator<string> {
@@ -58,7 +51,7 @@ class FakeSession implements SttSession {
 
 	constructor(
 		readonly sessionId: string,
-		private readonly emit: EmitFn,
+		private readonly emit: EmitFn
 	) {}
 
 	pushAudio(pcm16Base64: string): void {
@@ -72,7 +65,7 @@ class FakeSession implements SttSession {
 			this.emit({
 				type: "committed",
 				sessionId: this.sessionId,
-				text: "hello",
+				text: "hello"
 			});
 		}
 	}
@@ -90,7 +83,7 @@ class FakeSession implements SttSession {
 		this.emit({
 			type: "stopped",
 			sessionId: this.sessionId,
-			fullText: "hello",
+			fullText: "hello"
 		});
 	}
 
@@ -130,7 +123,7 @@ describe("runWorkerLoop", () => {
 			"MISTRAL_API_KEY",
 			"OPENAI_API_KEY",
 			"XAI_API_KEY",
-			"ELEVENLABS_API_KEY",
+			"ELEVENLABS_API_KEY"
 		]) {
 			savedEnv[name] = process.env[name];
 			delete process.env[name];
@@ -160,10 +153,10 @@ describe("runWorkerLoop", () => {
 				audio("dropped"),
 				JSON.stringify({ type: "resume" }),
 				audio("a5"),
-				JSON.stringify({ type: "stop" }),
+				JSON.stringify({ type: "stop" })
 			]),
 			(event) => events.push(event),
-			factory,
+			factory
 		);
 
 		expect(events).toEqual([
@@ -172,7 +165,7 @@ describe("runWorkerLoop", () => {
 			{ type: "partial", sessionId: "session-1", text: "hel" },
 			{ type: "delta", sessionId: "session-1", delta: "lo" },
 			{ type: "committed", sessionId: "session-1", text: "hello" },
-			{ type: "stopped", sessionId: "session-1", fullText: "hello" },
+			{ type: "stopped", sessionId: "session-1", fullText: "hello" }
 		]);
 
 		const session = adapter.sessions[0]!;
@@ -194,10 +187,10 @@ describe("runWorkerLoop", () => {
 				audio("a4"),
 				JSON.stringify({ type: "resume" }),
 				audio("a5"),
-				JSON.stringify({ type: "stop" }),
+				JSON.stringify({ type: "stop" })
 			]),
 			(event) => events.push(event),
-			factory,
+			factory
 		);
 
 		const session = adapter.sessions[0]!;
@@ -205,7 +198,7 @@ describe("runWorkerLoop", () => {
 			Buffer.from("a1").toString("base64").padEnd(4, "="),
 			Buffer.from("a2").toString("base64").padEnd(4, "="),
 			Buffer.from("a3").toString("base64").padEnd(4, "="),
-			Buffer.from("a5").toString("base64").padEnd(4, "="),
+			Buffer.from("a5").toString("base64").padEnd(4, "=")
 		]);
 	});
 
@@ -216,24 +209,24 @@ describe("runWorkerLoop", () => {
 			sessionId: "no-key",
 			provider: "vercel-ai-gateway",
 			model: "openai/gpt-4o-transcribe",
-			sampleRate: 16000,
+			sampleRate: 16000
 		});
 
 		await runWorkerLoop(
 			linesOf([noKey, START, JSON.stringify({ type: "stop" })]),
 			(event) => events.push(event),
-			factory,
+			factory
 		);
 
 		expect(events[0]).toEqual({ type: "ready" });
 		expect(events[1]).toMatchObject({
 			type: "error",
 			sessionId: "no-key",
-			code: "missing_api_key",
+			code: "missing_api_key"
 		});
 		expect(events[2]).toEqual({
 			type: "started",
-			sessionId: "session-1",
+			sessionId: "session-1"
 		});
 		expect(events.at(-1)).toMatchObject({ type: "stopped" });
 		expect(adapter.sessions).toHaveLength(1);
@@ -255,12 +248,12 @@ describe("runWorkerLoop", () => {
 					sessionId: "env-session",
 					provider: "vercel-ai-gateway",
 					model: "openai/gpt-4o-transcribe",
-					sampleRate: 16000,
+					sampleRate: 16000
 				}),
-				JSON.stringify({ type: "stop" }),
+				JSON.stringify({ type: "stop" })
 			]),
 			() => {},
-			capturingFactory,
+			capturingFactory
 		);
 
 		expect(configs[0]?.apiKey).toBe("env-key");
@@ -277,11 +270,11 @@ describe("runWorkerLoop", () => {
 					provider: "acme",
 					model: "whatever",
 					sampleRate: 16000,
-					apiKey: "sk-test",
-				}),
+					apiKey: "sk-test"
+				})
 			]),
 			(event) => events.push(event),
-			factory,
+			factory
 		);
 
 		expect(events).toEqual([
@@ -290,8 +283,8 @@ describe("runWorkerLoop", () => {
 				type: "error",
 				sessionId: "bad",
 				code: "unsupported_provider",
-				message: expect.stringContaining("acme"),
-			},
+				message: expect.stringContaining("acme")
+			}
 		]);
 		expect(adapter.sessions).toHaveLength(0);
 	});
@@ -303,7 +296,7 @@ describe("runWorkerLoop", () => {
 		await runWorkerLoop(
 			linesOf([leakyLine, JSON.stringify({ type: "nope" })]),
 			(event) => events.push(event),
-			factory,
+			factory
 		);
 
 		expect(events).toEqual([
@@ -311,13 +304,13 @@ describe("runWorkerLoop", () => {
 			{
 				type: "error",
 				code: "invalid_protocol",
-				message: "Invalid JSON payload",
+				message: "Invalid JSON payload"
 			},
 			{
 				type: "error",
 				code: "invalid_protocol",
-				message: "Unknown command type: nope",
-			},
+				message: "Unknown command type: nope"
+			}
 		]);
 		expect(JSON.stringify(events)).not.toContain("sk-super-secret");
 	});
@@ -326,11 +319,7 @@ describe("runWorkerLoop", () => {
 		const { factory, adapter, events } = fakeFactory();
 
 		await expect(
-			runWorkerLoop(
-				linesOf([START, audio("a1")]),
-				(event) => events.push(event),
-				factory,
-			),
+			runWorkerLoop(linesOf([START, audio("a1")]), (event) => events.push(event), factory)
 		).resolves.toBeUndefined();
 
 		expect(events).toEqual([
@@ -338,7 +327,7 @@ describe("runWorkerLoop", () => {
 			{ type: "started", sessionId: "session-1" },
 			{ type: "partial", sessionId: "session-1", text: "hel" },
 			{ type: "delta", sessionId: "session-1", delta: "lo" },
-			{ type: "committed", sessionId: "session-1", text: "hello" },
+			{ type: "committed", sessionId: "session-1", text: "hello" }
 		]);
 		const session = adapter.sessions[0]!;
 		expect(session.aborted).toBe(true);
@@ -353,13 +342,13 @@ describe("runWorkerLoop", () => {
 			provider: "vercel",
 			model: "openai/gpt-realtime-whisper",
 			sampleRate: 16000,
-			apiKey: "sk-test",
+			apiKey: "sk-test"
 		});
 
 		await runWorkerLoop(
 			linesOf([START, second, JSON.stringify({ type: "stop" })]),
 			(event) => events.push(event),
-			factory,
+			factory
 		);
 
 		expect(adapter.sessions).toHaveLength(2);
@@ -369,7 +358,7 @@ describe("runWorkerLoop", () => {
 			{ type: "started", sessionId: "session-1" },
 			{ type: "stopped", sessionId: "session-1", fullText: "hello" },
 			{ type: "started", sessionId: "session-2" },
-			{ type: "stopped", sessionId: "session-2", fullText: "hello" },
+			{ type: "stopped", sessionId: "session-2", fullText: "hello" }
 		]);
 	});
 
@@ -387,8 +376,8 @@ describe("runWorkerLoop", () => {
 				type: "error",
 				sessionId: "session-1",
 				code: "stream_failed",
-				message: "factory exploded",
-			},
+				message: "factory exploded"
+			}
 		]);
 	});
 
@@ -398,14 +387,14 @@ describe("runWorkerLoop", () => {
 			provider: "vercel",
 			model: "openai/gpt-realtime-whisper",
 			sampleRate: 16000,
-			apiKey: "sk-test",
+			apiKey: "sk-test"
 		});
 		const segmented = await defaultAdapterFactory({
 			sessionId: "s",
 			provider: "vercel-ai-gateway",
 			model: "openai/gpt-4o-transcribe",
 			sampleRate: 16000,
-			apiKey: "sk-test",
+			apiKey: "sk-test"
 		});
 
 		expect(streaming).toBeInstanceOf(VercelAiSdkAdapter);
@@ -419,7 +408,7 @@ describe("runWorkerLoop capabilities handshake", () => {
 
 	const failingDiscovery: DiscoverySource = {
 		cached: () => undefined,
-		discover: async () => undefined,
+		discover: async () => undefined
 	};
 
 	function deferred<T>() {
@@ -436,21 +425,21 @@ describe("runWorkerLoop capabilities handshake", () => {
 			label: "Acme Live",
 			mode: "streaming",
 			description: "Acme live transcription.",
-			pricing: { transcription_duration_cost_per_second: "0.00004" },
+			pricing: { transcription_duration_cost_per_second: "0.00004" }
 		},
 		{
 			id: "acme/batch",
 			label: "Acme Batch",
 			mode: "segmented",
 			description: null,
-			pricing: {},
-		},
+			pricing: {}
+		}
 	];
 
 	const discoveryResult: DiscoveryResult = {
 		models: discoveredModels,
 		languageModels: [],
-		fetchedAt: 1_000,
+		fetchedAt: 1_000
 	};
 
 	const savedEnv: Record<string, string | undefined> = {};
@@ -462,7 +451,7 @@ describe("runWorkerLoop capabilities handshake", () => {
 			"MISTRAL_API_KEY",
 			"OPENAI_API_KEY",
 			"XAI_API_KEY",
-			"ELEVENLABS_API_KEY",
+			"ELEVENLABS_API_KEY"
 		]) {
 			savedEnv[name] = process.env[name];
 			delete process.env[name];
@@ -480,7 +469,7 @@ describe("runWorkerLoop capabilities handshake", () => {
 	});
 
 	const capabilitiesEvent = (
-		events: OutboundEvent[],
+		events: OutboundEvent[]
 	): Extract<OutboundEvent, { type: "capabilities" }> => {
 		const event = events.find((candidate) => candidate.type === "capabilities");
 		expect(event).toBeDefined();
@@ -494,7 +483,7 @@ describe("runWorkerLoop capabilities handshake", () => {
 			linesOf([capabilitiesLine({ requestId: "cap-1" })]),
 			(event) => events.push(event),
 			factory,
-			failingDiscovery,
+			failingDiscovery
 		);
 
 		expect(events[0]).toEqual({ type: "ready" });
@@ -516,7 +505,7 @@ describe("runWorkerLoop capabilities handshake", () => {
 			linesOf([capabilitiesLine()]),
 			(event) => events.push(event),
 			factory,
-			failingDiscovery,
+			failingDiscovery
 		);
 
 		const caps = capabilitiesEvent(events);
@@ -531,11 +520,11 @@ describe("runWorkerLoop capabilities handshake", () => {
 				START,
 				capabilitiesLine({ requestId: "cap-live" }),
 				audio("a1"),
-				JSON.stringify({ type: "stop" }),
+				JSON.stringify({ type: "stop" })
 			]),
 			(event) => events.push(event),
 			factory,
-			failingDiscovery,
+			failingDiscovery
 		);
 
 		expect(events.map((event) => event.type)).toEqual([
@@ -545,7 +534,7 @@ describe("runWorkerLoop capabilities handshake", () => {
 			"partial",
 			"delta",
 			"committed",
-			"stopped",
+			"stopped"
 		]);
 		expect(capabilitiesEvent(events).requestId).toBe("cap-live");
 		expect(adapter.sessions).toHaveLength(1);
@@ -559,18 +548,18 @@ describe("runWorkerLoop capabilities handshake", () => {
 		await runWorkerLoop(
 			linesOf([
 				JSON.stringify({ type: "capabilities", apiKey: 42 }),
-				capabilitiesLine({ requestId: "cap-2" }),
+				capabilitiesLine({ requestId: "cap-2" })
 			]),
 			(event) => events.push(event),
 			factory,
-			failingDiscovery,
+			failingDiscovery
 		);
 
 		expect(events[0]).toEqual({ type: "ready" });
 		expect(events[1]).toEqual({
 			type: "error",
 			code: "invalid_protocol",
-			message: expect.stringContaining("capabilities.apiKey"),
+			message: expect.stringContaining("capabilities.apiKey")
 		});
 		expect(capabilitiesEvent(events).requestId).toBe("cap-2");
 	});
@@ -583,7 +572,7 @@ describe("runWorkerLoop capabilities handshake", () => {
 			linesOf([capabilitiesLine({ requestId: "cap-3", apiKey: secret })]),
 			(event) => events.push(event),
 			factory,
-			failingDiscovery,
+			failingDiscovery
 		);
 
 		const serialized = events.map(serializeOutboundEvent).join("");
@@ -592,11 +581,11 @@ describe("runWorkerLoop capabilities handshake", () => {
 	});
 
 	function capabilitiesEvents(
-		events: OutboundEvent[],
+		events: OutboundEvent[]
 	): Array<Extract<OutboundEvent, { type: "capabilities" }>> {
 		return events.filter(
 			(event): event is Extract<OutboundEvent, { type: "capabilities" }> =>
-				event.type === "capabilities",
+				event.type === "capabilities"
 		);
 	}
 
@@ -607,7 +596,7 @@ describe("runWorkerLoop capabilities handshake", () => {
 		const gate = deferred<DiscoveryResult | undefined>();
 		const source: DiscoverySource = {
 			cached: () => undefined,
-			discover: () => gate.promise,
+			discover: () => gate.promise
 		};
 
 		// The refresh is only delivered while the worker still consumes input
@@ -622,26 +611,18 @@ describe("runWorkerLoop capabilities handshake", () => {
 			await inputOpen;
 		}
 
-		const run = runWorkerLoop(
-			openLines(),
-			(event) => events.push(event),
-			factory,
-			source,
-		);
+		const run = runWorkerLoop(openLines(), (event) => events.push(event), factory, source);
 		await tick();
 
 		// The first event landed even though discovery has not resolved yet.
-		expect(events.map((event) => event.type)).toEqual([
-			"ready",
-			"capabilities",
-		]);
+		expect(events.map((event) => event.type)).toEqual(["ready", "capabilities"]);
 		const builtin = capabilitiesEvents(events)[0]!;
 		expect(builtin.source).toBe("builtin");
 		expect(builtin.requestId).toBe("cap-1");
 		expect(
 			builtin.providers
 				.find((provider) => provider.id === "vercel-ai-gateway")
-				?.models.map((model) => model.id),
+				?.models.map((model) => model.id)
 		).toContain("openai/gpt-realtime-whisper");
 
 		gate.resolve(discoveryResult);
@@ -659,7 +640,7 @@ describe("runWorkerLoop capabilities handshake", () => {
 		expect(
 			refreshed
 				.find((provider) => provider.id === "vercel-ai-gateway")
-				?.models.map((model) => model.id),
+				?.models.map((model) => model.id)
 		).toEqual(["acme/batch", "acme/live"]);
 		// Only the gateway provider is offered for now.
 		expect(refreshed).toHaveLength(1);
@@ -673,14 +654,14 @@ describe("runWorkerLoop capabilities handshake", () => {
 			discover: async () => {
 				discoverCalls += 1;
 				return discoveryResult;
-			},
+			}
 		};
 
 		await runWorkerLoop(
 			linesOf([capabilitiesLine({ requestId: "cap-cache" })]),
 			(event) => events.push(event),
 			factory,
-			source,
+			source
 		);
 
 		const caps = capabilitiesEvents(events);
@@ -697,7 +678,7 @@ describe("runWorkerLoop capabilities handshake", () => {
 			linesOf([capabilitiesLine({ requestId: "cap-fail" })]),
 			(event) => events.push(event),
 			factory,
-			failingDiscovery,
+			failingDiscovery
 		);
 
 		const caps = capabilitiesEvents(events);
@@ -712,14 +693,14 @@ describe("runWorkerLoop capabilities handshake", () => {
 			cached: () => undefined,
 			discover: async () => {
 				throw new Error("gateway down");
-			},
+			}
 		};
 
 		await runWorkerLoop(
 			linesOf([capabilitiesLine()]),
 			(event) => events.push(event),
 			factory,
-			source,
+			source
 		);
 
 		expect(capabilitiesEvents(events)).toHaveLength(1);
@@ -731,14 +712,14 @@ describe("runWorkerLoop capabilities handshake", () => {
 		const gate = deferred<DiscoveryResult | undefined>();
 		const source: DiscoverySource = {
 			cached: () => undefined,
-			discover: () => gate.promise,
+			discover: () => gate.promise
 		};
 
 		const run = runWorkerLoop(
 			linesOf([capabilitiesLine()]),
 			(event) => events.push(event),
 			factory,
-			source,
+			source
 		);
 		await tick();
 
@@ -757,11 +738,11 @@ describe("runWorkerLoop capabilities handshake", () => {
 				START,
 				capabilitiesLine({ requestId: "cap-live" }),
 				audio("a1"),
-				JSON.stringify({ type: "stop" }),
+				JSON.stringify({ type: "stop" })
 			]),
 			(event) => events.push(event),
 			factory,
-			{ cached: () => undefined, discover: async () => discoveryResult },
+			{ cached: () => undefined, discover: async () => discoveryResult }
 		);
 
 		expect(capabilitiesEvents(events)).toHaveLength(2);
@@ -780,14 +761,14 @@ describe("runWorkerLoop capabilities handshake", () => {
 			discover: (async (...args: unknown[]) => {
 				argumentCounts.push(args.length);
 				return discoveryResult;
-			}) as DiscoverySource["discover"],
+			}) as DiscoverySource["discover"]
 		};
 
 		await runWorkerLoop(
 			linesOf([capabilitiesLine({ apiKey: secret })]),
 			(event) => events.push(event),
 			factory,
-			source,
+			source
 		);
 
 		expect(argumentCounts).toEqual([0]);
@@ -801,7 +782,7 @@ const FILE_COMMAND = JSON.stringify({
 	provider: "vercel-ai-gateway",
 	model: "openai/gpt-4o-transcribe",
 	path: "/home/user/clips/interview.mp4",
-	apiKey: "sk-file",
+	apiKey: "sk-file"
 });
 
 class FakeFileSession implements SttSession {
@@ -811,7 +792,7 @@ class FakeFileSession implements SttSession {
 
 	constructor(
 		readonly sessionId: string,
-		private readonly emit: EmitFn,
+		private readonly emit: EmitFn
 	) {}
 
 	pushAudio(pcm16Base64: string): void {
@@ -827,7 +808,7 @@ class FakeFileSession implements SttSession {
 		this.emit({
 			type: "stopped",
 			sessionId: this.sessionId,
-			fullText: "file text",
+			fullText: "file text"
 		});
 	}
 
@@ -843,14 +824,19 @@ function fakeFileDeps(options: { ffmpeg?: FfmpegTools } = {}) {
 	const deps: FileDeps = {
 		findFfmpeg: () => {
 			resolutions += 1;
-			return options.ffmpeg ?? { ffmpeg: "/usr/bin/ffmpeg", ffprobe: "/usr/bin/ffprobe" };
+			return (
+				options.ffmpeg ?? {
+					ffmpeg: "/usr/bin/ffmpeg",
+					ffprobe: "/usr/bin/ffprobe"
+				}
+			);
 		},
 		createSession: (config, emit) => {
 			configs.push(config);
 			const session = new FakeFileSession(config.sessionId, emit);
 			sessions.push(session);
 			return session;
-		},
+		}
 	};
 
 	return { deps, configs, sessions, resolutions: () => resolutions };
@@ -866,7 +852,7 @@ describe("runWorkerLoop transcribeFile", () => {
 			"MISTRAL_API_KEY",
 			"OPENAI_API_KEY",
 			"XAI_API_KEY",
-			"ELEVENLABS_API_KEY",
+			"ELEVENLABS_API_KEY"
 		]) {
 			savedEnv[name] = process.env[name];
 			delete process.env[name];
@@ -892,7 +878,7 @@ describe("runWorkerLoop transcribeFile", () => {
 			(event) => events.push(event),
 			factory,
 			undefined,
-			files.deps,
+			files.deps
 		);
 
 		expect(adapter.sessions).toHaveLength(0);
@@ -903,12 +889,12 @@ describe("runWorkerLoop transcribeFile", () => {
 				model: "openai/gpt-4o-transcribe",
 				sampleRate: 16_000,
 				apiKey: "sk-file",
-				path: "/home/user/clips/interview.mp4",
-			},
+				path: "/home/user/clips/interview.mp4"
+			}
 		]);
 		expect(events).toEqual([
 			{ type: "ready" },
-			{ type: "stopped", sessionId: "file-1", fullText: "file text" },
+			{ type: "stopped", sessionId: "file-1", fullText: "file text" }
 		]);
 		expect(files.sessions[0]?.stopped).toBe(true);
 	});
@@ -922,7 +908,7 @@ describe("runWorkerLoop transcribeFile", () => {
 			(event) => events.push(event),
 			factory,
 			undefined,
-			files.deps,
+			files.deps
 		);
 
 		expect(files.sessions[0]?.pushes).toEqual([]);
@@ -936,12 +922,12 @@ describe("runWorkerLoop transcribeFile", () => {
 		await runWorkerLoop(
 			linesOf([
 				JSON.stringify({ ...JSON.parse(FILE_COMMAND), apiKey: undefined }),
-				JSON.stringify({ type: "stop" }),
+				JSON.stringify({ type: "stop" })
 			]),
 			(event) => events.push(event),
 			factory,
 			undefined,
-			files.deps,
+			files.deps
 		);
 
 		expect(files.configs[0]?.apiKey).toBe("env-key");
@@ -952,19 +938,17 @@ describe("runWorkerLoop transcribeFile", () => {
 		const files = fakeFileDeps();
 
 		await runWorkerLoop(
-			linesOf([
-				JSON.stringify({ ...JSON.parse(FILE_COMMAND), provider: "acme" }),
-			]),
+			linesOf([JSON.stringify({ ...JSON.parse(FILE_COMMAND), provider: "acme" })]),
 			(event) => events.push(event),
 			factory,
 			undefined,
-			files.deps,
+			files.deps
 		);
 
 		expect(events[1]).toMatchObject({
 			type: "error",
 			sessionId: "file-1",
-			code: "unsupported_provider",
+			code: "unsupported_provider"
 		});
 		expect(files.configs).toHaveLength(0);
 		expect(files.resolutions()).toBe(0);
@@ -978,13 +962,13 @@ describe("runWorkerLoop transcribeFile", () => {
 			linesOf([
 				JSON.stringify({
 					...JSON.parse(FILE_COMMAND),
-					model: "openai/gpt-realtime-whisper",
-				}),
+					model: "openai/gpt-realtime-whisper"
+				})
 			]),
 			(event) => events.push(event),
 			factory,
 			undefined,
-			files.deps,
+			files.deps
 		);
 
 		const types = events.map((event) => event.type);
@@ -994,11 +978,9 @@ describe("runWorkerLoop transcribeFile", () => {
 		expect(events[1]).toMatchObject({
 			type: "error",
 			sessionId: "file-1",
-			code: "unsupported_file_model",
+			code: "unsupported_file_model"
 		});
-		expect((events[1] as { message: string }).message).toContain(
-			"openai/gpt-realtime-whisper",
-		);
+		expect((events[1] as { message: string }).message).toContain("openai/gpt-realtime-whisper");
 		expect(files.configs).toHaveLength(0);
 		expect(files.resolutions()).toBe(0);
 	});
@@ -1012,17 +994,15 @@ describe("runWorkerLoop transcribeFile", () => {
 			(event) => events.push(event),
 			factory,
 			undefined,
-			files.deps,
+			files.deps
 		);
 
 		expect(events[1]).toMatchObject({
 			type: "error",
 			sessionId: "file-1",
-			code: "missing_api_key",
+			code: "missing_api_key"
 		});
-		expect((events[1] as { message: string }).message).toContain(
-			"AI_GATEWAY_API_KEY",
-		);
+		expect((events[1] as { message: string }).message).toContain("AI_GATEWAY_API_KEY");
 		expect(files.configs).toHaveLength(0);
 	});
 
@@ -1036,7 +1016,7 @@ describe("runWorkerLoop transcribeFile", () => {
 			(event) => events.push(event),
 			factory,
 			undefined,
-			files.deps,
+			files.deps
 		);
 
 		const types = events.map((event) => event.type);
@@ -1045,7 +1025,7 @@ describe("runWorkerLoop transcribeFile", () => {
 		expect(events[1]).toMatchObject({
 			type: "error",
 			sessionId: "file-1",
-			code: "ffmpeg_missing",
+			code: "ffmpeg_missing"
 		});
 		expect((events[1] as { message: string }).message).toContain("ffmpeg");
 		expect(files.configs).toHaveLength(0);
@@ -1060,7 +1040,7 @@ describe("runWorkerLoop transcribeFile", () => {
 			(event) => events.push(event),
 			factory,
 			undefined,
-			files.deps,
+			files.deps
 		);
 
 		expect(adapter.sessions[0]?.stopped).toBe(true);
@@ -1069,7 +1049,7 @@ describe("runWorkerLoop transcribeFile", () => {
 			"ready",
 			"started",
 			"stopped",
-			"stopped",
+			"stopped"
 		]);
 	});
 
@@ -1082,7 +1062,7 @@ describe("runWorkerLoop transcribeFile", () => {
 			(event) => events.push(event),
 			factory,
 			undefined,
-			files.deps,
+			files.deps
 		);
 
 		expect(files.sessions[0]?.stopped).toBe(true);
@@ -1099,7 +1079,7 @@ describe("runWorkerLoop transcribeFile", () => {
 			(event) => events.push(event),
 			factory,
 			undefined,
-			files.deps,
+			files.deps
 		);
 
 		expect(files.sessions[0]?.aborted).toBe(true);
@@ -1117,14 +1097,14 @@ describe("runWorkerLoop transcribeFile", () => {
 			(event) => events.push(event),
 			factory,
 			undefined,
-			files.deps,
+			files.deps
 		);
 
 		expect(events[1]).toEqual({
 			type: "error",
 			sessionId: "file-1",
 			code: "stream_failed",
-			message: "session blew up",
+			message: "session blew up"
 		});
 	});
 });
@@ -1155,24 +1135,24 @@ describe("worker diagnostics", () => {
 						emit({
 							type: "stopped",
 							sessionId: sessionConfig.sessionId,
-							fullText: "",
+							fullText: ""
 						});
 					},
-					abort: async () => {},
+					abort: async () => {}
 				};
-			},
+			}
 		});
 
 		await runWorkerLoop(
 			linesOf([START, JSON.stringify({ type: "stop" })]),
 			(event) => events.push(event),
-			emptyFactory,
+			emptyFactory
 		);
 
 		expect(events).toEqual([
 			{ type: "ready" },
 			{ type: "started", sessionId: "session-1" },
-			{ type: "stopped", sessionId: "session-1", fullText: "" },
+			{ type: "stopped", sessionId: "session-1", fullText: "" }
 		]);
 		expect(events.some((event) => event.type === "error")).toBe(false);
 		expect(errorSpy).not.toHaveBeenCalled();
@@ -1182,7 +1162,7 @@ describe("worker diagnostics", () => {
 		const events: OutboundEvent[] = [];
 		const silentAudio = JSON.stringify({
 			type: "audio",
-			pcm16Base64: Buffer.alloc(640).toString("base64"),
+			pcm16Base64: Buffer.alloc(640).toString("base64")
 		});
 		// A provider stream that rejects an empty/voiceless take, the way the
 		// reporting provider did on stop.
@@ -1205,26 +1185,21 @@ describe("worker diagnostics", () => {
 					durationInSeconds: Promise.resolve(undefined),
 					warnings: Promise.resolve([]),
 					responses: Promise.resolve([]),
-					providerMetadata: Promise.resolve({}),
+					providerMetadata: Promise.resolve({})
 				} as never;
-			},
+			}
 		});
 
 		await runWorkerLoop(
-			linesOf([
-				START,
-				silentAudio,
-				silentAudio,
-				JSON.stringify({ type: "stop" }),
-			]),
+			linesOf([START, silentAudio, silentAudio, JSON.stringify({ type: "stop" })]),
 			(event) => events.push(event),
-			() => rejectingAdapter,
+			() => rejectingAdapter
 		);
 
 		expect(events).toEqual([
 			{ type: "ready" },
 			{ type: "started", sessionId: "session-1" },
-			{ type: "stopped", sessionId: "session-1", fullText: "" },
+			{ type: "stopped", sessionId: "session-1", fullText: "" }
 		]);
 		expect(errorSpy).not.toHaveBeenCalled();
 	});
@@ -1237,14 +1212,10 @@ describe("worker diagnostics", () => {
 			provider: "acme",
 			model: "whatever",
 			sampleRate: 16000,
-			apiKey: "sk-super-secret",
+			apiKey: "sk-super-secret"
 		});
 
-		await runWorkerLoop(
-			linesOf([unknownProvider]),
-			(event) => events.push(event),
-			factory,
-		);
+		await runWorkerLoop(linesOf([unknownProvider]), (event) => events.push(event), factory);
 
 		expect(events).toEqual([
 			{ type: "ready" },
@@ -1252,8 +1223,8 @@ describe("worker diagnostics", () => {
 				type: "error",
 				sessionId: "bad-provider",
 				code: "unsupported_provider",
-				message: expect.stringContaining("acme"),
-			},
+				message: expect.stringContaining("acme")
+			}
 		]);
 		const lines = errorSpy.mock.calls.map((call: unknown[]) => String(call[0]));
 		expect(lines).toHaveLength(1);
@@ -1263,8 +1234,7 @@ describe("worker diagnostics", () => {
 	});
 
 	test("sanitizeDiagnostic collapses and redacts credential material", () => {
-		const raw =
-			"Authorization: Bearer sk-live-secret\napi_key=sk-other timeout\tkey=plain";
+		const raw = "Authorization: Bearer sk-live-secret\napi_key=sk-other timeout\tkey=plain";
 		const sanitized = sanitizeDiagnostic(raw);
 
 		expect(sanitized).not.toContain("sk-live-secret");
@@ -1284,7 +1254,7 @@ describe("runWorkerLoop cleanup routing", () => {
 		for (const name of [
 			"AI_GATEWAY_API_KEY",
 			"VERCEL_AI_GATEWAY_API_KEY",
-			"DEFAULT_LANGUAGE_MODEL",
+			"DEFAULT_LANGUAGE_MODEL"
 		]) {
 			savedEnv[name] = process.env[name];
 			delete process.env[name];
@@ -1310,7 +1280,7 @@ describe("runWorkerLoop cleanup routing", () => {
 			provider: "vercel-ai-gateway",
 			model: "openai/gpt-4.1-mini",
 			text: TRANSCRIPT,
-			...overrides,
+			...overrides
 		});
 
 	function generateStub(answer = "Bonjour, j'ai une idée très claire.") {
@@ -1323,7 +1293,7 @@ describe("runWorkerLoop cleanup routing", () => {
 			async generate(args) {
 				calls.push(args);
 				return { text: answer };
-			},
+			}
 		};
 		return { calls, deps };
 	}
@@ -1331,7 +1301,7 @@ describe("runWorkerLoop cleanup routing", () => {
 	async function runClean(
 		lines: string[],
 		deps: CleanDeps,
-		options: { events?: OutboundEvent[]; factory?: SttAdapterFactory } = {},
+		options: { events?: OutboundEvent[]; factory?: SttAdapterFactory } = {}
 	) {
 		const events = options.events ?? [];
 		const factory = options.factory ?? fakeFactory().factory;
@@ -1341,7 +1311,7 @@ describe("runWorkerLoop cleanup routing", () => {
 			factory,
 			undefined,
 			undefined,
-			deps,
+			deps
 		);
 		return events;
 	}
@@ -1351,7 +1321,7 @@ describe("runWorkerLoop cleanup routing", () => {
 
 		const events = await runClean(
 			[cleanLine({ requestId: "clean-7", apiKey: "sk-test", language: "fr" })],
-			deps,
+			deps
 		);
 
 		expect(events).toEqual([
@@ -1359,8 +1329,8 @@ describe("runWorkerLoop cleanup routing", () => {
 			{
 				type: "cleaned",
 				requestId: "clean-7",
-				text: "Bonjour, j'ai une idée très claire.",
-			},
+				text: "Bonjour, j'ai une idée très claire."
+			}
 		]);
 		expect(calls[0]?.model).toBe("openai/gpt-4.1-mini");
 		expect(calls[0]?.temperature).toBe(CLEANUP_TEMPERATURE);
@@ -1389,8 +1359,8 @@ describe("runWorkerLoop cleanup routing", () => {
 				type: "error",
 				requestId: "clean-9",
 				code: "missing_api_key",
-				message: expect.stringContaining("vercel-ai-gateway"),
-			},
+				message: expect.stringContaining("vercel-ai-gateway")
+			}
 		]);
 	});
 
@@ -1399,13 +1369,13 @@ describe("runWorkerLoop cleanup routing", () => {
 		const deps: CleanDeps = {
 			async generate() {
 				throw new Error(`provider rejected the prompt: ${TRANSCRIPT}`);
-			},
+			}
 		};
 
 		try {
 			const events = await runClean(
 				[cleanLine({ requestId: "clean-boom", apiKey: "sk-test" })],
-				deps,
+				deps
 			);
 
 			expect(events).toHaveLength(2);
@@ -1413,16 +1383,14 @@ describe("runWorkerLoop cleanup routing", () => {
 			expect(failure).toMatchObject({
 				type: "error",
 				requestId: "clean-boom",
-				code: "cleanup_failed",
+				code: "cleanup_failed"
 			});
 			if (failure?.type !== "error") return;
 			expect(failure.message).not.toContain(TRANSCRIPT);
 			expect(failure.message).not.toContain("idée");
 			expect(failure.message.toLowerCase()).toContain("cleanup failed");
 
-			const diagnostics = errorSpy.mock.calls
-				.map((call) => call.join(" "))
-				.join("\n");
+			const diagnostics = errorSpy.mock.calls.map((call) => call.join(" ")).join("\n");
 			expect(diagnostics).not.toContain(TRANSCRIPT);
 			expect(diagnostics).not.toContain("sk-test");
 		} finally {
@@ -1434,19 +1402,19 @@ describe("runWorkerLoop cleanup routing", () => {
 		const deps: CleanDeps = {
 			async generate() {
 				throw new Error("rate limited by the gateway");
-			},
+			}
 		};
 
 		const events = await runClean(
 			[cleanLine({ requestId: "clean-rate", apiKey: "sk-test" })],
-			deps,
+			deps
 		);
 
 		expect(events[1]).toMatchObject({
 			type: "error",
 			requestId: "clean-rate",
 			code: "cleanup_failed",
-			message: "rate limited by the gateway",
+			message: "rate limited by the gateway"
 		});
 	});
 
@@ -1459,10 +1427,10 @@ describe("runWorkerLoop cleanup routing", () => {
 				START,
 				cleanLine({ requestId: "clean-live", apiKey: "sk-test" }),
 				audio("a1"),
-				JSON.stringify({ type: "stop" }),
+				JSON.stringify({ type: "stop" })
 			],
 			deps,
-			{ factory },
+			{ factory }
 		);
 
 		expect(events.map((event) => event.type)).toEqual([
@@ -1472,7 +1440,7 @@ describe("runWorkerLoop cleanup routing", () => {
 			"partial",
 			"delta",
 			"committed",
-			"stopped",
+			"stopped"
 		]);
 		expect(adapter.sessions).toHaveLength(1);
 		expect(adapter.sessions[0]?.stopped).toBe(true);
@@ -1484,17 +1452,17 @@ describe("runWorkerLoop cleanup routing", () => {
 		const deps: CleanDeps = {
 			async generate() {
 				throw new Error("boom");
-			},
+			}
 		};
 
 		await runClean(
 			[
 				START,
 				cleanLine({ requestId: "clean-fail", apiKey: "sk-test" }),
-				JSON.stringify({ type: "stop" }),
+				JSON.stringify({ type: "stop" })
 			],
 			deps,
-			{ factory },
+			{ factory }
 		);
 
 		expect(adapter.sessions).toHaveLength(1);
@@ -1534,12 +1502,12 @@ describe("runWorkerLoop dictation language", () => {
 			linesOf([
 				JSON.stringify({
 					...JSON.parse(START),
-					language: "fr",
+					language: "fr"
 				}),
-				JSON.stringify({ type: "stop" }),
+				JSON.stringify({ type: "stop" })
 			]),
 			() => {},
-			capturingFactory,
+			capturingFactory
 		);
 
 		expect(configs[0]?.language).toBe("fr");
@@ -1556,7 +1524,7 @@ describe("runWorkerLoop dictation language", () => {
 		await runWorkerLoop(
 			linesOf([START, JSON.stringify({ type: "stop" })]),
 			() => {},
-			capturingFactory,
+			capturingFactory
 		);
 
 		expect(configs[0] !== undefined && "language" in configs[0]).toBe(false);
@@ -1569,12 +1537,12 @@ describe("runWorkerLoop dictation language", () => {
 		await runWorkerLoop(
 			linesOf([
 				JSON.stringify({ ...JSON.parse(FILE_COMMAND), language: "fr" }),
-				JSON.stringify({ type: "stop" }),
+				JSON.stringify({ type: "stop" })
 			]),
 			() => {},
 			factory,
 			undefined,
-			files.deps,
+			files.deps
 		);
 
 		expect(files.configs[0]?.language).toBe("fr");
@@ -1608,19 +1576,17 @@ describe("runWorkerLoop capabilities cleanup fields", () => {
 				label: "Acme Live",
 				mode: "streaming",
 				description: null,
-				pricing: {},
-			},
+				pricing: {}
+			}
 		],
-		languageModels: [
-			{ id: "openai/gpt-4.1-mini", label: "GPT-4.1 mini" },
-		],
-		fetchedAt: 1_000,
+		languageModels: [{ id: "openai/gpt-4.1-mini", label: "GPT-4.1 mini" }],
+		fetchedAt: 1_000
 	};
 
 	function lastCapabilities(events: OutboundEvent[]) {
 		const caps = events.filter(
 			(event): event is Extract<OutboundEvent, { type: "capabilities" }> =>
-				event.type === "capabilities",
+				event.type === "capabilities"
 		);
 		return caps.at(-1);
 	}
@@ -1628,12 +1594,10 @@ describe("runWorkerLoop capabilities cleanup fields", () => {
 	test("reports the offered languages and the default cleanup model", async () => {
 		const { factory, events } = fakeFactory();
 
-		await runWorkerLoop(
-			linesOf([capabilitiesLine()]),
-			(event) => events.push(event),
-			factory,
-			{ cached: () => undefined, discover: async () => undefined },
-		);
+		await runWorkerLoop(linesOf([capabilitiesLine()]), (event) => events.push(event), factory, {
+			cached: () => undefined,
+			discover: async () => undefined
+		});
 
 		const caps = lastCapabilities(events);
 		expect(caps?.languages?.map((option) => option.code)).toContain("fr");
@@ -1645,12 +1609,10 @@ describe("runWorkerLoop capabilities cleanup fields", () => {
 		process.env.DEFAULT_LANGUAGE_MODEL = "openai/gpt-4.1";
 		const { factory, events } = fakeFactory();
 
-		await runWorkerLoop(
-			linesOf([capabilitiesLine()]),
-			(event) => events.push(event),
-			factory,
-			{ cached: () => undefined, discover: async () => undefined },
-		);
+		await runWorkerLoop(linesOf([capabilitiesLine()]), (event) => events.push(event), factory, {
+			cached: () => undefined,
+			discover: async () => undefined
+		});
 
 		expect(lastCapabilities(events)?.defaultLanguageModel).toBe("openai/gpt-4.1");
 	});
@@ -1662,13 +1624,13 @@ describe("runWorkerLoop capabilities cleanup fields", () => {
 			linesOf([capabilitiesLine({ requestId: "cap-clean" })]),
 			(event) => events.push(event),
 			factory,
-			{ cached: () => catalogue, discover: async () => catalogue },
+			{ cached: () => catalogue, discover: async () => catalogue }
 		);
 
 		const caps = lastCapabilities(events);
 		expect(caps?.source).toBe("discovered");
 		expect(caps?.languageModels).toEqual([
-			{ id: "openai/gpt-4.1-mini", label: "GPT-4.1 mini" },
+			{ id: "openai/gpt-4.1-mini", label: "GPT-4.1 mini" }
 		]);
 	});
 
@@ -1679,13 +1641,13 @@ describe("runWorkerLoop capabilities cleanup fields", () => {
 			linesOf([capabilitiesLine({ requestId: "cap-bg" })]),
 			(event) => events.push(event),
 			factory,
-			{ cached: () => undefined, discover: async () => catalogue },
+			{ cached: () => undefined, discover: async () => catalogue }
 		);
 
 		const caps = lastCapabilities(events);
 		expect(caps?.source).toBe("discovered");
 		expect(caps?.languageModels).toEqual([
-			{ id: "openai/gpt-4.1-mini", label: "GPT-4.1 mini" },
+			{ id: "openai/gpt-4.1-mini", label: "GPT-4.1 mini" }
 		]);
 	});
 });

@@ -7,6 +7,7 @@
 <!-- curated:end -->
 
 <!-- generated:start -->
+
 _28 pages · Bun v1.4.4 · updated 2026-10-23. Regenerate with `bun .agents/skills/use-bun/scripts/update.ts`._
 
 - [bunx](https://bun.com/docs/pm/bunx.md): Run packages from npm
@@ -37,4 +38,5 @@ _28 pages · Bun v1.4.4 · updated 2026-10-23. Regenerate with `bun .agents/skil
 - [Scopes and registries](https://bun.com/docs/pm/scopes-registries.md): Configure private registries and scoped packages
 - [Security Scanner API](https://bun.com/docs/pm/security-scanner-api.md)
 - [Workspaces](https://bun.com/docs/pm/workspaces.md): Develop complex monorepos with multiple independent packages
+
 <!-- generated:end -->

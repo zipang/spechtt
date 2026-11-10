@@ -7,6 +7,7 @@
 <!-- curated:end -->
 
 <!-- generated:start -->
+
 _190 pages · Bun v1.4.4 · updated 2026-10-23. Regenerate with `bun .agents/skills/use-bun/scripts/update.ts`._
 
 ## Binary
@@ -240,4 +241,5 @@ _190 pages · Bun v1.4.4 · updated 2026-10-23. Regenerate with `bun .agents/ski
 - [Write to stdout](https://bun.com/docs/guides/write-file/stdout.md)
 - [Write a ReadableStream to a file](https://bun.com/docs/guides/write-file/stream.md)
 - [Delete a file](https://bun.com/docs/guides/write-file/unlink.md)
+
 <!-- generated:end -->

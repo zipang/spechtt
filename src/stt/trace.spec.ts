@@ -4,7 +4,7 @@ import {
 	formatPartialRecord,
 	PARTIALS_ENV,
 	PARTIALS_TAG,
-	partialsTraceEnabled,
+	partialsTraceEnabled
 } from "./trace";
 import {
 	analyzeEvents,
@@ -14,7 +14,7 @@ import {
 	isSessionHeader,
 	parseDump,
 	parseDumpLine,
-	type TracedEvent,
+	type TracedEvent
 } from "./trace-analyze";
 
 describe("partialsTraceEnabled", () => {
@@ -33,9 +33,9 @@ describe("formatPartialRecord", () => {
 				type: "partial",
 				sessionId: "take-1",
 				segment: "seg-1",
-				text: "d'une dictée",
+				text: "d'une dictée"
 			},
-			7,
+			7
 		);
 
 		expect(record).not.toBeNull();
@@ -46,14 +46,13 @@ describe("formatPartialRecord", () => {
 			sessionId: "take-1",
 			segment: "seg-1",
 			chars: 12,
-			text: "d'une dictée",
+			text: "d'une dictée"
 		});
 	});
 
 	test("records a delta under its own field name", () => {
 		const parsed = JSON.parse(
-			formatPartialRecord({ type: "delta", sessionId: "s", delta: " la" }, 2) ??
-				"{}",
+			formatPartialRecord({ type: "delta", sessionId: "s", delta: " la" }, 2) ?? "{}"
 		);
 		expect(parsed.text).toBe(" la");
 		expect(parsed.chars).toBe(3);
@@ -61,10 +60,8 @@ describe("formatPartialRecord", () => {
 
 	test("records a stopped event's full text", () => {
 		const parsed = JSON.parse(
-			formatPartialRecord(
-				{ type: "stopped", sessionId: "s", fullText: "the take" },
-				9,
-			) ?? "{}",
+			formatPartialRecord({ type: "stopped", sessionId: "s", fullText: "the take" }, 9) ??
+				"{}"
 		);
 		expect(parsed.text).toBe("the take");
 	});
@@ -72,7 +69,7 @@ describe("formatPartialRecord", () => {
 	test("stays one physical line even when the text has newlines", () => {
 		const record = formatPartialRecord(
 			{ type: "partial", sessionId: "s", text: "one\ntwo\tthree" },
-			1,
+			1
 		);
 		expect(record).not.toBeNull();
 		expect(record?.includes("\n")).toBe(false);
@@ -95,7 +92,7 @@ describe("formatSessionHeader", () => {
 			provider: "vercel-ai-gateway",
 			model: "microsoft/mai-transcribe-2-streaming",
 			language: "fr",
-			sampleRate: 16000,
+			sampleRate: 16000
 		});
 
 		expect(line.startsWith(PARTIALS_TAG)).toBe(true);
@@ -108,7 +105,7 @@ describe("formatSessionHeader", () => {
 		const line = formatSessionHeader({
 			kind: "file",
 			provider: "vercel-ai-gateway",
-			model: "m",
+			model: "m"
 		});
 		expect(line).toContain("language=-");
 		expect(line).not.toContain("rate=");
@@ -131,10 +128,7 @@ describe("classifyPair", () => {
 	});
 
 	test("a window sliding over a two-word seam is a slide", () => {
-		const classified = classifyPair(
-			"ée avec le modèle MAI.",
-			"le modèle MAI. Transcribe",
-		);
+		const classified = classifyPair("ée avec le modèle MAI.", "le modèle MAI. Transcribe");
 		expect(classified.kind).toBe("slide");
 		expect(classified.overlapWords).toBe(3);
 		expect(classified.newWords).toBe(1);
@@ -142,9 +136,7 @@ describe("classifyPair", () => {
 
 	test("a single shared word is not a slide", () => {
 		// Two sentences genuinely can start with the same word.
-		expect(classifyPair("Et ensuite le workflow", "Et maintenant autre").kind).toBe(
-			"new",
-		);
+		expect(classifyPair("Et ensuite le workflow", "Et maintenant autre").kind).toBe("new");
 	});
 
 	test("a re-spaced seam still matches, and says so", () => {
@@ -167,14 +159,14 @@ describe("analyzeEvents", () => {
 		sessionId: "take-1",
 		segment,
 		text,
-		chars: text.length,
+		chars: text.length
 	});
 
 	test("names a cumulative provider", () => {
 		const reports = analyzeEvents([
 			partial(1, "s", "d'une"),
 			partial(2, "s", "d'une dictée"),
-			partial(3, "s", "d'une dictée avec"),
+			partial(3, "s", "d'une dictée avec")
 		]);
 
 		expect(reports).toHaveLength(1);
@@ -187,7 +179,7 @@ describe("analyzeEvents", () => {
 		const reports = analyzeEvents([
 			partial(1, "s", "Début d'une nouvelle dictée avec le modèle MAI."),
 			partial(2, "s", "le modèle MAI. Transcribe to"),
-			partial(3, "s", "Transcribe to Streaming."),
+			partial(3, "s", "Transcribe to Streaming.")
 		]);
 
 		expect(reports[0]?.dominant).toBe("slide");
@@ -201,7 +193,7 @@ describe("analyzeEvents", () => {
 			partial(1, "a", "one"),
 			partial(2, "a", "one two"),
 			partial(3, "b", "three"),
-			partial(4, "b", "three four"),
+			partial(4, "b", "three four")
 		]);
 
 		expect(reports).toHaveLength(2);
@@ -212,7 +204,7 @@ describe("analyzeEvents", () => {
 		const reports = analyzeEvents([
 			{ seq: 1, type: "started", sessionId: "take-1" },
 			{ seq: 2, type: "committed", sessionId: "take-1", text: "final" },
-			{ seq: 3, type: "stopped", sessionId: "take-1", text: "the take" },
+			{ seq: 3, type: "stopped", sessionId: "take-1", text: "the take" }
 		]);
 		expect(reports).toHaveLength(0);
 	});
@@ -230,7 +222,7 @@ describe("parseDump", () => {
 
 	test("attaches every event to the header above it", () => {
 		const events = parseDump(
-			[header("a"), partial(1, "one"), header("b"), partial(2, "two")].join("\n"),
+			[header("a"), partial(1, "one"), header("b"), partial(2, "two")].join("\n")
 		);
 
 		expect(events).toHaveLength(2);
@@ -248,7 +240,7 @@ describe("parseDump", () => {
 			partial(2, "Début d'une phrase courte. Et la suite."),
 			header("model-b"),
 			partial(3, "Autre chose totalement différent."),
-			partial(4, "Autre chose totalement différent. Puis encore."),
+			partial(4, "Autre chose totalement différent. Puis encore.")
 		].join("\n");
 
 		const reports = analyzeEvents(parseDump(dump));
@@ -265,7 +257,7 @@ describe("parseDump", () => {
 			partial(2, "un deux trois quatre"),
 			header("model-b"),
 			partial(3, "un deux trois"),
-			partial(4, "un deux trois quatre"),
+			partial(4, "un deux trois quatre")
 		].join("\n");
 
 		const formatted = formatReport(analyzeEvents(parseDump(dump)));
@@ -281,7 +273,7 @@ describe("parseDump", () => {
 			partial(1, "un deux trois"),
 			partial(2, "un deux trois quatre"),
 			partial(3, "un deux trois quatre cinq"),
-			`${PARTIALS_TAG} ${JSON.stringify({ seq: 4, type: "stopped", sessionId: "take-1", text: "un deux trois quatre cinq" })}`,
+			`${PARTIALS_TAG} ${JSON.stringify({ seq: 4, type: "stopped", sessionId: "take-1", text: "un deux trois quatre cinq" })}`
 		].join("\n");
 
 		const reports = analyzeEvents(parseDump(dump));
@@ -300,7 +292,7 @@ describe("parseDump", () => {
 			partial(1, "Et voici"),
 			partial(2, "Et voici le début"),
 			partial(3, "Et voici. Le début"),
-			`${PARTIALS_TAG} ${JSON.stringify({ seq: 4, type: "stopped", sessionId: "take-1", text: "Et voici. Le début" })}`,
+			`${PARTIALS_TAG} ${JSON.stringify({ seq: 4, type: "stopped", sessionId: "take-1", text: "Et voici. Le début" })}`
 		].join("\n");
 
 		const reports = analyzeEvents(parseDump(dump));
@@ -321,15 +313,12 @@ describe("parseDump", () => {
 			delta(2, "Nouveau"),
 			partial(3, " cette fois"),
 			delta(4, " test cette"),
-			`${PARTIALS_TAG} ${JSON.stringify({ seq: 5, type: "stopped", sessionId: "take-1", text: "Nouveau test cette fois" })}`,
+			`${PARTIALS_TAG} ${JSON.stringify({ seq: 5, type: "stopped", sessionId: "take-1", text: "Nouveau test cette fois" })}`
 		].join("\n");
 
 		const reports = analyzeEvents(parseDump(dump));
 
-		expect(reports.map((report) => report.channel).sort()).toEqual([
-			"delta",
-			"partial",
-		]);
+		expect(reports.map((report) => report.channel).sort()).toEqual(["delta", "partial"]);
 		const formatted = formatReport(reports);
 		expect(formatted).toContain("partials=2");
 		expect(formatted).toContain("deltas=2");
@@ -339,7 +328,7 @@ describe("parseDump", () => {
 describe("parseDumpLine", () => {
 	test("reads a tagged line", () => {
 		const parsed = parseDumpLine(
-			`${PARTIALS_TAG} {"seq":3,"type":"partial","sessionId":"s","text":"hi"}`,
+			`${PARTIALS_TAG} {"seq":3,"type":"partial","sessionId":"s","text":"hi"}`
 		);
 		expect(parsed).not.toBeNull();
 		expect(isSessionHeader(parsed!)).toBe(false);
@@ -350,7 +339,7 @@ describe("parseDumpLine", () => {
 
 	test("reads a session header", () => {
 		const parsed = parseDumpLine(
-			`${PARTIALS_TAG} session kind=live provider=p model=m language=fr rate=16000`,
+			`${PARTIALS_TAG} session kind=live provider=p model=m language=fr rate=16000`
 		);
 		expect(parsed).not.toBeNull();
 		expect(isSessionHeader(parsed!)).toBe(true);
@@ -359,13 +348,13 @@ describe("parseDumpLine", () => {
 			provider: "p",
 			model: "m",
 			language: "fr",
-			sampleRate: 16000,
+			sampleRate: 16000
 		});
 	});
 
 	test("marks an absent language as undefined rather than a dash", () => {
 		const parsed = parseDumpLine(
-			`${PARTIALS_TAG} session kind=file provider=p model=m language=-`,
+			`${PARTIALS_TAG} session kind=file provider=p model=m language=-`
 		);
 		expect((parsed as { language?: string }).language).toBeUndefined();
 	});

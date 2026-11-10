@@ -1,11 +1,10 @@
 /**
  * Streaming transcription adapter on the AI SDK `experimental_streamTranscribe`.
  *
- * `worker.ts` builds it through `defaultAdapterFactory` for every model whose
- * capability is `streaming`; base64 PCM16 chunks flow straight from the NDJSON
- * `audio` command into the SDK stream. `MistralAdapter` reuses
- * [`defaultModelResolver`] so both adapters resolve a provider model the same
- * way.
+ * `worker.ts` builds it through `defaultAdapterFactory` for every model whose capability is
+ * `streaming`; base64 PCM16 chunks flow straight from the NDJSON `audio` command into the SDK
+ * stream. `MistralAdapter` reuses [`defaultModelResolver`] so both adapters resolve a provider
+ * model the same way.
  */
 
 import { createElevenLabs } from "@ai-sdk/elevenlabs";
@@ -16,29 +15,18 @@ import {
 	type StreamTranscriptionResult,
 	type TranscriptionModel,
 	createGateway,
-	experimental_streamTranscribe,
+	experimental_streamTranscribe
 } from "ai";
-import type {
-	CommittedEvent,
-	DeltaEvent,
-	OutboundEvent,
-	PartialEvent,
-} from "../protocol";
+import type { CommittedEvent, DeltaEvent, OutboundEvent, PartialEvent } from "../protocol";
 import type { TranscriptionMode } from "../registry";
 import { describeError, logFailure } from "../diagnostics";
 import { languageProviderOptions } from "../languages";
 import { AudioStreamBridge } from "../stream-controller";
-import type {
-	EmitFn,
-	ProviderOptions,
-	SttAdapter,
-	SttSession,
-	SttSessionConfig,
-} from "./types";
+import type { EmitFn, ProviderOptions, SttAdapter, SttSession, SttSessionConfig } from "./types";
 import { mergeProviderOptions } from "./types";
 
 export type StreamTranscribeFn = (
-	options: Parameters<typeof experimental_streamTranscribe>[0],
+	options: Parameters<typeof experimental_streamTranscribe>[0]
 ) => StreamTranscriptionResult;
 
 export type ModelResolver = (config: SttSessionConfig) => TranscriptionModel;
@@ -49,8 +37,8 @@ export interface VercelAiSdkAdapterOptions {
 	/** Injectable for tests; defaults to gateway/provider model instances. */
 	resolveModel?: ModelResolver;
 	/**
-	 * Provider options the adapter sends on every call. The dictation language
-	 * is merged into them rather than replacing them.
+	 * Provider options the adapter sends on every call. The dictation language is merged into them
+	 * rather than replacing them.
 	 */
 	providerOptions?: ProviderOptions;
 }
@@ -60,9 +48,9 @@ function errorMessage(error: unknown): string {
 }
 
 /**
- * Provider phrasings that mean "the stream carried nothing to transcribe".
- * A take that produced no text and failed this way is a normal, silent
- * outcome: the provider did not fail, it simply had no speech to work on.
+ * Provider phrasings that mean "the stream carried nothing to transcribe". A take that produced no
+ * text and failed this way is a normal, silent outcome: the provider did not fail, it simply had no
+ * speech to work on.
  */
 const NOTHING_TO_TRANSCRIBE_PATTERNS = [
 	"no audio",
@@ -79,15 +67,13 @@ const NOTHING_TO_TRANSCRIBE_PATTERNS = [
 	"audio was empty",
 	"silent audio",
 	"no valid audio",
-	"must contain audio",
+	"must contain audio"
 ];
 
 /** Whether a provider message reports an empty/voiceless input. */
 export function isEmptyInputFailure(message: string): boolean {
 	const lowered = message.toLowerCase();
-	return NOTHING_TO_TRANSCRIBE_PATTERNS.some((pattern) =>
-		lowered.includes(pattern),
-	);
+	return NOTHING_TO_TRANSCRIBE_PATTERNS.some((pattern) => lowered.includes(pattern));
 }
 
 /** Joins finalized segments with single spaces. */
@@ -104,13 +90,10 @@ type TranscriptEvent = PartialEvent | DeltaEvent | CommittedEvent;
 /**
  * Attaches the provider's utterance identity to a transcript event.
  *
- * The `segment` key is added only when the provider publishes an id: a backend
- * without them keeps the legacy payload, where the key is absent entirely.
+ * The `segment` key is added only when the provider publishes an id: a backend without them keeps
+ * the legacy payload, where the key is absent entirely.
  */
-function withSegment(
-	event: TranscriptEvent,
-	segment: string | undefined,
-): TranscriptEvent {
+function withSegment(event: TranscriptEvent, segment: string | undefined): TranscriptEvent {
 	return segment === undefined ? event : { ...event, segment };
 }
 
@@ -130,40 +113,35 @@ function gatewayModelId(config: SttSessionConfig): string {
 }
 
 /**
- * Resolves the model instance for a session. Direct providers use their own
- * SDK so the `start.apiKey` override is honored; Vercel/gateway sessions go
- * through `createGateway`.
+ * Resolves the model instance for a session. Direct providers use their own SDK so the
+ * `start.apiKey` override is honored; Vercel/gateway sessions go through `createGateway`.
  */
-export function defaultModelResolver(
-	config: SttSessionConfig,
-): TranscriptionModel {
+export function defaultModelResolver(config: SttSessionConfig): TranscriptionModel {
 	const { provider, model, apiKey } = config;
 
 	switch (provider) {
 		case "mistral":
 			return createMistral({ apiKey }).transcription(
-				stripProviderPrefix(provider, model) as never,
+				stripProviderPrefix(provider, model) as never
 			);
 
 		case "openai":
 			return createOpenAI({ apiKey }).transcription(
-				stripProviderPrefix(provider, model) as never,
+				stripProviderPrefix(provider, model) as never
 			);
 
 		case "xai":
 			return createXai({ apiKey }).transcription(
-				stripProviderPrefix(provider, model) as never,
+				stripProviderPrefix(provider, model) as never
 			);
 
 		case "elevenlabs":
 			return createElevenLabs({ apiKey }).transcription(
-				stripProviderPrefix(provider, model) as never,
+				stripProviderPrefix(provider, model) as never
 			);
 
 		default:
-			return createGateway({ apiKey }).transcription(
-				gatewayModelId(config) as never,
-			);
+			return createGateway({ apiKey }).transcription(gatewayModelId(config) as never);
 	}
 }
 
@@ -172,7 +150,7 @@ class FailedStreamingSession implements SttSession {
 
 	constructor(
 		readonly sessionId: string,
-		private readonly emit: EmitFn,
+		private readonly emit: EmitFn
 	) {}
 
 	pushAudio(): void {}
@@ -189,7 +167,7 @@ class FailedStreamingSession implements SttSession {
 		this.emit({
 			type: "stopped",
 			sessionId: this.sessionId,
-			fullText: "",
+			fullText: ""
 		});
 	}
 
@@ -217,7 +195,7 @@ class VercelAiSdkSession implements SttSession {
 			provider: string;
 			model: string;
 			language: string | undefined;
-		},
+		}
 	) {
 		this.done = new Promise<void>((resolve) => {
 			this.resolveDone = resolve;
@@ -263,15 +241,15 @@ class VercelAiSdkSession implements SttSession {
 		this.emit({
 			type: "stopped",
 			sessionId: this.sessionId,
-			fullText,
+			fullText
 		});
 	}
 
 	/**
 	 * Reports a provider failure.
 	 *
-	 * `cause` is the raw rejection, kept apart from `message` so the diagnostic
-	 * line can carry the full shape while the bridge event stays short.
+	 * `cause` is the raw rejection, kept apart from `message` so the diagnostic line can carry the
+	 * full shape while the bridge event stays short.
 	 */
 	private emitError(message: string, cause?: unknown): void {
 		if (this.errorEmitted) {
@@ -294,16 +272,16 @@ class VercelAiSdkSession implements SttSession {
 			{
 				provider: this.subject.provider,
 				model: this.subject.model,
-				language: this.subject.language,
+				language: this.subject.language
 			},
 			cause ?? message,
-			message,
+			message
 		);
 		const event: OutboundEvent = {
 			type: "error",
 			sessionId: this.sessionId,
 			code: "stream_failed",
-			message,
+			message
 		};
 		this.emit(event);
 	}
@@ -323,10 +301,10 @@ class VercelAiSdkSession implements SttSession {
 								{
 									type: "partial",
 									sessionId: this.sessionId,
-									text: part.text,
+									text: part.text
 								},
-								part.id,
-							),
+								part.id
+							)
 						);
 						break;
 
@@ -337,19 +315,16 @@ class VercelAiSdkSession implements SttSession {
 								{
 									type: "delta",
 									sessionId: this.sessionId,
-									delta: part.delta,
+									delta: part.delta
 								},
-								part.id,
-							),
+								part.id
+							)
 						);
 						break;
 
 					case "transcript-final":
 						this.producedText ||= part.text.trim().length > 0;
-						this.accumulated = appendSegment(
-							this.accumulated,
-							part.text,
-						);
+						this.accumulated = appendSegment(this.accumulated, part.text);
 						// `result.text` is the SDK's complete final transcript and is
 						// emitted below as `stopped`. Keeping this part only in the
 						// accumulator avoids reporting the same words once as a
@@ -393,8 +368,8 @@ class VercelAiSdkSession implements SttSession {
 }
 
 /**
- * Streaming adapter built on `experimental_streamTranscribe`. Base64 PCM16
- * chunks flow straight from the NDJSON `audio` command into the SDK stream.
+ * Streaming adapter built on `experimental_streamTranscribe`. Base64 PCM16 chunks flow straight
+ * from the NDJSON `audio` command into the SDK stream.
  */
 export class VercelAiSdkAdapter implements SttAdapter {
 	readonly mode: TranscriptionMode = "streaming";
@@ -404,8 +379,7 @@ export class VercelAiSdkAdapter implements SttAdapter {
 	private readonly providerOptions: ProviderOptions | undefined;
 
 	constructor(options: VercelAiSdkAdapterOptions = {}) {
-		this.streamTranscribe =
-			options.streamTranscribe ?? experimental_streamTranscribe;
+		this.streamTranscribe = options.streamTranscribe ?? experimental_streamTranscribe;
 		this.resolveModel = options.resolveModel ?? defaultModelResolver;
 		this.providerOptions = options.providerOptions;
 	}
@@ -414,7 +388,7 @@ export class VercelAiSdkAdapter implements SttAdapter {
 		const bridge = new AudioStreamBridge();
 		const providerOptions = mergeProviderOptions(
 			this.providerOptions,
-			languageProviderOptions(config.provider, config.language),
+			languageProviderOptions(config.provider, config.language)
 		);
 
 		let result: StreamTranscriptionResult;
@@ -425,10 +399,10 @@ export class VercelAiSdkAdapter implements SttAdapter {
 				audio: bridge.readable,
 				inputAudioFormat: {
 					type: "audio/pcm",
-					rate: config.sampleRate,
+					rate: config.sampleRate
 				},
 				abortSignal: bridge.abortSignal,
-				...(providerOptions === undefined ? {} : { providerOptions }),
+				...(providerOptions === undefined ? {} : { providerOptions })
 			});
 		} catch (error) {
 			const message = errorMessage(error);
@@ -441,16 +415,16 @@ export class VercelAiSdkAdapter implements SttAdapter {
 					provider: config.provider,
 					model: config.model,
 					language: config.language,
-					providerOptions: JSON.stringify(providerOptions ?? {}),
+					providerOptions: JSON.stringify(providerOptions ?? {})
 				},
 				error,
-				message,
+				message
 			);
 			emit({
 				type: "error",
 				sessionId: config.sessionId,
 				code: "stream_failed",
-				message,
+				message
 			});
 			return new FailedStreamingSession(config.sessionId, emit);
 		}
@@ -459,7 +433,7 @@ export class VercelAiSdkAdapter implements SttAdapter {
 		return new VercelAiSdkSession(config.sessionId, emit, bridge, result, {
 			provider: config.provider,
 			model: config.model,
-			language: config.language,
+			language: config.language
 		});
 	}
 }

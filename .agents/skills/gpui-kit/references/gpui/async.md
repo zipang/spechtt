@@ -160,7 +160,7 @@ Tasks are automatically cancelled when dropped. Store in struct to keep alive.
 
 ### ❌ Don't: Use `defer_in` and then update the same entity through its handle
 
-`cx.defer_in(window, callback)` schedules `callback` to run **on the current entity** — GPUI re-acquires that entity's lock to execute it. Calling `entity.update(cx, …)` on the *same* entity from within the deferred callback re-enters the lock and panics:
+`cx.defer_in(window, callback)` schedules `callback` to run **on the current entity** — GPUI re-acquires that entity's lock to execute it. Calling `entity.update(cx, …)` on the _same_ entity from within the deferred callback re-enters the lock and panics:
 
 ```
 cannot update … while it is already being updated
@@ -222,4 +222,3 @@ cx.spawn(async move |this, cx| {
 
 GPUI has no `Task::then`. Await the background task inside `cx.spawn`. The
 closure receives `(WeakEntity<Self>, &mut AsyncApp)`, not the background result.
-

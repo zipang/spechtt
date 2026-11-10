@@ -1,11 +1,10 @@
 /**
  * Silence-aligned audio segmentation for batch transcription.
  *
- * The segmenter turns a continuous 16 kHz mono PCM16 stream into segments that
- * start and end inside silence, so batch models (`transcribe`) receive whole
- * phrases instead of arbitrary byte-count windows. It is pure and
- * deterministic: every decision depends on sample counts and frame energies,
- * never on the wall clock, randomness, or I/O.
+ * The segmenter turns a continuous 16 kHz mono PCM16 stream into segments that start and end inside
+ * silence, so batch models (`transcribe`) receive whole phrases instead of arbitrary byte-count
+ * windows. It is pure and deterministic: every decision depends on sample counts and frame
+ * energies, never on the wall clock, randomness, or I/O.
  */
 
 /** Analysis window. */
@@ -140,37 +139,22 @@ export class Segmenter {
 	constructor(options: SegmenterOptions) {
 		this.sampleRate = options.sampleRate;
 		this.frameMs = options.frameMs ?? DEFAULT_FRAME_MS;
-		this.frameSamples = Math.max(
-			1,
-			Math.round((this.sampleRate * this.frameMs) / 1000),
-		);
+		this.frameSamples = Math.max(1, Math.round((this.sampleRate * this.frameMs) / 1000));
 		this.frameBytes = this.frameSamples * 2;
-		this.preRollFrames = frameCount(
-			options.preRollMs ?? DEFAULT_PRE_ROLL_MS,
-			this.frameMs,
-		);
-		this.tailPadFrames = frameCount(
-			options.tailPadMs ?? DEFAULT_TAIL_PAD_MS,
-			this.frameMs,
-		);
+		this.preRollFrames = frameCount(options.preRollMs ?? DEFAULT_PRE_ROLL_MS, this.frameMs);
+		this.tailPadFrames = frameCount(options.tailPadMs ?? DEFAULT_TAIL_PAD_MS, this.frameMs);
 		this.minSpeechFrames = frameCount(
 			options.minSpeechMs ?? DEFAULT_MIN_SPEECH_MS,
-			this.frameMs,
+			this.frameMs
 		);
 		this.searchFrames = frameCount(FORCED_CUT_SEARCH_MS, this.frameMs);
 		this.excludeFrames = frameCount(FORCED_CUT_EXCLUDE_MS, this.frameMs);
 		this.maxFrames = Math.max(
 			frameCount(options.maxSegmentMs ?? DEFAULT_MAX_SEGMENT_MS, this.frameMs),
-			this.searchFrames + this.excludeFrames + 1,
+			this.searchFrames + this.excludeFrames + 1
 		);
-		this.hangoverFrames = frameCount(
-			options.hangoverMs ?? DEFAULT_HANGOVER_MS,
-			this.frameMs,
-		);
-		this.overlapFrames = frameCount(
-			options.overlapMs ?? DEFAULT_OVERLAP_MS,
-			this.frameMs,
-		);
+		this.hangoverFrames = frameCount(options.hangoverMs ?? DEFAULT_HANGOVER_MS, this.frameMs);
+		this.overlapFrames = frameCount(options.overlapMs ?? DEFAULT_OVERLAP_MS, this.frameMs);
 		this.alpha = options.noiseFloorAlpha ?? 0.05;
 		this.onsetRatio = options.speechTriggerRatio ?? 2.5;
 		this.silenceRatio = options.silenceRatio ?? 1.5;
@@ -187,23 +171,20 @@ export class Segmenter {
 		let offset = 0;
 
 		while (offset + this.frameBytes <= combined.length) {
-			const frame = this.toFrame(
-				combined.subarray(offset, offset + this.frameBytes),
-			);
+			const frame = this.toFrame(combined.subarray(offset, offset + this.frameBytes));
 			offset += this.frameBytes;
 			this.consume(frame, emitted);
 		}
 
-		this.pending =
-			offset === 0 ? combined.slice() : combined.slice(offset);
+		this.pending = offset === 0 ? combined.slice() : combined.slice(offset);
 		return emitted;
 	}
 
 	/**
 	 * Closes the open segment, padding it with silence.
 	 *
-	 * `pause` and `stop` are the only valid reasons. Voiced audio is always
-	 * emitted, even when shorter than `minSpeechMs`; silence is dropped.
+	 * `pause` and `stop` are the only valid reasons. Voiced audio is always emitted, even when
+	 * shorter than `minSpeechMs`; silence is dropped.
 	 */
 	flush(reason: "pause" | "stop"): AudioSegment[] {
 		const emitted: AudioSegment[] = [];
@@ -267,17 +248,14 @@ export class Segmenter {
 			pad.push({
 				samples: new Int16Array(this.frameSamples),
 				rms: 0,
-				speech: false,
+				speech: false
 			});
 		}
 		return pad;
 	}
 
 	private consume(frame: Frame, emitted: AudioSegment[]): void {
-		const onsetThreshold = Math.max(
-			this.noiseFloor * this.onsetRatio,
-			MIN_ABSOLUTE_RMS,
-		);
+		const onsetThreshold = Math.max(this.noiseFloor * this.onsetRatio, MIN_ABSOLUTE_RMS);
 		const silenceThreshold = this.noiseFloor * this.silenceRatio;
 
 		if (!this.inSpeech) {
@@ -288,7 +266,7 @@ export class Segmenter {
 					this.noiseFloor = clamp(
 						Math.max(this.noiseFloor, this.calibrationMin),
 						MIN_NOISE_FLOOR,
-						MAX_NOISE_FLOOR,
+						MAX_NOISE_FLOOR
 					);
 				}
 				if (frame.rms <= STRONG_SPEECH_RMS) {
@@ -318,7 +296,7 @@ export class Segmenter {
 			this.noiseFloor = clamp(
 				this.noiseFloor * (1 - this.alpha) + frame.rms * this.alpha,
 				MIN_NOISE_FLOOR,
-				MAX_NOISE_FLOOR,
+				MAX_NOISE_FLOOR
 			);
 			this.preRoll.push(frame);
 			if (this.preRoll.length > this.preRollFrames) {
@@ -358,7 +336,7 @@ export class Segmenter {
 		if (speechMs < this.minSpeechFrames * this.frameMs) {
 			// Too short to stand alone: keep it and prepend it to the next one.
 			this.carry = audio.slice(
-				Math.max(0, audio.length - (this.preRollFrames + this.minSpeechFrames)),
+				Math.max(0, audio.length - (this.preRollFrames + this.minSpeechFrames))
 			);
 			this.frames = [];
 			this.inSpeech = false;
@@ -380,7 +358,7 @@ export class Segmenter {
 		const start = Math.max(0, this.frames.length - this.searchFrames);
 		const end = Math.max(
 			start + 1,
-			Math.min(this.frames.length - 1, this.frames.length - this.excludeFrames),
+			Math.min(this.frames.length - 1, this.frames.length - this.excludeFrames)
 		);
 
 		let quietest = start;
@@ -424,11 +402,7 @@ export class Segmenter {
 		return count;
 	}
 
-	private emit(
-		frames: readonly Frame[],
-		reason: SegmentReason,
-		emitted: AudioSegment[],
-	): void {
+	private emit(frames: readonly Frame[], reason: SegmentReason, emitted: AudioSegment[]): void {
 		const speechFrames = this.speechFrames(frames);
 		if (speechFrames === 0) {
 			return;
@@ -460,7 +434,7 @@ export class Segmenter {
 			startsWithOverlap: this.overlapPending,
 			speechMs: speechFrames * this.frameMs,
 			durationMs: frames.length * this.frameMs,
-			rmsDb: toDb(Math.sqrt(sumSquares / speechFrames)),
+			rmsDb: toDb(Math.sqrt(sumSquares / speechFrames))
 		});
 
 		this.nextIndex += 1;

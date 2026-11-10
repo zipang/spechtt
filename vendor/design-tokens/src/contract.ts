@@ -22,7 +22,10 @@ export interface ParsedDesignMd {
 	declaredPaths: Set<string>;
 	/** Front-matter paths that match no token and are not ignored. */
 	unknownPaths: string[];
-	/** Style → field → token variable, for `typography.<style>.{fontWeight,lineHeight,letterSpacing}`. */
+	/**
+	 * Style → field → token variable, for
+	 * `typography.<style>.{fontWeight,lineHeight,letterSpacing}`.
+	 */
 	typography: TypographyRefs;
 	/** The theme's display name from the front matter, or `""` when absent. */
 	name: string;
@@ -34,6 +37,7 @@ export interface ParsedDesignMd {
 
 /**
  * Normalize a CSS or YAML scalar: collapse whitespace and trim.
+ *
  * @param value - The scalar to normalize.
  * @returns The value with runs of whitespace collapsed and ends trimmed.
  */
@@ -90,8 +94,9 @@ const deletePath = (root: Record<string, unknown>, path: string): void => {
 const VARIABLE_REFERENCE = /var\(\s*(--[\w-]+)(?:\s*,\s*([^)]+))?\s*\)/g;
 
 /**
- * Resolve `var(--x)` references against a value map so a front-matter literal and a
- * stylesheet alias compare equal. Depth is bounded to avoid reference cycles.
+ * Resolve `var(--x)` references against a value map so a front-matter literal and a stylesheet
+ * alias compare equal. Depth is bounded to avoid reference cycles.
+ *
  * @param value - The value that may contain `var()` references.
  * @param values - The variable map to resolve references against.
  * @param depth - The current recursion depth, capped to break cycles.
@@ -159,6 +164,7 @@ const readName = (frontMatter: Record<string, unknown>): string =>
 
 /**
  * Parse a `DESIGN.md` file into token values and preserved metadata.
+ *
  * @param text - The full `DESIGN.md` content, front matter included.
  * @returns The token values, declared and unknown paths, typography refs, and body.
  */
@@ -203,10 +209,11 @@ export const parseDesignMd = (text: string): ParsedDesignMd => {
 };
 
 /**
- * Rebuild the `DESIGN.md` front matter from token values, preserving metadata and prose.
- * Optional tokens that still equal their documented fallback are omitted, per the contract.
- * The `typography` map writes each style's token references back as `var(...)`. A `name`
- * argument rewrites the theme name; `undefined` leaves the original name untouched.
+ * Rebuild the `DESIGN.md` front matter from token values, preserving metadata and prose. Optional
+ * tokens that still equal their documented fallback are omitted, per the contract. The `typography`
+ * map writes each style's token references back as `var(...)`. A `name` argument rewrites the theme
+ * name; `undefined` leaves the original name untouched.
+ *
  * @param values - The token values to write into the front matter.
  * @param original - The current `DESIGN.md` text to preserve metadata and prose from.
  * @param typography - Style token references to write back; omitted to keep the original.
@@ -270,6 +277,7 @@ const CSS_VARIABLE = /--([\w-]+)\s*:\s*([^;]+);/g;
 
 /**
  * Remove CSS comments so parsers never read commented-out declarations or at-rules.
+ *
  * @param css - The stylesheet text to strip.
  * @returns The stylesheet with its comments removed.
  */
@@ -277,6 +285,7 @@ export const stripCssComments = (css: string): string => css.replace(/\/\*[\s\S]
 
 /**
  * Parse every custom property from a stylesheet into a variable → value map.
+ *
  * @param text - The stylesheet text to read.
  * @returns Every custom property mapped to its normalized value.
  */
@@ -303,6 +312,7 @@ export const parseTokensCss = (text: string): TokenValues => {
 
 /**
  * Serialize the full token set into one scoped block. Optional tokens keep their fallbacks.
+ *
  * @param values - The token values to emit.
  * @param selector - The CSS selector to scope the block to.
  * @returns The stylesheet block, with a leading font import when one is needed.
@@ -333,6 +343,7 @@ export const serializeTokensCss = (values: TokenValues, selector = ":root"): str
 
 /**
  * Rewrite a stylesheet's root selector so the tokens apply only inside a preview scope.
+ *
  * @param css - The stylesheet text whose `:root` selector is rewritten.
  * @param scope - The selector that replaces `:root`.
  * @returns The stylesheet with its root selector scoped.
@@ -354,6 +365,7 @@ export interface Contract {
 
 /**
  * Parse both halves of the contract. CSS values win for keys absent from the front matter.
+ *
  * @param designMd - The `DESIGN.md` text to parse.
  * @param tokensCss - The `design-tokens.css` text to parse.
  * @returns The two parsed halves plus their merged bookkeeping.
@@ -375,6 +387,7 @@ export const parseContract = (designMd: string, tokensCss: string): Contract => 
 
 /**
  * Merge both halves into one value map, preferring the front matter.
+ *
  * @param contract - The parsed contract whose halves are merged.
  * @returns The design values layered over the stylesheet values.
  */
@@ -385,6 +398,7 @@ export const mergeValues = (contract: Contract): TokenValues => ({
 
 /**
  * True when a variable is a registered token.
+ *
  * @param variable - The `--variable` to test.
  * @returns True when the variable is a documented token.
  */

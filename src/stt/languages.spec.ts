@@ -1,9 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-	LANGUAGE_OPTIONS,
-	languageIsForwarded,
-	languageProviderOptions,
-} from "./languages";
+import { LANGUAGE_OPTIONS, languageIsForwarded, languageProviderOptions } from "./languages";
 
 /** Languages every supported provider publishes support for. */
 const CORE_LABELS = [
@@ -18,13 +14,11 @@ const CORE_LABELS = [
 	"Polish",
 	"Portuguese",
 	"Russian",
-	"Spanish",
+	"Spanish"
 ];
 
 function byLabel(labels: readonly string[]) {
-	return [...labels].sort((left, right) =>
-		left < right ? -1 : left > right ? 1 : 0,
-	);
+	return [...labels].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
 }
 
 describe("LANGUAGE_OPTIONS", () => {
@@ -101,22 +95,22 @@ describe("languageProviderOptions", () => {
 
 	test("names the provider package for a direct provider", () => {
 		expect(languageProviderOptions("openai", "fr")).toEqual({
-			openai: { language: "fr" },
+			openai: { language: "fr" }
 		});
 		expect(languageProviderOptions("mistral", "fr")).toEqual({
-			mistral: { language: "fr" },
+			mistral: { language: "fr" }
 		});
 		expect(languageProviderOptions("xai", "fr")).toEqual({
-			xai: { language: "fr" },
+			xai: { language: "fr" }
 		});
 		expect(languageProviderOptions("elevenlabs", "fr")).toEqual({
-			elevenlabs: { language: "fr" },
+			elevenlabs: { language: "fr" }
 		});
 	});
 
 	test("normalizes the code to a trimmed lowercase value", () => {
 		expect(languageProviderOptions("openai", " FR ")).toEqual({
-			openai: { language: "fr" },
+			openai: { language: "fr" }
 		});
 	});
 });

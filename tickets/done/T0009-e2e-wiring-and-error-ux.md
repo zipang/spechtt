@@ -146,41 +146,41 @@ pub enum AppError {
 ## 6. TDD Tasks
 
 - [x] **T9.1 — `AppError` mapping tests** (`crates/speechtt-ui/tests/error_ux.rs`
-  or controller unit tests): every source error maps to the expected variant;
-  `SttEvent::Error` codes map deterministically; no key material in
-  `Display`.
+      or controller unit tests): every source error maps to the expected variant;
+      `SttEvent::Error` codes map deterministically; no key material in
+      `Display`.
 - [x] **T9.2 — Controller integration tests** (fakes only):
-  - audio frame while Recording → exactly one `Audio` command; frame while
-    Paused → none;
-  - `partial` → `delta` → `committed` updates visible text and survives
-    `finish_take`;
-  - `Stopped` refines the finished take; stale session ids ignored;
-  - hotkey actions produce the same transitions as button commands, with
-    invalid actions rejected;
-  - clock-driven elapsed read-out advances and resets per take.
+    - audio frame while Recording → exactly one `Audio` command; frame while
+      Paused → none;
+    - `partial` → `delta` → `committed` updates visible text and survives
+      `finish_take`;
+    - `Stopped` refines the finished take; stale session ids ignored;
+    - hotkey actions produce the same transitions as button commands, with
+      invalid actions rejected;
+    - clock-driven elapsed read-out advances and resets per take.
 - [x] **T9.3 — Output flow tests**: Copy/Save/Open call the injected adapters
-  with exact text/path; Save failure shows `SaveFailed` and keeps the
-  transcript; auto-paste runs only when enabled.
+      with exact text/path; Save failure shows `SaveFailed` and keeps the
+      transcript; auto-paste runs only when enabled.
 - [x] **T9.4 — Settings/capabilities tests**: capability payload populates
-  options; unavailable provider renders not-connected; save round-trips to
-  the store; `Start` carries the persisted key; missing key blocks recording.
+      options; unavailable provider renders not-connected; save round-trips to
+      the store; `Start` carries the persisted key; missing key blocks recording.
 - [x] **T9.5 — Happy-path end-to-end test** (`crates/speechtt-ui/tests/end_to_end.rs`):
-  `MockAudioSource` → `MockSink`/`MockEventStream` → record → partial/delta →
-  pause → resume → stop → Copy → assert clipboard text; repeat with File
-  output → assert written path + opener called.
+      `MockAudioSource` → `MockSink`/`MockEventStream` → record → partial/delta →
+      pause → resume → stop → Copy → assert clipboard text; repeat with File
+      output → assert written path + opener called.
 - [x] **T9.6 — Live bridge test**: keep T0008's smoke test green; optionally
-  add an `#[ignore]` real-provider test gated on `SPEECHtt_LIVE_STT=1`.
+      add an `#[ignore]` real-provider test gated on `SPEECHtt_LIVE_STT=1`.
 - [x] **T9.7 — Manual QA checklist** (record in the ticket):
-  - mic permission denied → error strip + recovery after granting;
-  - invalid API key → auth error → Settings → fix → retry works;
-  - unplug network mid-stream → error → retry resumes a new take;
-  - hotkeys work while the widget is unfocused;
-  - copy/paste into an external editor;
-  - save to memory and to file; reopen the saved file;
-  - visual QA against every `mockups/**/*.png`.
+    - mic permission denied → error strip + recovery after granting;
+    - invalid API key → auth error → Settings → fix → retry works;
+    - unplug network mid-stream → error → retry resumes a new take;
+    - hotkeys work while the widget is unfocused;
+    - copy/paste into an external editor;
+    - save to memory and to file; reopen the saved file;
+    - visual QA against every `mockups/**/*.png`.
 - [x] **T9.8 — Gates**: `cargo fmt -- --check`,
-  `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
-  `bun check src/stt`.
+      `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
+      `bun check src/stt`.
 
 ## Acceptance Criteria
 
@@ -337,7 +337,6 @@ headless UI tests come from Bun's cwd being the `speechtt-ui` package
 directory; the app treats the resulting closed event stream as
 `BackendUnavailable`. The T0008 live bridge smoke test (run from the repo
 root) stays green.
-
 
 ## Follow-up Fixes After CEO/PM Review (2026-10-27)
 

@@ -1,6 +1,6 @@
 /**
- * Bridges the NDJSON audio commands to the AI SDK: a `ReadableStream<string>`
- * of base64 PCM16 chunks with a pause gate and a shared `AbortController`.
+ * Bridges the NDJSON audio commands to the AI SDK: a `ReadableStream<string>` of base64 PCM16
+ * chunks with a pause gate and a shared `AbortController`.
  */
 export class AudioStreamBridge {
 	readonly readable: ReadableStream<string>;
@@ -18,7 +18,7 @@ export class AudioStreamBridge {
 			},
 			cancel: () => {
 				this.isClosed = true;
-			},
+			}
 		});
 	}
 
@@ -39,8 +39,8 @@ export class AudioStreamBridge {
 	}
 
 	/**
-	 * Enqueues one base64 PCM16 chunk. Returns `false` when the chunk was
-	 * dropped because the stream is paused, closed, or aborted.
+	 * Enqueues one base64 PCM16 chunk. Returns `false` when the chunk was dropped because the
+	 * stream is paused, closed, or aborted.
 	 */
 	pushAudio(pcm16Base64: string): boolean {
 		if (this.isPaused || this.isClosed || this.isAborted) {
@@ -93,9 +93,7 @@ export class AudioStreamBridge {
 
 		this.abortController.abort(reason);
 		try {
-			this.controller?.error(
-				reason ?? new DOMException("Aborted", "AbortError"),
-			);
+			this.controller?.error(reason ?? new DOMException("Aborted", "AbortError"));
 		} catch {
 			// The stream was already errored or cancelled.
 		}

@@ -5,6 +5,7 @@ This complete view comes from `examples/ai_recipes/src/settings.rs`. That consum
 The view owns both input state and subscriptions. Rendering creates only elements. The window's `Root` renders the dialog, sheet and notification layers above the view.
 
 <!-- recipe:settings:start -->
+
 ```rust
 use gpui_kit::component::{
     ActiveTheme, IconName, WindowExt,
@@ -126,6 +127,7 @@ impl Render for Settings {
     }
 }
 ```
+
 <!-- recipe:settings:end -->
 
 For changes in this repository, run `script/check-ai docs`, `script/check-ai rust`, or `script/check-ai shell` for the relevant verification profile (or `script/check-ai all` for all three), and `cargo test -p gpui-kit-recipes` when a recipe source changes. For a downstream app, compile and test your own consumer, then verify keyboard/focus and visuals in a real window. Automated recipe tests do not establish a model success rate.

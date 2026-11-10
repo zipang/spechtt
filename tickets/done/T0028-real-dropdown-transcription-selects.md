@@ -7,14 +7,14 @@
 - **Owner**: coding sub-agent, supervised by CTO
 - **Started**: 2026-11-05
 - **References**:
-  - `AGENTS.md` §2 (component rule, view rule), §5 (quality gates), §6 (official documentation rule)
-  - `DESIGN.md` § "Session setup form" and § "Settings panel"
-  - gpui-kit `Select` guide: <https://gpui-kit.com/component/select.md>
-  - `SelectState` API: <https://docs.rs/gpui-component/latest/gpui_component/select/struct.SelectState.html>
-  - `Select` API: <https://docs.rs/gpui-component/latest/gpui_component/select/struct.Select.html>
-  - `SelectEvent` API: <https://docs.rs/gpui-component/latest/gpui_component/select/enum.SelectEvent.html>
-  - `SearchableListItem` (re-exported as `SelectItem`) API: <https://docs.rs/gpui-component/latest/gpui_component/searchable_list/trait.SearchableListItem.html>
-  - `SearchableVec` API: <https://docs.rs/gpui-component/latest/gpui_component/searchable_list/struct.SearchableVec.html>
+    - `AGENTS.md` §2 (component rule, view rule), §5 (quality gates), §6 (official documentation rule)
+    - `DESIGN.md` § "Session setup form" and § "Settings panel"
+    - gpui-kit `Select` guide: <https://gpui-kit.com/component/select.md>
+    - `SelectState` API: <https://docs.rs/gpui-component/latest/gpui_component/select/struct.SelectState.html>
+    - `Select` API: <https://docs.rs/gpui-component/latest/gpui_component/select/struct.Select.html>
+    - `SelectEvent` API: <https://docs.rs/gpui-component/latest/gpui_component/select/enum.SelectEvent.html>
+    - `SearchableListItem` (re-exported as `SelectItem`) API: <https://docs.rs/gpui-component/latest/gpui_component/searchable_list/trait.SearchableListItem.html>
+    - `SearchableVec` API: <https://docs.rs/gpui-component/latest/gpui_component/searchable_list/struct.SearchableVec.html>
 
 ## Context & Goal
 
@@ -326,48 +326,48 @@ then render `settings::render(self, cx)` as today.
 ## TDD Tasks
 
 - [x] **T28.1 — Red: controller option data and draft setters.** Write failing
-  unit tests in `controller.rs` for `draft_provider_options`,
-  `draft_model_options` (live + file mode), `settings_provider_options`,
-  `settings_model_options`, `set_draft_provider` (unknown rejected, model
-  cleared) and `set_draft_model` (unknown rejected, streaming rejected in file
-  mode, streaming accepted in live mode). Run them; they must fail.
+      unit tests in `controller.rs` for `draft_provider_options`,
+      `draft_model_options` (live + file mode), `settings_provider_options`,
+      `settings_model_options`, `set_draft_provider` (unknown rejected, model
+      cleared) and `set_draft_model` (unknown rejected, streaming rejected in file
+      mode, streaming accepted in live mode). Run them; they must fail.
 - [x] **T28.2 — Green: controller.** Add `SelectOption` and the accessors/setters
-  until T28.1 passes. Keep the old cycling helpers if they are still used by
-  tests, but add a test asserting no view/app call site remains (or simply
-  remove the app-level cycling wrappers and update the fixtures).
+      until T28.1 passes. Keep the old cycling helpers if they are still used by
+      tests, but add a test asserting no view/app call site remains (or simply
+      remove the app-level cycling wrappers and update the fixtures).
 - [x] **T28.3 — Red: select item adapters.** Write failing tests for
-  `ProviderOption` / `ModelOption`: `value()` is the id, `title()` is the label,
-  `matches` accepts id and label in any case and rejects a non-match, and
-  `ModelOption` retains its mode.
+      `ProviderOption` / `ModelOption`: `value()` is the id, `title()` is the label,
+      `matches` accepts id and label in any case and rejects a non-match, and
+      `ModelOption` retains its mode.
 - [x] **T28.4 — Green: component items and wrappers.** Implement
-  `components/model_select.rs` (items, `ProviderSelect`, `ModelSelect`,
-  `SelectFields`, `SelectSnapshot`) and export it from `components/mod.rs`
-  (append-only). Include the mode badge inside `render`/`display_title`.
+      `components/model_select.rs` (items, `ProviderSelect`, `ModelSelect`,
+      `SelectFields`, `SelectSnapshot`) and export it from `components/mod.rs`
+      (append-only). Include the mode badge inside `render`/`display_title`.
 - [x] **T28.5 — Red: sync and wiring behaviour.** Write failing tests:
-  `SelectFields::sync` rebuilds on change and not on an identical snapshot
-  (pure part testable without a window if split into a helper), and a headless
-  `tests/widget.rs` test that opens `field-provider`, confirms the first entry
-  and asserts the draft provider; then opens `field-model`, confirms an entry
-  and asserts the draft model + `draft_model_mode`. Add the equivalent Settings
-  coverage (provider select and model select against the settings draft).
+      `SelectFields::sync` rebuilds on change and not on an identical snapshot
+      (pure part testable without a window if split into a helper), and a headless
+      `tests/widget.rs` test that opens `field-provider`, confirms the first entry
+      and asserts the draft provider; then opens `field-model`, confirms an entry
+      and asserts the draft model + `draft_model_mode`. Add the equivalent Settings
+      coverage (provider select and model select against the settings draft).
 - [x] **T28.6 — Green: wire both screens.** Update `app.rs`,
-  `session_setup.rs`, `dialogs/window.rs` and `dialogs/settings.rs` so the tests
-  pass, including subscriptions and catalogue-arrival repaint for the dialog.
+      `session_setup.rs`, `dialogs/window.rs` and `dialogs/settings.rs` so the tests
+      pass, including subscriptions and catalogue-arrival repaint for the dialog.
 - [x] **T28.7 — Refactor and documentation.** Update the `model_select.rs` module
-  header (purpose, callers, which `DESIGN.md` sections it implements), all new
-  public item docs, and the two `DESIGN.md` sections. Remove the old button
-  wiring and any now-dead app-level cycling methods. Apply `AGENTS.md` §3: no
-  change history, no ticket IDs in code docs.
+      header (purpose, callers, which `DESIGN.md` sections it implements), all new
+      public item docs, and the two `DESIGN.md` sections. Remove the old button
+      wiring and any now-dead app-level cycling methods. Apply `AGENTS.md` §3: no
+      change history, no ticket IDs in code docs.
 - [x] **T28.8 — Gates.** Run, from the repository root, with zero warnings and
-  no skipped tests:
-  - `cargo fmt -- --check`
-  - `cargo clippy --all-targets -- -D warnings`
-  - `cargo test`
-  - `bun test`
-  - `bun check src/stt`
-  - `bun run design:validate`
+      no skipped tests:
+    - `cargo fmt -- --check`
+    - `cargo clippy --all-targets -- -D warnings`
+    - `cargo test`
+    - `bun test`
+    - `bun check src/stt`
+    - `bun run design:validate`
 
-  Record the exact counts in `## Implementation Notes`.
+    Record the exact counts in `## Implementation Notes`.
 
 ## Acceptance Criteria
 
@@ -404,7 +404,7 @@ work was implemented and audited in-tree rather than delegated.
   the only one whose state (`SelectState`) exposes `searchable(true)`,
   `set_items`, `set_selected_value` and `SelectEvent::Confirm`.
 - **State ownership.** Both pairs of `SelectState` entities live where `&mut
-  Window` is available: `SelectFields` is built in
+Window` is available: `SelectFields` is built in
   `SpeechTtApp::with_services_and_factory` and in `DialogWindow::new`. The
   entities are never recreated after that; item and selection updates go through
   `set_items` + `set_selected_value` so the `cx.subscribe` handlers stay alive.
@@ -444,14 +444,14 @@ work was implemented and audited in-tree rather than delegated.
 
 ### Gates (repository root, zero warnings, no skipped tests)
 
-| Command | Result |
-|---|---|
-| `cargo fmt -- --check` | clean |
-| `cargo clippy --all-targets -- -D warnings` | clean |
-| `cargo test` | 483 passed, 0 failed (core 219 + 3 + 14, ui 81 + 3 + 11 + 33 + 14 + 74 + 4 + 27) |
-| `bun test` | 221 passed, 0 failed |
-| `bun check src/stt` | no type errors in 23 files |
-| `bun run design:validate` | 66 tokens, 0 errors |
+| Command                                     | Result                                                                           |
+| ------------------------------------------- | -------------------------------------------------------------------------------- |
+| `cargo fmt -- --check`                      | clean                                                                            |
+| `cargo clippy --all-targets -- -D warnings` | clean                                                                            |
+| `cargo test`                                | 483 passed, 0 failed (core 219 + 3 + 14, ui 81 + 3 + 11 + 33 + 14 + 74 + 4 + 27) |
+| `bun test`                                  | 221 passed, 0 failed                                                             |
+| `bun check src/stt`                         | no type errors in 23 files                                                       |
+| `bun run design:validate`                   | 66 tokens, 0 errors                                                              |
 
 ### Left for the user
 

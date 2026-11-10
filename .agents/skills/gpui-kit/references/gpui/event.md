@@ -7,6 +7,7 @@
 GPUI provides event system for component coordination:
 
 **Event Mechanisms:**
+
 - **Custom Events**: Define and emit type-safe events
 - **Observations**: React to entity state changes
 - **Subscriptions**: Listen to events from other entities
@@ -162,6 +163,7 @@ impl MyComponent {
 ```
 
 `subscribe` vs `subscribe_in`:
+
 - `cx.subscribe(&entity, |this, source, event, cx|)` — no window
 - `cx.subscribe_in(&entity, window, |this, source, event, window, cx|)` — window access
 
@@ -235,4 +237,3 @@ entity2.subscribe(entity1) → emits event → infinite loop!
 ```
 
 ## Reference Documentation
-

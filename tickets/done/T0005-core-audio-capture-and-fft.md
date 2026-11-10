@@ -135,25 +135,25 @@ Requirements:
 ## 3. TDD Tasks
 
 - [x] **T5.1 — PCM conversion tests**: stereo downmix averages channels;
-  mono passthrough; linear resample 48 kHz → 16 kHz preserves a 440 Hz tone's
-  zero-crossing rate within tolerance; `f32_to_pcm16` clamps ±1.0 and rounds.
+      mono passthrough; linear resample 48 kHz → 16 kHz preserves a 440 Hz tone's
+      zero-crossing rate within tolerance; `f32_to_pcm16` clamps ±1.0 and rounds.
 - [x] **T5.2 — Chunking tests**: feeding 1500 samples yields two 640-sample
-  chunks plus a 220-sample buffer; `flush()` emits 220; sample rate is always
-  16 kHz; chunks stay `i16`.
+      chunks plus a 220-sample buffer; `flush()` emits 220; sample rate is always
+      16 kHz; chunks stay `i16`.
 - [x] **T5.3 — `AudioSource` contract tests**: a `MockAudioSource` yields a
-  scripted sequence, then `Ok(None)`; dropping the `CpalAudioSource` handle
-  stops it (tested through a fake inner stream, not real hardware).
+      scripted sequence, then `Ok(None)`; dropping the `CpalAudioSource` handle
+      stops it (tested through a fake inner stream, not real hardware).
 - [x] **T5.4 — FFT tests**: 1024-sample 440 Hz sine at 16 kHz →
-  `dominant_frequency ≈ 440 ± 20 Hz`; 2 kHz sine lands in a strictly higher
-  bar index than 440 Hz; silence → all-zero bars; output length always 36 and
-  every value within `0.0..=1.0`; smoothing decays a loud frame toward zero
-  over successive silent frames.
+      `dominant_frequency ≈ 440 ± 20 Hz`; 2 kHz sine lands in a strictly higher
+      bar index than 440 Hz; silence → all-zero bars; output length always 36 and
+      every value within `0.0..=1.0`; smoothing decays a loud frame toward zero
+      over successive silent frames.
 - [x] **T5.5 — Implementation**: add `cpal` + `rustfft` to
-  `crates/speechtt-core/Cargo.toml`, write `audio.rs`/`fft.rs`, register both
-  modules in `lib.rs`.
+      `crates/speechtt-core/Cargo.toml`, write `audio.rs`/`fft.rs`, register both
+      modules in `lib.rs`.
 - [x] **T5.6 — Gates**: `cargo fmt -- --check`,
-  `cargo clippy --all-targets -- -D warnings`, `cargo test` clean; no test
-  opens a real microphone.
+      `cargo clippy --all-targets -- -D warnings`, `cargo test` clean; no test
+      opens a real microphone.
 
 ## Acceptance Criteria
 
@@ -170,12 +170,12 @@ were modified.
 
 ### Files
 
-| File | Change |
-| --- | --- |
-| `crates/speechtt-core/Cargo.toml` | appended `cpal = "0.18"` and `rustfft = "6"` (existing lines untouched) |
-| `crates/speechtt-core/src/lib.rs` | registered `pub mod audio;` and `pub mod fft;` (existing lines untouched) |
+| File                                | Change                                                                                                                            |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `crates/speechtt-core/Cargo.toml`   | appended `cpal = "0.18"` and `rustfft = "6"` (existing lines untouched)                                                           |
+| `crates/speechtt-core/src/lib.rs`   | registered `pub mod audio;` and `pub mod fft;` (existing lines untouched)                                                         |
 | `crates/speechtt-core/src/audio.rs` | new: constants, `PcmChunk`, `AudioError`, `AudioSource`, `AudioCapture`, pure conversion helpers, `PcmChunker`, `CpalAudioSource` |
-| `crates/speechtt-core/src/fft.rs` | new: `BAR_COUNT`, `SMOOTHING_ALPHA`, `SpectrumAnalyzer` |
+| `crates/speechtt-core/src/fft.rs`   | new: `BAR_COUNT`, `SMOOTHING_ALPHA`, `SpectrumAnalyzer`                                                                           |
 
 ### Design decisions
 

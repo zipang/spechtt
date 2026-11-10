@@ -102,30 +102,30 @@ pub struct Label { .. }   // --font-size-sm   (12.8 px), medium
 ## TDD Tasks
 
 - [x] **T18.1 — Text roles spec**: unit tests assert each role's size and
-  weight come from the role, the three sizes mirror
-  `tokens::font::{LG, MD, SM}`, and the builders never change the role.
+      weight come from the role, the three sizes mirror
+      `tokens::font::{LG, MD, SM}`, and the builders never change the role.
 - [x] **T18.2 — Design-system gate**: `tests/design_system.rs` fails while any
-  file outside `components/text.rs`/`tokens.rs` contains `.text_size(` or
-  `.font_weight(`, and while a view contains `px(`/`rems(`/`radius::`.
-- [x] **T18.3 — Wave wiring spec**: pressing a real card (at a point *outside*
-  the button) starts a wave whose coordinates equal the button's centre, laid
-  out at the start diameter, still painting after the click switches screens.
+      file outside `components/text.rs`/`tokens.rs` contains `.text_size(` or
+      `.font_weight(`, and while a view contains `px(`/`rems(`/`radius::`.
+- [x] **T18.3 — Wave wiring spec**: pressing a real card (at a point _outside_
+      the button) starts a wave whose coordinates equal the button's centre, laid
+      out at the start diameter, still painting after the click switches screens.
 - [x] **T18.4 — Wave geometry spec**: `ripple_frame` starts at the button
-  diameter, ends at `+RIPPLE_TRAVEL`, fades 1 → 0, and clamps out-of-range
-  deltas.
+      diameter, ends at `+RIPPLE_TRAVEL`, fades 1 → 0, and clamps out-of-range
+      deltas.
 - [x] **T18.5 — Implement `text.rs`** and migrate every call site to
-  `Title`/`Body`/`Label`.
+      `Title`/`Body`/`Label`.
 - [x] **T18.6 — Round-button treatment**: ink glyph, always-present outline,
-  active-variant hover.
+      active-variant hover.
 - [x] **T18.7 — Press wave**: `components::{ripple,button_anchors}` plus the
-  `on_press` wiring in every view.
+      `on_press` wiring in every view.
 - [x] **T18.8 — Re-layout the chooser cards**: bottom-pinned button, caption
-  `--space-sm` below, `Title`/`Body` copy, one left spine with the title.
+      `--space-sm` below, `Title`/`Body` copy, one left spine with the title.
 - [x] **T18.9 — Gates**: `cargo fmt -- --check`,
-  `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
-  `bun check src/stt`, `bun run design:validate`.
+      `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
+      `bun check src/stt`, `bun run design:validate`.
 - [x] **T18.10 — Manual QA**: chooser at 600×460 shows larger titles and both
-  round buttons on one baseline; a press paints the wave at the button edge.
+      round buttons on one baseline; a press paints the wave at the button edge.
 
 ## Acceptance Criteria
 
@@ -175,6 +175,7 @@ let `views/dialogs/settings.rs` drop its last `px`/`radius` use.
 ### The design-system gate
 
 `crates/speechtt-ui/tests/design_system.rs` (3 tests):
+
 1. `only_the_text_scale_sets_font_size_or_weight` — no `.text_size(` or
    `.font_weight(` under `src/` except `components/text.rs` and `tokens.rs`;
    lists file:line offenders.
@@ -194,7 +195,7 @@ let `views/dialogs/settings.rs` drop its last `px`/`radius` use.
 
 ### The press wave — three bugs, not one
 
-Each was found by proving the *frame*, not a counter:
+Each was found by proving the _frame_, not a counter:
 
 1. **Nothing painted.** The old `pulse()` bumped a counter but never called
    `cx.notify()`, so no frame was produced. The old test called `pulse` itself,
@@ -218,7 +219,7 @@ lands near the card's corner.
 `ripple_frame` is the pure spec. The widget test owns the wiring: a press
 produces a wave at the button's centre coordinates, at the start diameter, still
 painting after the click switches screens. Growth over time is deliberately
-*not* asserted there — `Animation` advances on wall-clock time, which would make
+_not_ asserted there — `Animation` advances on wall-clock time, which would make
 the test flaky.
 
 ### Welcome cards
@@ -249,7 +250,7 @@ and then silently dropped by `Settings::normalize_window_layout`.
 
 ### Deliberate deviation
 
-The ticket originally described a *ring* growing 56 → 84 px. The final shape is
+The ticket originally described a _ring_ growing 56 → 84 px. The final shape is
 a solid disc in the button's own colour, starting at the button diameter and
 travelling 20 px, per the CEO's direction: simpler, and it reads as the button
 surface itself rippling. T18.4's pure geometry test was rewritten to the new

@@ -7,6 +7,7 @@
 An `Entity<T>` is a handle to state of type `T`, providing safe access and updates.
 
 **Key Methods:**
+
 - `entity.read(cx)` → `&T` - Read-only access
 - `entity.read_with(cx, |state, cx| ...)` → `R` - Read with closure
 - `entity.update(cx, |state, cx| ...)` → `R` - Mutable update
@@ -14,6 +15,7 @@ An `Entity<T>` is a handle to state of type `T`, providing safe access and updat
 - `entity.entity_id()` → `EntityId` - Unique identifier
 
 **Entity Types:**
+
 - **`Entity<T>`**: Strong reference (increases ref count)
 - **`WeakEntity<T>`**: Weak reference (doesn't prevent cleanup, returns `Result`)
 
@@ -188,7 +190,7 @@ impl SomeDelegate for MyAdapter {
 }
 ```
 
-**Snapshot pattern for render callbacks.** `render_item` (and any other rendering hook) runs inside the entity's render pass. It must never call `entity.read(cx)` or `entity.update(cx, …)` on any external entity. Instead, keep a plain `snapshot` field updated eagerly from *outside* render after every mutation:
+**Snapshot pattern for render callbacks.** `render_item` (and any other rendering hook) runs inside the entity's render pass. It must never call `entity.read(cx)` or `entity.update(cx, …)` on any external entity. Instead, keep a plain `snapshot` field updated eagerly from _outside_ render after every mutation:
 
 ```rust
 // ❌ Panic in render_item — ListState is already locked

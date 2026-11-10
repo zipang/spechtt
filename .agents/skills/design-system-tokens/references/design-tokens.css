@@ -19,8 +19,8 @@
 	/* --- Font families --- */
 	--font-family-base: ui-serif, "Palatino Linotype", Cambria, Georgia, serif;
 	--font-family-display:
-		system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Helvetica,
-		Verdana, sans-serif;
+		system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+		Helvetica, Verdana, sans-serif;
 	--font-family-mono: ui-monospace, "Courier New", monospace;
 
 	/* --- Typographic scale — geometric, ratio 1.5 (Perfect Fifth) ---

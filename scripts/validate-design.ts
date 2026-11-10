@@ -1,6 +1,6 @@
 /**
- * Validate the DESIGN.md + design-tokens.css contract against the
- * design-system-tokens rules (skill section 10).
+ * Validate the DESIGN.md + design-tokens.css contract against the design-system-tokens rules (skill
+ * section 10).
  *
  * Run: bun run design:validate
  */
@@ -26,4 +26,6 @@ if (errors.length > 0) {
 	process.exit(1);
 }
 
-console.log(`✓ Design contract valid — ${Object.keys(contract.cssValues).length} tokens, 0 errors.`);
+console.log(
+	`✓ Design contract valid — ${Object.keys(contract.cssValues).length} tokens, 0 errors.`
+);

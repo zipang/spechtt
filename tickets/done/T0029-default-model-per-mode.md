@@ -7,11 +7,11 @@
 - **Owner**: CTO
 - **Started**: 2026-11-05
 - **References**:
-  - `AGENTS.md` §2 (component/view rules), §5 (gates), §6 (official documentation)
-  - `DESIGN.md` § "Session setup form" and § "Settings panel"
-  - gpui-kit `Select` guide: <https://gpui-kit.com/component/select.md>
-  - `SelectState` API: <https://docs.rs/gpui-component/latest/gpui_component/select/struct.SelectState.html>
-  - gpui-kit llms index: <https://gpui-kit.com/llms.txt>
+    - `AGENTS.md` §2 (component/view rules), §5 (gates), §6 (official documentation)
+    - `DESIGN.md` § "Session setup form" and § "Settings panel"
+    - gpui-kit `Select` guide: <https://gpui-kit.com/component/select.md>
+    - `SelectState` API: <https://docs.rs/gpui-component/latest/gpui_component/select/struct.SelectState.html>
+    - gpui-kit llms index: <https://gpui-kit.com/llms.txt>
 
 ## Context & Goal
 
@@ -230,38 +230,38 @@ provider state is not.
 ## TDD Tasks
 
 - [x] **T29.1 — Red: core settings.** Failing tests in `settings.rs` for the
-  two fields, the legacy key load, `validate()` naming each missing default,
-  and the JSON shape (both keys written, legacy key dropped). Then implement.
+      two fields, the legacy key load, `validate()` naming each missing default,
+      and the JSON shape (both keys written, legacy key dropped). Then implement.
 - [x] **T29.2 — Red: controller defaults and validation.** Failing tests for
-  `default_model_for` (live/file), `set_settings_streaming_model` /
-  `set_settings_batch_model` (wrong mode rejected, provider change clears both),
-  `settings_draft_valid` requiring both, and `SettingsChange` carrying both.
-  Then implement.
+      `default_model_for` (live/file), `set_settings_streaming_model` /
+      `set_settings_batch_model` (wrong mode rejected, provider change clears both),
+      `settings_draft_valid` requiring both, and `SettingsChange` carrying both.
+      Then implement.
 - [x] **T29.3 — Red: migration.** Failing tests: legacy `model` equal to a
-  streaming id lands in `model_streaming`; equal to a segmented id lands in
-  `model_batch`; unknown id or absent catalogue leaves both empty; running it
-  twice changes nothing; it never overwrites an already-chosen slot. Then
-  implement `migrate_legacy_default`.
+      streaming id lands in `model_streaming`; equal to a segmented id lands in
+      `model_batch`; unknown id or absent catalogue leaves both empty; running it
+      twice changes nothing; it never overwrites an already-chosen slot. Then
+      implement `migrate_legacy_default`.
 - [x] **T29.4 — Red: seeding.** Failing tests: `set_pending_file` opens the form
-  with the batch default already selected; `choose_mode(Live)` opens it with the
-  streaming default; a stored default the catalogue does not know leaves the
-  slot empty. Then implement in `seed_draft_from_settings`.
+      with the batch default already selected; `choose_mode(Live)` opens it with the
+      streaming default; a stored default the catalogue does not know leaves the
+      slot empty. Then implement in `seed_draft_from_settings`.
 - [x] **T29.5 — Red: component.** Failing tests for `SettingsSnapshot`
-  equality and the "selection no longer offered is cleared" rule (the pure part
-  is testable without a window). Then implement
-  `SettingsSelectFields` + `sync`.
+      equality and the "selection no longer offered is cleared" rule (the pure part
+      is testable without a window). Then implement
+      `SettingsSelectFields` + `sync`.
 - [x] **T29.6 — Green: wire the dialog.** Extend `DialogWindow`, its
-  subscriptions and `views/dialogs/settings.rs` to three rows, update
-  `apply_settings_change` and the `set_settings_*` app wrappers, and make the
-  headless widget test drive all three menus.
+      subscriptions and `views/dialogs/settings.rs` to three rows, update
+      `apply_settings_change` and the `set_settings_*` app wrappers, and make the
+      headless widget test drive all three menus.
 - [x] **T29.7 — Fixtures and docs.** Update `tests/common/mod.rs` and every test
-  that builds a `Settings` to the two fields; refresh `DESIGN.md` § "Settings
-  panel" and the seeding sentence of § "Session setup form"; update the module
-  and item docs (`AGENTS.md` §3: present tense, callers named, no ticket IDs).
+      that builds a `Settings` to the two fields; refresh `DESIGN.md` § "Settings
+      panel" and the seeding sentence of § "Session setup form"; update the module
+      and item docs (`AGENTS.md` §3: present tense, callers named, no ticket IDs).
 - [x] **T29.8 — Gates.** `cargo fmt -- --check`,
-  `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
-  `bun check src/stt`, `bun run design:validate`. Record exact counts in
-  `## Implementation Notes`.
+      `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
+      `bun check src/stt`, `bun run design:validate`. Record exact counts in
+      `## Implementation Notes`.
 
 ## Acceptance Criteria
 
@@ -326,14 +326,14 @@ Implemented by the CTO (the coding sub-agent pool was out of credits).
 
 ### Gates (repository root, zero warnings, no skipped tests)
 
-| Command | Result |
-|---|---|
-| `cargo fmt -- --check` | clean |
-| `cargo clippy --all-targets -- -D warnings` | clean |
-| `cargo test` | 497 passed, 0 failed (core 221 + 3 + 14, ui 93 + 3 + 11 + 33 + 14 + 74 + 4 + 27) |
-| `bun test` | 221 passed, 0 failed |
-| `bun check src/stt` | no type errors in 23 files |
-| `bun run design:validate` | 66 tokens, 0 errors |
+| Command                                     | Result                                                                           |
+| ------------------------------------------- | -------------------------------------------------------------------------------- |
+| `cargo fmt -- --check`                      | clean                                                                            |
+| `cargo clippy --all-targets -- -D warnings` | clean                                                                            |
+| `cargo test`                                | 497 passed, 0 failed (core 221 + 3 + 14, ui 93 + 3 + 11 + 33 + 14 + 74 + 4 + 27) |
+| `bun test`                                  | 221 passed, 0 failed                                                             |
+| `bun check src/stt`                         | no type errors in 23 files                                                       |
+| `bun run design:validate`                   | 66 tokens, 0 errors                                                              |
 
 ### Left for the user
 

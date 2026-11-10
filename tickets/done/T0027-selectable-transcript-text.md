@@ -27,7 +27,7 @@ Done means: the user can drag across the transcript of a live take or of a
 finished take with the mouse, see the selected range highlighted, and copy it
 with the operating system's own shortcut (`Ctrl-C` on Linux, `Cmd-C` on macOS).
 Paste is the OS's job: whatever the user pasted into is outside SpeechTT, and
-SpeechTT gains no new clipboard *write* path — the existing Copy action of the
+SpeechTT gains no new clipboard _write_ path — the existing Copy action of the
 result screen is untouched.
 
 Decision taken with the CEO/Designer before this ticket:
@@ -217,29 +217,29 @@ the code must explain itself without a reader having to search the call sites
 ## TDD Tasks
 
 - [x] **T27.1 — Type-scale specs (red)**: unit tests in `components/text.rs`
-  proving that `.selectable(id)` marks the role as selectable, that
-  `.selection_order(n)` and `.selection_color(c)` are recorded, that the
-  builders do not change the role, and that a role without `.selectable` stays
-  non-selectable. Follow the shape of the existing
-  `builders_do_not_change_the_role` test (fields, not geometry).
+      proving that `.selectable(id)` marks the role as selectable, that
+      `.selection_order(n)` and `.selection_color(c)` are recorded, that the
+      builders do not change the role, and that a role without `.selectable` stays
+      non-selectable. Follow the shape of the existing
+      `builders_do_not_change_the_role` test (fields, not geometry).
 - [x] **T27.2 — Caption-well specs (red)**: unit tests in
-  `components/caption_well.rs` for the two pure facts the component passes on —
-  `selection_highlight()` resolves to brand primary with alpha `0.30`, and the
-  order constants put the committed run before the live one (strictly ordered,
-  `u64`). No window, no mouse, no clipboard: those belong to the OS.
+      `components/caption_well.rs` for the two pure facts the component passes on —
+      `selection_highlight()` resolves to brand primary with alpha `0.30`, and the
+      order constants put the committed run before the live one (strictly ordered,
+      `u64`). No window, no mouse, no clipboard: those belong to the OS.
 - [x] **T27.3 — Implementation**: `Text::selectable`/`selection_order`/
-  `selection_color` and the selectable branch in `text.rs`; selectable
-  committed/live runs plus the highlight helper and the order constants in
-  `caption_well.rs`.
+      `selection_color` and the selectable branch in `text.rs`; selectable
+      committed/live runs plus the highlight helper and the order constants in
+      `caption_well.rs`.
 - [x] **T27.4 — Docs**: `DESIGN.md` §Transcript well gains the selection rule
-  (highlight role, what is selectable, what is not); `PRODUCT.md` adjusted only
-  if it currently contradicts it. Present tense, no ticket id, no history
-  (`AGENTS.md` §3). Plus the documentation contract §4 above: every touched
-  module header names its callers, and every public item added here documents
-  its role, its options, its invariants and the design source it implements.
+      (highlight role, what is selectable, what is not); `PRODUCT.md` adjusted only
+      if it currently contradicts it. Present tense, no ticket id, no history
+      (`AGENTS.md` §3). Plus the documentation contract §4 above: every touched
+      module header names its callers, and every public item added here documents
+      its role, its options, its invariants and the design source it implements.
 - [x] **T27.5 — Gates**: `cargo fmt -- --check`,
-  `cargo clippy --all-targets -- -D warnings` (zero warnings), `cargo test`,
-  `bun test`, `bun check src/stt`, `bun run design:validate`.
+      `cargo clippy --all-targets -- -D warnings` (zero warnings), `cargo test`,
+      `bun test`, `bun check src/stt`, `bun run design:validate`.
 
 ## Open — the selection cannot leave the application yet
 
@@ -334,7 +334,7 @@ Sources (official only, no crate source):
   declares it, `cx.bind_keys([KeyBinding::new("secondary-c", …, Some(CONTEXT))])`
   registers it, `.key_context(CONTEXT)` plus `.on_action(…)` on the focused
   region routes it. `secondary-c` is the documented platform modifier (Command
-  on macOS, Control elsewhere). Precedence is by *depth of the matching context*
+  on macOS, Control elsewhere). Precedence is by _depth of the matching context_
   on the focused path, so a binding on the application's own context outranks
   Root's ancestor binding.
 - `https://gpui-kit.com/llms-full.txt` (capabilities table) — `cx.write_to_clipboard(text)`
@@ -355,50 +355,50 @@ documented path ourselves — an application action that reads
 ### Follow-up tasks
 
 - [x] **T27.6 — Own the copy action**: declare `CopySelection` with `actions!` in
-  `app.rs`; add `SPEECHTT_CONTEXT` (`"SpeechTT"`) to the widget view's root
-  element with `.on_action(…)`; register
-  `KeyBinding::new("secondary-c", CopySelection, Some(SPEECHTT_CONTEXT))` in the
-  existing initialisation path. The handler reads
-  `TextSelection::selected_text(window, cx)` and calls
-  `cx.write_to_clipboard(text)` **only** when the selection is not
-  whitespace-only, so an empty selection leaves the clipboard alone. Bind at the
-  application context so this outranks Root's ancestor binding (documented
-  precedence), and keep Root's binding untouched.
+      `app.rs`; add `SPEECHTT_CONTEXT` (`"SpeechTT"`) to the widget view's root
+      element with `.on_action(…)`; register
+      `KeyBinding::new("secondary-c", CopySelection, Some(SPEECHTT_CONTEXT))` in the
+      existing initialisation path. The handler reads
+      `TextSelection::selected_text(window, cx)` and calls
+      `cx.write_to_clipboard(text)` **only** when the selection is not
+      whitespace-only, so an empty selection leaves the clipboard alone. Bind at the
+      application context so this outranks Root's ancestor binding (documented
+      precedence), and keep Root's binding untouched.
 - [x] **T27.7 — Context menu Copy**: attach
-  `.context_menu(|menu, window, cx| …)` to the transcript, with a single `Copy`
-  item carrying the same `CopySelection` action, disabled while
-  `TextSelection::has_selection(window, cx)` is false. The item inherits the
-  keybinding hint from the action, so the menu and the shortcut can never
-  diverge. No new colour, spacing or elevation is introduced: the menu is the
-  library's own component. If the menu's visual surface needs a design decision,
-  stop and ask the CEO before implementing (`AGENTS.md` §2).
+      `.context_menu(|menu, window, cx| …)` to the transcript, with a single `Copy`
+      item carrying the same `CopySelection` action, disabled while
+      `TextSelection::has_selection(window, cx)` is false. The item inherits the
+      keybinding hint from the action, so the menu and the shortcut can never
+      diverge. No new colour, spacing or elevation is introduced: the menu is the
+      library's own component. If the menu's visual surface needs a design decision,
+      stop and ask the CEO before implementing (`AGENTS.md` §2).
 - [x] **T27.8 — Manual re-check by the CEO**: `Ctrl-C` after a drag pastes the
-  highlighted range into another application, and the clipboard content matches
-  what is on screen character for character. The pasted text does contain the
-  repeated words the transcript itself shows — that repetition is a defect of
-  the transcript buffer, tracked separately, not of the copy path: the copy
-  reproduces exactly what the well renders.
+      highlighted range into another application, and the clipboard content matches
+      what is on screen character for character. The pasted text does contain the
+      repeated words the transcript itself shows — that repetition is a defect of
+      the transcript buffer, tracked separately, not of the copy path: the copy
+      reproduces exactly what the well renders.
 - [x] **T27.9 — Final gates and notes**: the T27.5 command list again, then the
-  resolution recorded in the notes below.
+      resolution recorded in the notes below.
 - [x] **T27.10 — Dispatch the menu action to a focus handle**: the menu item
-  does nothing on the real machine. `PopupMenu::action_context(self, handle:
-  FocusHandle) -> Self` is documented as *"Set the focus handle of Entity to
-  handle actions. When the menu is dismissed or before an action is triggered,
-  the focus will be returned to this handle. Then the action will be dispatched
-  to this handle."*
-  (<https://docs.rs/gpui-component/latest/gpui_component/menu/struct.PopupMenu.html>)
-  Without it the menu has no dispatch target that carries the `SpeechTT` key
-  context, so `CopySelection` never reaches `SpeechTTApp::on_copy_selection` —
-  the menu closes and nothing is written. The shortcut works because the widget
-  root is focused there. Set `menu.action_context(handle)` with the handle the
-  window reports as focused (`Window::focused(&self, cx: &App) ->
-  Option<FocusHandle>`,
-  <https://docs.rs/gpui/latest/gpui/struct.Window.html>), so the action is
-  dispatched exactly where focus already is — the same element that handles the
-  shortcut.
+      does nothing on the real machine. `PopupMenu::action_context(self, handle:
+FocusHandle) -> Self` is documented as _"Set the focus handle of Entity to
+      handle actions. When the menu is dismissed or before an action is triggered,
+      the focus will be returned to this handle. Then the action will be dispatched
+      to this handle."_
+      (<https://docs.rs/gpui-component/latest/gpui_component/menu/struct.PopupMenu.html>)
+      Without it the menu has no dispatch target that carries the `SpeechTT` key
+      context, so `CopySelection` never reaches `SpeechTTApp::on_copy_selection` —
+      the menu closes and nothing is written. The shortcut works because the widget
+      root is focused there. Set `menu.action_context(handle)` with the handle the
+      window reports as focused (`Window::focused(&self, cx: &App) ->
+Option<FocusHandle>`,
+      <https://docs.rs/gpui/latest/gpui/struct.Window.html>), so the action is
+      dispatched exactly where focus already is — the same element that handles the
+      shortcut.
 - [x] **T27.11 — Manual re-check of the menu**: validated by the CEO — a
-  right-click inside the transcript, then `Copy`, then a paste elsewhere
-  reproduces the highlighted range.
+      right-click inside the transcript, then `Copy`, then a paste elsewhere
+      reproduces the highlighted range.
 
 ## Acceptance Criteria
 
@@ -486,20 +486,20 @@ Green: the same command reports `52 passed; 0 failed` for `speechtt-ui`.
 
 `components/text.rs` (unit, fields only — no geometry, no window):
 
-| Test | What it proves |
-|---|---|
-| `only_the_roles_asked_to_be_selectable_join_the_selection` | `Title`/`Body`/`Label` are non-selectable by default; `.selectable(id)` records exactly that id. |
-| `the_selection_order_defaults_to_the_first_run` | `.selection_order` defaults to `0` and is recorded on the role; it is a plain builder with no required order. |
-| `the_selection_builders_do_not_change_the_role` | Selecting is not a fourth role: all three roles keep their `TextRole`. |
-| `the_highlight_colour_is_recorded_only_when_given` | The highlight defaults to `None` (the theme's selection role) and is recorded when passed. |
+| Test                                                       | What it proves                                                                                                |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `only_the_roles_asked_to_be_selectable_join_the_selection` | `Title`/`Body`/`Label` are non-selectable by default; `.selectable(id)` records exactly that id.              |
+| `the_selection_order_defaults_to_the_first_run`            | `.selection_order` defaults to `0` and is recorded on the role; it is a plain builder with no required order. |
+| `the_selection_builders_do_not_change_the_role`            | Selecting is not a fourth role: all three roles keep their `TextRole`.                                        |
+| `the_highlight_colour_is_recorded_only_when_given`         | The highlight defaults to `None` (the theme's selection role) and is recorded when passed.                    |
 
 `components/caption_well.rs` (unit):
 
-| Test | What it proves |
-|---|---|
+| Test                                                         | What it proves                                                                                                                                                                                 |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `the_selection_highlight_is_brand_primary_at_thirty_percent` | `selection_highlight()` has the hue, saturation and lightness of `--color-brand-primary` and alpha `0.30` (the literal is pinned separately, so a different value is a visible design change). |
-| `the_committed_run_comes_before_the_live_run` | The order constants are `0` and `1` and strictly ordered. |
-| `the_two_runs_have_their_own_identities` | The two runs do not share an element id; sharing one would make the second run reuse the first run's selection handle. |
+| `the_committed_run_comes_before_the_live_run`                | The order constants are `0` and `1` and strictly ordered.                                                                                                                                      |
+| `the_two_runs_have_their_own_identities`                     | The two runs do not share an element id; sharing one would make the second run reuse the first run's selection handle.                                                                         |
 
 The existing `follows_bottom` tests are untouched and still pass.
 
@@ -567,7 +567,7 @@ own machine against `bun run ui`:
    exactly the dragged characters, including trailing words of the line.
 2. **Live take, across both inks.** While committed text is muted and the live
    tail is orange, drag from the committed text into the live tail. Expect the
-   paste to read *committed text*, then a newline, then the live tail — with no
+   paste to read _committed text_, then a newline, then the live tail — with no
    duplicated fragment or marker at the join.
 3. **Result screen.** Stop the take, then drag on the transcript of the result
    screen. Expect the same highlight and the same copy behaviour on the text that
@@ -580,12 +580,11 @@ own machine against `bun run ui`:
 6. **Nothing else selects.** Drag on a footer button, a mode card, a status pill
    or a settings row. Expect each to behave as before (a click stays a click, no
    highlight appears).
-7. **Visual check of the wash.** Confirm the highlight is legible over *both*
+7. **Visual check of the wash.** Confirm the highlight is legible over _both_
    the muted committed grey and the orange live tail and that it sits behind the
    glyphs, not over them. If the opacity needs tuning, the single fact to change
    is `SELECTION_ALPHA` in `components/caption_well.rs` (and the `0.30` in the
    `DESIGN.md` §Transcript well prose).
-
 
 ### First run on the real machine (2026-11-03)
 
@@ -634,7 +633,7 @@ untouched as an ancestor it outranks.
   `.key_context(SPEECHTT_CONTEXT)` and `.on_action(cx.listener(..))` on the window
   view's root element.
 - `lib.rs::run` binds `KeyBinding::new("secondary-c", app::CopySelection,
-  Some(app::SPEECHTT_CONTEXT))` immediately after `gpui_kit::init(cx)`.
+Some(app::SPEECHTT_CONTEXT))` immediately after `gpui_kit::init(cx)`.
 - `components/caption_well.rs` attaches `ContextMenuExt::context_menu(..)` to the
   transcript's scroll column with one item:
   `menu_with_disabled("Copy", Box::new(CopySelection), !TextSelection::has_selection(window, cx))`.
@@ -642,13 +641,13 @@ untouched as an ancestor it outranks.
 
 ### Documented APIs used
 
-| API | Source |
-|---|---|
-| `TextSelection::has_selection` / `TextSelection::selected_text` | https://gpui-kit.com/base/text-selection.md |
-| `actions!`, `cx.bind_keys`, `KeyBinding::new("secondary-c", ..)`, `.key_context(..)` + `.on_action(..)`, context-depth precedence | https://gpui-kit.com/docs/keybinding.md |
-| `on_action` handler signature and dispatch/propagation | https://gpui-kit.com/docs/action.md |
-| `ContextMenuExt::context_menu`, `menu_with_disabled(label, action, disabled)`, keybinding hint resolved from the action | https://gpui-kit.com/component/menu.md |
-| `cx.write_to_clipboard(text)` (`ClipboardItem` argument) | https://gpui-kit.com/llms-full.txt (clipboard section) |
+| API                                                                                                                               | Source                                                 |
+| --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `TextSelection::has_selection` / `TextSelection::selected_text`                                                                   | https://gpui-kit.com/base/text-selection.md            |
+| `actions!`, `cx.bind_keys`, `KeyBinding::new("secondary-c", ..)`, `.key_context(..)` + `.on_action(..)`, context-depth precedence | https://gpui-kit.com/docs/keybinding.md                |
+| `on_action` handler signature and dispatch/propagation                                                                            | https://gpui-kit.com/docs/action.md                    |
+| `ContextMenuExt::context_menu`, `menu_with_disabled(label, action, disabled)`, keybinding hint resolved from the action           | https://gpui-kit.com/component/menu.md                 |
+| `cx.write_to_clipboard(text)` (`ClipboardItem` argument)                                                                          | https://gpui-kit.com/llms-full.txt (clipboard section) |
 
 No dependency source was read for this work; the only non-documentary input was
 the rustc type error that named `ClipboardItem` as the parameter of
@@ -674,12 +673,12 @@ Green after the helper, the action and the handler existed: `56 passed`.
 
 ### Tests added (`app.rs`, unit, no window)
 
-| Test | What it proves |
-|---|---|
-| `an_empty_selection_leaves_the_clipboard_alone` | `""` resolves to `None`, so a stray shortcut never empties the clipboard. |
-| `a_blank_selection_leaves_the_clipboard_alone` | A space, a tab, a newline and a mixed whitespace run all resolve to `None`. |
+| Test                                                   | What it proves                                                                                        |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `an_empty_selection_leaves_the_clipboard_alone`        | `""` resolves to `None`, so a stray shortcut never empties the clipboard.                             |
+| `a_blank_selection_leaves_the_clipboard_alone`         | A space, a tab, a newline and a mixed whitespace run all resolve to `None`.                           |
 | `a_selected_sentence_is_copied_exactly_as_highlighted` | A real sentence comes back verbatim with its leading and trailing spaces — the copy is the highlight. |
-| `punctuation_alone_is_a_real_selection` | Whitespace-only is the line: punctuation is a selection and is kept. |
+| `punctuation_alone_is_a_real_selection`                | Whitespace-only is the line: punctuation is a selection and is kept.                                  |
 
 Nothing was added under `crates/speechtt-ui/tests/**`, and no test renders the
 menu, simulates a keystroke or touches the clipboard.
@@ -811,7 +810,7 @@ pairing of action and handler.
 - `menu.action_context(handle)` is set **before** the item is added, and the item
   is the same single `Copy` entry carrying the same `CopySelection`.
 - The predicate is one private helper, `copy_item_disabled(has_selection,
-  has_target) -> bool`, so the invariant reads as one sentence in code and in a
+has_target) -> bool`, so the invariant reads as one sentence in code and in a
   test instead of as a compound boolean at the call site: the item is disabled
   when there is no selection **or** no dispatch target. An item that cannot be
   dispatched is never offered as usable.
@@ -832,8 +831,8 @@ mechanism is not restated in a document that describes what the user sees.
 
 ### Tests added (`components/caption_well.rs`, unit, no window, no menu)
 
-| Test | What it proves |
-|---|---|
+| Test                                                     | What it proves                                                                                                      |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | `the_copy_entry_needs_a_selection_and_a_dispatch_target` | `copy_item_disabled` is `false` only when both halves are present; each missing half (and both) disables the entry. |
 
 Red phase, produced by removing the helper while the test stayed in place:

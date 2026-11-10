@@ -7,10 +7,10 @@
 - **Owner**: CTO
 - **Started**: 2026-11-05
 - **References**:
-  - `AGENTS.md` §2 (component and view rules), §3 (documentation), §5 (gates)
-  - `DESIGN.md` § "Live take screen", § "Action buttons", § "Settings panel"
-  - gpui-kit `Select`: <https://gpui-kit.com/component/select.md>
-  - `SelectState`: <https://docs.rs/gpui-component/latest/gpui_component/select/struct.SelectState.html>
+    - `AGENTS.md` §2 (component and view rules), §3 (documentation), §5 (gates)
+    - `DESIGN.md` § "Live take screen", § "Action buttons", § "Settings panel"
+    - gpui-kit `Select`: <https://gpui-kit.com/component/select.md>
+    - `SelectState`: <https://docs.rs/gpui-component/latest/gpui_component/select/struct.SelectState.html>
 
 ## Context & Goal
 
@@ -193,23 +193,23 @@ form screen. A `cx.subscribe` on its state lives in `_subscriptions`.
 ## TDD Tasks
 
 - [x] **T34.1 — Red: controller accessors.** Failing tests for `live_model_label`
-  / `live_model_id` (active take wins over settings; `None` with no catalogue),
-  `live_model_options` (every model of the provider, streaming and segmented),
-  and `set_live_model` (accepts in `Ready`, refuses in `Recording`/`Paused`,
-  refuses an unknown id, leaves `model_streaming` untouched). Then implement.
+      / `live_model_id` (active take wins over settings; `None` with no catalogue),
+      `live_model_options` (every model of the provider, streaming and segmented),
+      and `set_live_model` (accepts in `Ready`, refuses in `Recording`/`Paused`,
+      refuses an unknown id, leaves `model_streaming` untouched). Then implement.
 - [x] **T34.2 — Red: the header.** Failing unit tests for `TransportHeader`'s
-  three `TransportModel` variants and for `LiveModelField::sync` idempotence.
-  Then implement the component and `live_model_select.rs`.
+      three `TransportModel` variants and for `LiveModelField::sync` idempotence.
+      Then implement the component and `live_model_select.rs`.
 - [x] **T34.3 — Green: the view.** Always attach the header; pick the variant per
-  state; wire the confirm event. Headless test: at `Ready` the screen shows
-  `00:00` and the model; after choosing another model, `Start` carries it; while
-  recording the picker is gone.
+      state; wire the confirm event. Headless test: at `Ready` the screen shows
+      `00:00` and the model; after choosing another model, `Start` carries it; while
+      recording the picker is gone.
 - [x] **T34.4 — Docs and gates.** `DESIGN.md` § "Live take screen": the trailing
-  edge now holds the model on the left and the clock on the right, with the
-  picker's enabled/disabled states and why. Module headers and item docs per
-  `AGENTS.md` §3. Then `cargo fmt -- --check`,
-  `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
-  `bun check src/stt`, `bun run design:validate`.
+      edge now holds the model on the left and the clock on the right, with the
+      picker's enabled/disabled states and why. Module headers and item docs per
+      `AGENTS.md` §3. Then `cargo fmt -- --check`,
+      `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
+      `bun check src/stt`, `bun run design:validate`.
 
 ## Acceptance Criteria
 
@@ -267,14 +267,14 @@ this ticket.
 
 ### Gates (repository root, zero warnings, no skipped tests)
 
-| Command | Result |
-|---|---|
-| `cargo fmt -- --check` | clean |
-| `cargo clippy --all-targets -- -D warnings` | clean |
-| `cargo test` | **582 passed, 0 failed** |
-| `bun test` | 348 passed, 0 failed |
-| `bun check src/stt` | 32 files, no type errors |
-| `bun run design:validate` | 66 tokens, 0 errors |
+| Command                                     | Result                   |
+| ------------------------------------------- | ------------------------ |
+| `cargo fmt -- --check`                      | clean                    |
+| `cargo clippy --all-targets -- -D warnings` | clean                    |
+| `cargo test`                                | **582 passed, 0 failed** |
+| `bun test`                                  | 348 passed, 0 failed     |
+| `bun check src/stt`                         | 32 files, no type errors |
+| `bun run design:validate`                   | 66 tokens, 0 errors      |
 
 ### Left for the user
 

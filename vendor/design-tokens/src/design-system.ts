@@ -1,8 +1,8 @@
 /**
  * The fixed Design System token registry. Every token from sections 2–7 of the
- * `design-system-tokens` skill appears exactly once. Front-matter tokens carry a
- * `path`; stylesheet-only tokens (font sizes, weights, line heights, letter spacing)
- * have none. This registry is the single source of the path ↔ CSS-variable mapping.
+ * `design-system-tokens` skill appears exactly once. Front-matter tokens carry a `path`;
+ * stylesheet-only tokens (font sizes, weights, line heights, letter spacing) have none. This
+ * registry is the single source of the path ↔ CSS-variable mapping.
  */
 
 /** Top-level token category. */
@@ -60,12 +60,42 @@ export const TOKENS: TokenDef[] = [
 	},
 
 	// Typography — size scale (stylesheet-only)
-	{ variable: "--font-size-base", group: "typography", kind: "font-size", required: true },
-	{ variable: "--font-size-xs", group: "typography", kind: "font-size", required: true },
-	{ variable: "--font-size-sm", group: "typography", kind: "font-size", required: true },
-	{ variable: "--font-size-md", group: "typography", kind: "font-size", required: true },
-	{ variable: "--font-size-lg", group: "typography", kind: "font-size", required: true },
-	{ variable: "--font-size-xl", group: "typography", kind: "font-size", required: true },
+	{
+		variable: "--font-size-base",
+		group: "typography",
+		kind: "font-size",
+		required: true
+	},
+	{
+		variable: "--font-size-xs",
+		group: "typography",
+		kind: "font-size",
+		required: true
+	},
+	{
+		variable: "--font-size-sm",
+		group: "typography",
+		kind: "font-size",
+		required: true
+	},
+	{
+		variable: "--font-size-md",
+		group: "typography",
+		kind: "font-size",
+		required: true
+	},
+	{
+		variable: "--font-size-lg",
+		group: "typography",
+		kind: "font-size",
+		required: true
+	},
+	{
+		variable: "--font-size-xl",
+		group: "typography",
+		kind: "font-size",
+		required: true
+	},
 	{
 		variable: "--font-size-2xl",
 		group: "typography",
@@ -82,9 +112,24 @@ export const TOKENS: TokenDef[] = [
 	},
 
 	// Typography — weights (stylesheet-only)
-	{ variable: "--font-weight-thin", group: "typography", kind: "font-weight", required: true },
-	{ variable: "--font-weight-regular", group: "typography", kind: "font-weight", required: true },
-	{ variable: "--font-weight-bold", group: "typography", kind: "font-weight", required: true },
+	{
+		variable: "--font-weight-thin",
+		group: "typography",
+		kind: "font-weight",
+		required: true
+	},
+	{
+		variable: "--font-weight-regular",
+		group: "typography",
+		kind: "font-weight",
+		required: true
+	},
+	{
+		variable: "--font-weight-bold",
+		group: "typography",
+		kind: "font-weight",
+		required: true
+	},
 	{
 		variable: "--font-weight-extrabold",
 		group: "typography",
@@ -94,8 +139,18 @@ export const TOKENS: TokenDef[] = [
 	},
 
 	// Typography — line heights (stylesheet-only)
-	{ variable: "--line-height-tight", group: "typography", kind: "line-height", required: true },
-	{ variable: "--line-height-regular", group: "typography", kind: "line-height", required: true },
+	{
+		variable: "--line-height-tight",
+		group: "typography",
+		kind: "line-height",
+		required: true
+	},
+	{
+		variable: "--line-height-regular",
+		group: "typography",
+		kind: "line-height",
+		required: true
+	},
 	{
 		variable: "--line-height-relaxed",
 		group: "typography",
@@ -332,9 +387,27 @@ export const TOKENS: TokenDef[] = [
 	},
 
 	// Spacing
-	{ variable: "--space-xs", path: "spacing.xs", group: "spacing", kind: "space", required: true },
-	{ variable: "--space-sm", path: "spacing.sm", group: "spacing", kind: "space", required: true },
-	{ variable: "--space-md", path: "spacing.md", group: "spacing", kind: "space", required: true },
+	{
+		variable: "--space-xs",
+		path: "spacing.xs",
+		group: "spacing",
+		kind: "space",
+		required: true
+	},
+	{
+		variable: "--space-sm",
+		path: "spacing.sm",
+		group: "spacing",
+		kind: "space",
+		required: true
+	},
+	{
+		variable: "--space-md",
+		path: "spacing.md",
+		group: "spacing",
+		kind: "space",
+		required: true
+	},
 	{
 		variable: "--space-base",
 		path: "spacing.base",
@@ -342,8 +415,20 @@ export const TOKENS: TokenDef[] = [
 		kind: "space",
 		required: true
 	},
-	{ variable: "--space-lg", path: "spacing.lg", group: "spacing", kind: "space", required: true },
-	{ variable: "--space-xl", path: "spacing.xl", group: "spacing", kind: "space", required: true },
+	{
+		variable: "--space-lg",
+		path: "spacing.lg",
+		group: "spacing",
+		kind: "space",
+		required: true
+	},
+	{
+		variable: "--space-xl",
+		path: "spacing.xl",
+		group: "spacing",
+		kind: "space",
+		required: true
+	},
 	{
 		variable: "--space-xxl",
 		path: "spacing.xxl",
@@ -460,6 +545,7 @@ for (const token of TOKENS) {
 
 /**
  * Look up a token by its CSS variable.
+ *
  * @param variable - The `--variable` to look up.
  * @returns The matching token, or `undefined` when none is registered.
  */
@@ -467,6 +553,7 @@ export const tokenByVariable = (variable: string): TokenDef | undefined => byVar
 
 /**
  * Look up a token by its front-matter path.
+ *
  * @param path - The dotted front-matter path to look up.
  * @returns The matching token, or `undefined` when none is registered.
  */
@@ -474,15 +561,21 @@ export const tokenByPath = (path: string): TokenDef | undefined => byPath.get(pa
 
 /**
  * Tokens with a front-matter path, in registry order.
+ *
  * @returns The path-bearing tokens, in registry order.
  */
 export const frontMatterTokens = (): TokenDef[] => TOKENS.filter((token) => Boolean(token.path));
 
 /**
  * Tokens grouped for display, in {@link GROUP_LABELS} order.
+ *
  * @returns One entry per group, each with its tokens, in display order.
  */
-export const groupTokens = (): { group: TokenGroup; label: string; tokens: TokenDef[] }[] =>
+export const groupTokens = (): {
+	group: TokenGroup;
+	label: string;
+	tokens: TokenDef[];
+}[] =>
 	GROUP_LABELS.map(({ group, label }) => ({
 		group,
 		label,
@@ -491,6 +584,7 @@ export const groupTokens = (): { group: TokenGroup; label: string; tokens: Token
 
 /**
  * Paths the validator ignores: document metadata, components, and typography presets.
+ *
  * @param path - The front-matter path to test.
  * @returns True when the path carries no token and is exempt from validation.
  */
@@ -502,6 +596,7 @@ export const isIgnoredPath = (path: string): boolean =>
 
 /**
  * A fresh value map with documented fallbacks and empty required tokens.
+ *
  * @returns Every token variable mapped to its fallback, or `""` when none exists.
  */
 export const createDefaultValues = (): TokenValues => {
