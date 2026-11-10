@@ -1,10 +1,14 @@
 /**
  * Builds the Linux AppImage release artifact for SpeechTT.
  *
- * The pipeline bundles the STT worker into one file, compiles the release widget, stages a
- * `SpeechTT.AppDir` exactly as the AppImage guide describes, turns it into
- * `dist/SpeechTT-<version>-<arch>.AppImage`, writes its `sha256sum` companion and prints the `gh
- * release create` command. It never publishes anything itself.
+ * The pipeline advances the workspace minor version in `Cargo.toml`, bundles the STT worker into
+ * one file, compiles the release widget, stages a `SpeechTT.AppDir` exactly as the AppImage guide
+ * describes, turns it into `dist/SpeechTT-<version>-<arch>.AppImage`, writes its `sha256sum`
+ * companion and prints the `gh release create` command. It never publishes anything itself.
+ *
+ * The bump comes first because the version is compiled into the binary: the artifact name and the
+ * `V<version>` the widget shows must be the same number. A failure after the write restores the
+ * manifest and the lock file, so a retry does not consume a second version.
  *
  * # Callers
  *
@@ -16,7 +20,8 @@
  * Importing this module runs nothing: the CLI is entered from the `import.meta.main` guard at the
  * bottom, and every machine-facing capability (`has`, `exec`, `fetch`, the filesystem sinks, the
  * output sinks) arrives as a {@link CliDeps} value. The version is read from `cargo metadata`,
- * never hardcoded.
+ * never hardcoded, and the only files the release writes outside `dist/` are `Cargo.toml` and its
+ * lock file.
  */
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
@@ -102,9 +107,29 @@ export const RELEASE_BINARY = "target/release/speechtt-ui";
 
 const APPIMAGETOOL_BASE = "https://github.com/AppImage/appimagetool/releases/download/continuous";
 
-const USAGE = "usage: bun run package [--dry-run] [--no-build] [--arch <arch>]";
+const USAGE = "usage: bun run package [--dry-run] [--no-build] [--no-bump] [--arch <arch>]";
+
+/** The workspace manifest whose `[workspace.package]` version names the release. */
+const MANIFEST_PATH = "Cargo.toml";
+
+/** The lock file `cargo build --locked` checks against the manifest. */
+const LOCKFILE_PATH = "Cargo.lock";
 
 const METADATA_ARGV = ["cargo", "metadata", "--format-version", "1", "--no-deps"];
+
+/**
+ * The resolving metadata query run after the manifest write.
+ *
+ * `--no-deps` never touches `Cargo.lock`, and bumping a workspace member's version invalidates it,
+ * so `cargo build --locked` would refuse to run. Resolving after the write rewrites just the member
+ * entries and returns the version the build will see.
+ *
+ * The query reads the registry, because that is where `Cargo.lock` is rewritten from. A cold cache
+ * is a normal state, not an error: on a warm cache cargo answers locally, and on a cold one it
+ * downloads the index that `cargo build` was about to fetch anyway. The build's own `--locked` flag
+ * keeps it from silently re-resolving, so this step does not weaken the lock guarantee.
+ */
+const RESOLVE_METADATA_ARGV = ["cargo", "metadata", "--format-version", "1"];
 
 const CARGO_BUILD_ARGV = ["cargo", "build", "--release", "--locked", "-p", "speechtt-ui"];
 
@@ -181,6 +206,56 @@ export function versionFromMetadata(raw: string): string {
 		);
 	}
 	return first;
+}
+
+/**
+ * The next minor version: `0.5.0` → `0.6.0`.
+ *
+ * The patch component resets to zero because a minor bump starts a new feature line. A value that
+ * is not `major.minor.patch` with numeric components throws a {@link UsageError} rather than
+ * guessing.
+ */
+export function nextMinorVersion(version: string): string {
+	const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
+	if (match === null) {
+		throw new UsageError(`not a major.minor.patch version: ${version}`);
+	}
+	const major = BigInt(match[1] as string);
+	const minor = BigInt(match[2] as string);
+	return `${major}.${minor + 1n}.0`;
+}
+
+/**
+ * `manifest` with the `[workspace.package]` version replaced by `version`.
+ *
+ * Only that section's `version` key changes: a dependency version or a profile setting in the same
+ * file must be untouched. Returns `null` when the section or its key is absent, so the caller
+ * reports the problem instead of writing a manifest it does not understand.
+ */
+export function bumpedManifest(manifest: string, version: string): string | null {
+	let inWorkspacePackage = false;
+	let sawSection = false;
+	let replaced = false;
+
+	const updated = manifest.split("\n").map((line) => {
+		const header = /^\s*\[([^\]]+)\]\s*(?:#.*)?$/.exec(line);
+		if (header !== null) {
+			inWorkspacePackage = (header[1] as string).trim() === "workspace.package";
+			sawSection ||= inWorkspacePackage;
+			return line;
+		}
+		if (!inWorkspacePackage || replaced) {
+			return line;
+		}
+		const key = /^(\s*version\s*=\s*)("[^"]*")(.*)$/.exec(line);
+		if (key === null) {
+			return line;
+		}
+		replaced = true;
+		return `${key[1]}"${version}"${key[3]}`;
+	});
+
+	return sawSection && replaced ? updated.join("\n") : null;
 }
 
 /** The `AppRun` launcher, byte for byte. */
@@ -289,6 +364,34 @@ function execLine(argv: readonly string[], env: Readonly<Record<string, string>>
 	return `${prefix}${argv.join(" ")}`;
 }
 
+/** Prints and runs the workspace `cargo metadata` query, returning its version. */
+function readWorkspaceVersion(deps: CliDeps): string {
+	deps.out(execLine(METADATA_ARGV));
+	const metadata = deps.exec(METADATA_ARGV);
+	if (metadata.exitCode !== 0) {
+		throw new UsageError(`cargo metadata failed: ${metadata.stderr.trim()}`);
+	}
+	return versionFromMetadata(metadata.stdout);
+}
+
+/**
+ * Resolves the workspace so `Cargo.lock` matches the manifest that was just written.
+ *
+ * Bumping a workspace member's version invalidates the lock file, and `cargo build --locked`
+ * refuses to run against it. The resolving (dependency-including) query rewrites the member
+ * entries, so it reads the registry: a cold cache is a normal state, and the index download it
+ * costs is the one `cargo build` would have paid anyway. `--locked` on the build is what keeps the
+ * build from silently re-resolving. Its package list is not read — the caller re-reads the
+ * workspace version with the `--no-deps` query, which reports the members alone.
+ */
+function refreshLockfile(deps: CliDeps): void {
+	deps.out(execLine(RESOLVE_METADATA_ARGV));
+	const resolved = deps.exec(RESOLVE_METADATA_ARGV);
+	if (resolved.exitCode !== 0) {
+		throw new UsageError(`cargo metadata failed: ${resolved.stderr.trim()}`);
+	}
+}
+
 /** Runs one step, printing it and its stderr, and reports success. */
 function runStep(deps: CliDeps, argv: readonly string[], options?: ExecOptions): boolean {
 	deps.out(execLine(argv, options?.env));
@@ -354,6 +457,7 @@ function checkWorkerBundle(deps: CliDeps, path: string): boolean {
 interface ParsedArguments {
 	readonly dryRun: boolean;
 	readonly noBuild: boolean;
+	readonly noBump: boolean;
 	readonly arch: Arch | null;
 }
 
@@ -361,6 +465,7 @@ interface ParsedArguments {
 function parseArguments(argv: readonly string[]): ParsedArguments {
 	let dryRun = false;
 	let noBuild = false;
+	let noBump = false;
 	let arch: Arch | null = null;
 
 	for (let index = 0; index < argv.length; index += 1) {
@@ -371,6 +476,9 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
 				break;
 			case "--no-build":
 				noBuild = true;
+				break;
+			case "--no-bump":
+				noBump = true;
 				break;
 			case "--arch": {
 				const value = argv[index + 1];
@@ -386,7 +494,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
 		}
 	}
 
-	return { dryRun, noBuild, arch };
+	return { dryRun, noBuild, noBump, arch };
 }
 
 /**
@@ -397,10 +505,15 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
  * download or run, the checksum — and `2` a usage or environment error such as a missing tool, a
  * workspace version mismatch or an unsupported architecture.
  *
- * `--dry-run` prints every command and staged path and runs only the read-only `cargo metadata`
- * query; `--no-build` reuses `target/release/speechtt-ui` and `dist/worker.js`, checks that bundle
- * for bare imports, and fails with exit `1` when either artifact is absent. The script never runs
- * `gh`.
+ * A full build advances the `[workspace.package]` minor version in `Cargo.toml` before `cargo
+ * build`, re-reads `cargo metadata`, and names the artifact from that answer. A failure after the
+ * write restores the original manifest, so a retry does not consume a second version.
+ *
+ * `--dry-run` prints every command, the release version it would use and every staged path, and
+ * runs only the read-only `cargo metadata` query. `--no-build` reuses `target/release/speechtt-ui`
+ * and `dist/worker.js`, checks that bundle for bare imports, and fails with exit `1` when either
+ * artifact is absent. `--no-bump` packages the current version without writing the manifest. The
+ * script never runs `gh`.
  */
 export async function runCli(argv: readonly string[], deps: CliDeps): Promise<number> {
 	try {
@@ -431,17 +544,16 @@ async function runPipeline(argv: readonly string[], deps: CliDeps): Promise<numb
 		}
 	}
 
-	deps.out(execLine(METADATA_ARGV));
-	const metadata = deps.exec(METADATA_ARGV);
-	if (metadata.exitCode !== 0) {
-		throw new UsageError(`cargo metadata failed: ${metadata.stderr.trim()}`);
-	}
-	const version = versionFromMetadata(metadata.stdout);
-	const name = appImageFileName(version, arch);
-	const out = `dist/${name}`;
+	const currentVersion = readWorkspaceVersion(deps);
+	// A dry run writes nothing, but it names the version a release would produce. Repackaging and
+	// `--no-bump` keep the version already compiled into the artifacts they reuse.
+	const releaseVersion =
+		parsed.noBump || parsed.noBuild ? currentVersion : nextMinorVersion(currentVersion);
 	const plan = stagePlanLinux();
 
 	if (parsed.dryRun) {
+		const out = `dist/${appImageFileName(releaseVersion, arch)}`;
+		deps.out(`release version: ${releaseVersion}`);
 		deps.out(execLine(["bun", ...workerBundleArgs()]));
 		deps.out(execLine(CARGO_BUILD_ARGV));
 		for (const file of plan.files) {
@@ -457,11 +569,16 @@ async function runPipeline(argv: readonly string[], deps: CliDeps): Promise<numb
 			)
 		);
 		deps.out(`download: ${tool}`);
-		deps.out(releaseCommand(version, arch));
+		deps.out(releaseCommand(releaseVersion, arch));
 		return 0;
 	}
 
 	if (parsed.noBuild) {
+		if (!parsed.noBump) {
+			deps.out(
+				"package: --no-build reuses the compiled binary, so the bump is skipped (nothing was recompiled)"
+			);
+		}
 		for (const artifact of [RELEASE_BINARY, WORKER_BUNDLE]) {
 			if (!deps.exists(artifact)) {
 				deps.err(`package: --no-build needs ${artifact}; build it first`);
@@ -471,50 +588,95 @@ async function runPipeline(argv: readonly string[], deps: CliDeps): Promise<numb
 		if (!checkWorkerBundle(deps, WORKER_BUNDLE)) {
 			return 1;
 		}
-	} else {
-		deps.makeDir("dist");
-		if (!runStep(deps, ["bun", ...workerBundleArgs()])) {
-			return 1;
-		}
-		if (!deps.exists(WORKER_BUNDLE)) {
-			deps.err(`package: ${WORKER_BUNDLE} was not produced by bun build`);
-			return 1;
-		}
-		if (!checkWorkerBundle(deps, WORKER_BUNDLE)) {
-			return 1;
-		}
-		if (!runStep(deps, CARGO_BUILD_ARGV)) {
-			return 1;
-		}
-		if (!deps.exists(RELEASE_BINARY)) {
-			deps.err(`package: ${RELEASE_BINARY} was not produced by cargo build`);
-			return 1;
-		}
 	}
 
-	materialize(deps, plan);
+	let version = releaseVersion;
+	let bumped = false;
+	let originalManifest: string | null = null;
+	let originalLockfile: string | null = null;
+	let succeeded = false;
 
-	const toolPath = `dist/tools/appimagetool-${arch}.AppImage`;
-	if (!deps.exists(toolPath)) {
-		const url = `${APPIMAGETOOL_BASE}/appimagetool-${arch}.AppImage`;
-		deps.out(`download: ${url}`);
-		await deps.fetch(url, toolPath);
-	}
-	// Unconditional: a cached tool left non-executable by an interrupted download must still run.
-	deps.chmod(toolPath, 0o755);
-	if (
-		!runStep(deps, [toolPath, ...appimagetoolArgs(plan.appDir, out)], {
-			env: { ARCH: arch }
-		})
-	) {
-		return 1;
-	}
+	try {
+		if (!parsed.noBuild) {
+			deps.makeDir("dist");
+			if (!parsed.noBump) {
+				originalManifest = deps.readFile(MANIFEST_PATH);
+				originalLockfile = deps.exists(LOCKFILE_PATH) ? deps.readFile(LOCKFILE_PATH) : null;
+				const bumpedManifestText = bumpedManifest(originalManifest, releaseVersion);
+				if (bumpedManifestText === null) {
+					throw new UsageError(
+						`${MANIFEST_PATH} has no [workspace.package] version to bump`
+					);
+				}
+				deps.writeFile(MANIFEST_PATH, bumpedManifestText);
+				bumped = true;
+				// The lock file follows the manifest, so the `--locked` build accepts it, and the
+				// version is re-read after the write: the artifact name and the compiled-in version
+				// both come from the manifest `cargo build` is about to see.
+				refreshLockfile(deps);
+				version = readWorkspaceVersion(deps);
+				deps.out(`bumped: ${currentVersion} -> ${version}`);
+			}
 
-	const checksum = checksumLine(deps.sha256(out), name);
-	deps.writeFile(`${out}.sha256`, checksum);
-	deps.out(`wrote: ${out}.sha256`);
-	deps.out(releaseCommand(version, arch));
-	return 0;
+			if (!runStep(deps, ["bun", ...workerBundleArgs()])) {
+				return 1;
+			}
+			if (!deps.exists(WORKER_BUNDLE)) {
+				deps.err(`package: ${WORKER_BUNDLE} was not produced by bun build`);
+				return 1;
+			}
+			if (!checkWorkerBundle(deps, WORKER_BUNDLE)) {
+				return 1;
+			}
+			if (!runStep(deps, CARGO_BUILD_ARGV)) {
+				return 1;
+			}
+			if (!deps.exists(RELEASE_BINARY)) {
+				deps.err(`package: ${RELEASE_BINARY} was not produced by cargo build`);
+				return 1;
+			}
+		}
+
+		materialize(deps, plan);
+
+		const name = appImageFileName(version, arch);
+		const out = `dist/${name}`;
+		const toolPath = `dist/tools/appimagetool-${arch}.AppImage`;
+		if (!deps.exists(toolPath)) {
+			const url = `${APPIMAGETOOL_BASE}/appimagetool-${arch}.AppImage`;
+			deps.out(`download: ${url}`);
+			await deps.fetch(url, toolPath);
+		}
+		// Unconditional: a cached tool left non-executable by an interrupted download must still run.
+		deps.chmod(toolPath, 0o755);
+		if (
+			!runStep(deps, [toolPath, ...appimagetoolArgs(plan.appDir, out)], {
+				env: { ARCH: arch }
+			})
+		) {
+			return 1;
+		}
+
+		const checksum = checksumLine(deps.sha256(out), name);
+		deps.writeFile(`${out}.sha256`, checksum);
+		deps.out(`wrote: ${out}.sha256`);
+		deps.out(releaseCommand(version, arch));
+		succeeded = true;
+		return 0;
+	} finally {
+		// Any failure after the write — a step returning non-zero or a call that throws — leaves the
+		// tree as it was found, so retrying the build does not advance the version twice. The lock
+		// file goes back with the manifest: a bumped lock against a restored manifest would break
+		// the next `--locked` build.
+		if (bumped && !succeeded) {
+			if (originalManifest !== null) {
+				deps.writeFile(MANIFEST_PATH, originalManifest);
+			}
+			if (originalLockfile !== null) {
+				deps.writeFile(LOCKFILE_PATH, originalLockfile);
+			}
+		}
+	}
 }
 
 /** The live machine surface behind the CLI. */
