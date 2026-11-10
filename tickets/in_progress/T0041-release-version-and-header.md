@@ -328,7 +328,7 @@ export function bumpedPackageJson(text: string, version: string): string | null;
 - [x] **T41.12 — Stale-artifact implementation**: `listDir` in `CliDeps` and its
       live implementation, `staleArtifacts` per §5, and the removal step after
       the checksum is written.
-- [ ] **T41.13 — `--release` specs first**: red tests for `dirtyEntries`
+- [x] **T41.13 — `--release` specs first**: red tests for `dirtyEntries`
       (empty output → empty list; one and several entries parsed; trailing
       newline ignored) and for the CLI: `--release` runs `gh release create`
       once, with the exact argv the printed command would use; a plain run never
@@ -338,13 +338,13 @@ export function bumpedPackageJson(text: string, version: string): string | null;
       --no-build` still publishes; a dirty tree exits `2` naming the paths;
       `--allow-dirty` proceeds and says so. Every test goes through the
       `CliDeps` fakes.
-- [ ] **T41.14 — `--release` implementation**: the flag, the `gh` precondition,
+- [x] **T41.14 — `--release` implementation**: the flag, the `gh` precondition,
       the guard, the publish step after the cleanup, and `USAGE`.
-- [ ] **T41.15 — `package.json` version specs first**: red tests for
+- [x] **T41.15 — `package.json` version specs first**: red tests for
       `bumpedPackageJson` — replaces only `version`, preserves tabs and key
       order, returns `null` for a non-object; plus CLI: the bump writes it, a
       failure restores it, `--no-bump` and `--dry-run` leave it alone.
-- [ ] **T41.16 — `package.json` implementation** and the `release` script entry
+- [x] **T41.16 — `package.json` implementation** and the `release` script entry
       per §7.
 - [ ] **T41.8 — Gates**: `cargo fmt -- --check`,
       `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
@@ -752,3 +752,218 @@ made the dry run project 0.5.2. With the CEO's approval those two files were
 restored to `HEAD` (`0.5.0`) — a copy of the discarded text is at
 `/tmp/opencode/t41-manifest-backup/` — so the tree now matches the manifest the
 next release must start from.
+
+### The `release` command (T41.13–T41.16, CEO decision)
+
+- **Decision.** `bun run package` builds and never publishes; publishing gets
+  its own entry point, `bun run release` (`package.json`'s `release` script
+  passes `--release`), run by hand when the change deserves it. This
+  **deliberately reverses** the earlier rule that the script never executes
+  `gh`: a build is also how the pipeline is checked, and a release is a public,
+  effectively irreversible act, so the two had to be different commands.
+  `--release` is now the **only** path that runs `gh`; a plain `bun run package`
+  still just prints the command. Contract §6 in this ticket already carried the
+  decision; only its predecessor's prose (“it never publishes anything itself”,
+  in the module header and `README.md`) was stale and is corrected.
+- **Publishing.** After the artifact, its checksum and the `dist/` cleanup,
+  `publishRelease` runs the exact argv `releaseArgs(version, arch)` returns —
+  `gh release create v<version> dist/<name> dist/<name>.sha256 --title
+  "SpeechTT <version>" --generate-notes` — through `deps.exec`. `releaseCommand`
+  is now that same argv rendered for the terminal, so what the user reads and
+  what runs cannot drift; the script never creates a tag itself, because
+  `gh release create v<version>` does.
+- **`gh` precondition.** When `--release` is given, `gh` joins the required-tool
+  list (`deps.has("gh")`), so its absence exits `2` before `cargo metadata`,
+  before the bump and before any build step. The check runs for
+  `--release --dry-run` too: a dry run is how a release is rehearsed, and it
+  should surface the missing tool.
+- **Guard rationale.** A release tags the commit the artifact came from;
+  publishing from a tree with uncommitted source would tag a commit that does
+  not contain the code the binary was compiled from. `--release` therefore
+  reads `git status --porcelain` **before** the bump (so nothing has been
+  written yet), and a non-empty listing exits `2` with the paths and
+  `--allow-dirty` named as the override. `dirtyEntries` trims trailing
+  whitespace, drops blank lines and keeps the order. That read is the only
+  `git` invocation the script makes and it changes nothing. `--allow-dirty`
+  skips the check and prints one line saying so.
+- **Failure semantics of `gh`.** A non-zero `gh` exits `1` and prints its
+  stderr. The artifact, its checksum and the bumped versions stay on disk: the
+  build succeeded, and deleting it would punish the user for a network or
+  authentication problem. `succeeded = true` is therefore set before the
+  publish call, so the `finally` restore does not roll the bump back — the
+  retry is a republish at the same number, not a second bump.
+- **`package.json`.** `bumpedPackageJson(text, version)` parses the file,
+  spreads the object (keeping key order and every other value), sets `version`
+  and re-serialises with tab indentation plus a trailing newline, returning
+  `null` for anything that is not a JSON object (`[]`, `"x"`, `null`, `42`,
+  malformed). It is written immediately after `Cargo.toml`, captured before the
+  write and restored byte for byte alongside the manifest and the lock file on
+  any failure. `--no-bump` and `--dry-run` never touch it. A missing
+  `package.json` is tolerated (`exists` false → no read, no write).
+- **`package.json` edit** is append-only: one `"release"` line after
+  `"package"`, tab indentation preserved. Its `version` field is written by the
+  bump at release time, not by this diff.
+
+#### Tests added (23)
+
+`dirtyEntries` (4): empty output → `[]`; one entry; several entries in order;
+blank lines and trailing whitespace dropped. `bumpedPackageJson` (4): replaces
+only `version` and keeps tabs and key order; leaves a dependency pin carrying
+the old number alone; the result parses to the same object plus the new
+version; `null` for `[]`, `"x"`, `null`, `42`, `""` and a truncated `{`.
+`releaseArgs` (1): the executed argv is the printed command.
+CLI `--release` (9): `gh` invoked exactly once with the exact argv; the release
+runs after the checksum and the cleanup lines; a plain run never invokes `gh`;
+a missing `gh` exits `2` with no exec call at all (so no `cargo`/`bun` step);
+a failing `gh` exits `1`, prints its stderr, keeps the artifact and the bumped
+versions; `--release --dry-run` prints the command and calls no `gh`;
+`--release --no-build` republishes the current artifact; a dirty tree exits `2`
+naming both paths and `--allow-dirty`, with `git status --porcelain` the only
+call; a clean tree publishes; `--allow-dirty` skips the git read, says so and
+publishes.
+CLI `package.json` (4): the bump writes the release version beside the
+manifest; a failed `cargo build` restores it byte for byte; `--no-bump` and
+`--dry-run` leave it untouched.
+Every test goes through the `CliDeps` fakes; no test runs `git`, `gh`, `cargo`,
+`bun build` or `fetch`. The fakes now model a build making its artifacts exist,
+so a full run reaches staging without each test restating it.
+
+#### Red → green
+
+| Group  | Red                                                                            | Green             |
+| ------ | ------------------------------------------------------------------------------ | ----------------- |
+| T41.13 | `SyntaxError: Export named 'bumpedPackageJson' not found in module …`          | 89 pass / 0 fail  |
+| T41.14 | (implemented `releaseArgs`, `publishRelease`, the `gh` precondition, the guard) | 89 pass / 0 fail  |
+| T41.15 | (specs landed with T41.13)                                                      | 89 pass / 0 fail  |
+| T41.16 | (implemented `bumpedPackageJson` and the `package.json` write/restore)          | 89 pass / 0 fail  |
+
+One spec was corrected while going green: the publish line printed before
+`gh` runs is the plain command, and the success marker is the separate
+`published: v<version>` line, so the ordering assertion keys on the command
+line and the marker separately.
+
+#### Gate output (release-command round, `Cargo.toml` 0.5.1)
+
+```
+$ cargo fmt -- --check
+exit 0, no diff
+
+$ cargo clippy --all-targets -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.40s
+
+$ cargo test
+20 targets: 674 passed; 0 failed; 0 ignored
+
+$ bun test
+ 512 pass
+ 0 fail
+ 1701 expect() calls
+Ran 512 tests across 18 files.
+
+$ bun check src/stt
+✓ No type errors in 32 files
+
+$ bun check scripts/package.ts scripts/package.spec.ts
+✓ No type errors in 2 files
+
+$ bun run design:validate
+✓ Design contract valid — 66 tokens, 0 errors.
+```
+
+#### Dry runs (no release build, no `gh`)
+
+```
+$ bun run package --dry-run
+release version: 0.5.2
+…
+would remove: dist/SpeechTT-0.5.1-x86_64.AppImage
+would remove: dist/SpeechTT-0.5.1-x86_64.AppImage.sha256
+gh release create v0.5.2 dist/SpeechTT-0.5.2-x86_64.AppImage dist/SpeechTT-0.5.2-x86_64.AppImage.sha256 --title "SpeechTT 0.5.2" --generate-notes
+
+$ bun run release --dry-run
+release version: 0.5.2
+…
+would remove: dist/SpeechTT-0.5.1-x86_64.AppImage
+would remove: dist/SpeechTT-0.5.1-x86_64.AppImage.sha256
+gh release create v0.5.2 dist/SpeechTT-0.5.2-x86_64.AppImage dist/SpeechTT-0.5.2-x86_64.AppImage.sha256 --title "SpeechTT 0.5.2" --generate-notes
+```
+
+`Cargo.toml` still reads `version = "0.5.1"`, `dist/` is untouched and
+`package.json` still reads `0.5.0` afterwards. Both runs are identical in
+output: `--release` differs only in what it does after printing the command.
+
+#### `package.json` formatting
+
+`JSON.parse` then `JSON.stringify(parsed, null, "\t")` plus a newline reproduces
+the file byte for byte (`roundtrip: true` against the committed text), so the
+bump produces a one-line diff and no reformatting.
+
+### Review follow-up — the dry run reports the guard, and the versions are in step
+
+- **The guard was skipped under `--dry-run` (defect).** `bun run release
+  --dry-run` on a dirty tree printed the `gh release create` line as though the
+  release would proceed, while the real run would exit `2`. A dry run exists to
+  predict the real run, so it now runs the guard too. `assertCleanTree` (which
+  threw) is now `dirtyTree`, which returns the offending entries; the caller
+  decides. A real run throws the unchanged `UsageError` and exits `2`; a dry run
+  prints `package: a real release would refuse: N uncommitted path(s)` followed
+  by the entries, then carries on with the full plan, so the projection stays
+  complete and the exit code stays `0`. A clean tree prints nothing extra, and
+  `--allow-dirty` still skips the read entirely.
+- **Tests.** Three added (`--dry-run` on a dirty tree names the blocking paths,
+  exits `0` and publishes nothing; `--dry-run` on a clean tree reports no
+  blocking path; `--dry-run` still reads the guard, so `git status --porcelain`
+  is its first exec call). With the old skip-in-dry-run guard put back, three
+  specs fail (the two `--dry-run` ones plus the existing real-run exit-`2`
+  spec, whose fake now answers `git`); with it restored, `92 pass / 0 fail`.
+- **Docs.** `README.md` and `AGENTS.md` say the `--release --dry-run` path
+  reads the guard and reports what a real release would refuse.
+- **Versions in step at 0.5.1.** `Cargo.toml` and `Cargo.lock` were already at
+  `0.5.1` — the release that was built — while `package.json` still said
+  `0.5.0`, exactly the drift §7 exists to prevent. `package.json` is now
+  **0.5.1** by hand, tab indentation and key order preserved (a byte-for-byte
+  `JSON.stringify(parsed, null, "\t") + "\n"` round trip), and the bump keeps the
+  two in step from here: each release writes both from the same computed value
+  and restores both together when the run fails.
+
+#### Gate output (dry-run-guard round)
+
+```
+$ bun test
+ 515 pass
+ 0 fail
+ 1714 expect() calls
+Ran 515 tests across 18 files.
+
+$ bun check scripts/package.ts scripts/package.spec.ts
+✓ No type errors in 2 files
+
+$ bun fmt --check scripts/package.ts scripts/package.spec.ts
+All 2 files are formatted.
+
+$ cargo test
+20 targets: 674 passed; 0 failed; 0 ignored   (no Rust file changed)
+```
+
+#### Dry run on the dirty tree (no build, no `gh`)
+
+```
+$ bun run release --dry-run ; echo exit=$?
+package: a real release would refuse: 7 uncommitted path(s)
+   M AGENTS.md
+   M README.md
+   M package.json
+   M scripts/package.spec.ts
+   M scripts/package.ts
+   M tickets/in_progress/T0041-release-version-and-header.md
+   ?? tickets/screenshots/
+release version: 0.5.2
+…
+would remove: dist/SpeechTT-0.5.1-x86_64.AppImage
+would remove: dist/SpeechTT-0.5.1-x86_64.AppImage.sha256
+gh release create v0.5.2 dist/SpeechTT-0.5.2-x86_64.AppImage dist/SpeechTT-0.5.2-x86_64.AppImage.sha256 --title "SpeechTT 0.5.2" --generate-notes
+exit=0
+```
+
+`Cargo.toml` still reads `version = "0.5.1"`, `Cargo.lock` is unchanged and
+`dist/` is untouched.
