@@ -4,6 +4,8 @@
 - **Wave**: 2 (integration — touches the production spawn path, the settings file format and the startup flow)
 - **Depends on**: T0038 (the executable-relative worker resolver and the AppImage this ticket's failure was found in), T0016 (the dependency vocabulary the README already uses)
 - **Blocks**: nothing
+- **Owner**: coding sub-agent, supervised by CTO
+- **Started**: 2026-11-10
 - **References**:
     - `AGENTS.md` §2 (module boundaries, the "no ad-hoc styles" rule), §3 (documentation in code), §5 (quality gates), §6 (Do/Don't), §9 (secret safety)
     - `DESIGN.md` §"Settings panel" — the row list this ticket extends
