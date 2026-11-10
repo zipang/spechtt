@@ -60,9 +60,11 @@ not advance the version twice.
 
 May create or modify:
 
-- `scripts/package.ts` — **modified**: `nextMinorVersion`, `bumpedManifest`,
-  the `--no-bump` flag, the bump-then-build order, the restore-on-failure path,
-  the `--dry-run` line naming the next version, and the updated `USAGE`.
+- `scripts/package.ts` — **modified**: `nextPatchVersion`, `bumpedManifest`,
+  `staleArtifacts`, the `listDir` seam, the `--no-bump` flag, the
+  bump-then-build order, the restore-on-failure path, the `--dry-run` lines
+  naming the next version and the files a run would discard, and the updated
+  `USAGE`.
 - `scripts/package.spec.ts` — **modified**: tests for every rule above, through
   the existing `CliDeps` seam. No test runs `cargo`, `bun build`, `fetch` or
   `gh`.
@@ -88,6 +90,8 @@ Out of scope — do **not** touch anything else, in particular:
   showing it in that window's header too would duplicate it.
 - No `git` operations from the script: it edits the manifest and tells the user
   what to commit.
+- No purging of the tool cache or the worker bundle: `dist/tools/` is a download
+  the next build would repeat, and `worker.js` is regenerated in place.
 
 ## Contract
 
@@ -171,6 +175,41 @@ pub fn version(mut self, version: impl Into<SharedString>) -> Self;
   flags opt out and why `--no-build` cannot bump.
 - `DESIGN.md` describes the header's version slot and the treatment it uses.
 
+### §5 — Stale artifacts in `dist/`
+
+`dist/` accumulates one `SpeechTT-*.AppImage` and its `.sha256` per release, so a
+reader cannot tell which file is current and a publish command copied from an
+older run names the wrong artifact. A successful package run therefore leaves
+`dist/` carrying the release it just produced and nothing else.
+
+The decision is a pure function, so the rule is testable without a filesystem:
+
+```ts
+/// Artifacts in `entries` that belong to another version than `keep`.
+///
+/// Only the two release shapes are candidates: `SpeechTT-*.AppImage` and
+/// `SpeechTT-*.AppImage.sha256`. Everything else is left alone, so the cached
+/// `appimagetool` download and the worker bundle survive. The result is sorted
+/// so a run removes files in a stable order.
+export function staleArtifacts(entries: readonly string[], keep: string): string[];
+```
+
+Rules:
+
+- `entries` are bare names from [`CliDeps::listDir`], never paths; an entry that
+  contains a `/` or a `\` is never returned, so a directory listing cannot escape
+  `dist/`.
+- `keep` is the artifact name just built. Its `.sha256` companion is kept with
+  it. Every other `SpeechTT-*.AppImage` and `.sha256` is returned.
+- The removal runs **after** the artifact and its checksum are written, so a
+  failed build leaves the previous artifacts in place; a run that produced
+  nothing must not delete what an earlier run produced.
+- `--dry-run` lists what it would remove and removes nothing.
+- `tools/`, `worker.js` and `SpeechTT.AppDir` are never removed by this step.
+  The AppDir is already replaced wholesale when it is staged, and the tool cache
+  is a download the next build would otherwise repeat.
+- One line per removal, naming the file, so the run says what it discarded.
+
 ## TDD Tasks
 
 - [x] **T41.1 — Version specs first**: red tests for `nextPatchVersion`
@@ -197,7 +236,20 @@ pub fn version(mut self, version: impl Into<SharedString>) -> Self;
       call site in `app.rs` that passes `env!("CARGO_PKG_VERSION")`.
 - [x] **T41.7 — Docs**: `README.md` per §4, `AGENTS.md`, `DESIGN.md`,
       `tickets/README.md`.
-- [x] **T41.8 — Gates**: `cargo fmt -- --check`,
+- [ ] **T41.11 — Stale-artifact specs first**: red tests for
+      `staleArtifacts` — keeps the current artifact and its `.sha256` and
+      returns every other `SpeechTT-*.AppImage`/`.sha256`; leaves `tools`,
+      `worker.js`, `SpeechTT.AppDir` and an unrelated file alone; returns a
+      sorted list; never returns an entry containing a path separator; an empty
+      listing returns an empty list. Plus CLI specs: a successful run removes
+      the stale files it found and prints one line per removal; a run that fails
+      before packaging removes nothing; `--dry-run` lists them and removes
+      nothing. `CliDeps` gains an injectable `listDir`, so no test reads a real
+      directory.
+- [ ] **T41.12 — Stale-artifact implementation**: `listDir` in `CliDeps` and its
+      live implementation, `staleArtifacts` per §5, and the removal step after
+      the checksum is written.
+- [ ] **T41.8 — Gates**: `cargo fmt -- --check`,
       `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
       `bun check src/stt`, `bun check scripts/package.ts scripts/package.spec.ts`,
       `bun run design:validate`. Zero warnings; nothing skipped or `#[ignore]`d.
@@ -230,6 +282,11 @@ pub fn version(mut self, version: impl Into<SharedString>) -> Self;
 8. `AGENTS.md` and `README.md` state the release rule and the opting-out flags.
 9. Every gate in T41.8 is green with zero warnings, and no test asserts layout,
    position, size or geometry.
+10. After a successful run `dist/` holds exactly the artifact just built and its
+    `.sha256`; any other `SpeechTT-*.AppImage` and `.sha256` is gone, and
+    `tools/`, `worker.js` and `SpeechTT.AppDir` are untouched.
+11. A failed run deletes nothing, and `--dry-run` names what it would remove
+    without removing it.
 
 ## Implementation Notes
 
