@@ -9,6 +9,28 @@ with a stateless Bun worker doing the speech-to-text behind a local pipe.
 
 [![Demo video](demo-launcher-vignette.png)](https://github.com/user-attachments/assets/6368304a-95e1-4701-9b4a-b19ce5365059)
 
+## Download
+
+The latest Linux build is on the
+[Releases page](https://github.com/zipang/spechtt/releases/latest). Download the
+AppImage for your architecture, then run it:
+
+```sh
+chmod +x SpeechTT-*-x86_64.AppImage
+./SpeechTT-*-x86_64.AppImage
+```
+
+The AppImage contains the widget and the STT worker, but it is **not**
+self-contained. It still requires:
+
+- `bun` ≥ 1.4.0 on `PATH` — the bundled worker runs on it.
+- `ffmpeg` and `ffprobe` for **file transcription only** — live dictation does
+  not use them.
+- A working graphical session with a Vulkan driver — GPUI renders through it.
+
+The download is the short path; [Getting started](#getting-started) still covers
+building from source.
+
 ## What it does
 
 - **Live dictation** — records the default microphone, animates a waveform from
@@ -27,13 +49,14 @@ with a stateless Bun worker doing the speech-to-text behind a local pipe.
 
 ## Requirements
 
-| Component                     | Needed for                  | Notes                                                               |
-| ----------------------------- | --------------------------- | ------------------------------------------------------------------- |
-| Linux, macOS or Windows       | everything                  | Linux is the primary platform; macOS and Windows are best effort.   |
-| Rust 1.92 or later            | building                    | Install with [rustup](https://rust-lang.org/tools/install/).        |
-| `bun` ≥ 1.4.0                 | live and file transcription | Runs the STT worker as a child process.                             |
-| `ffmpeg` ≥ 6.0 with `ffprobe` | **file transcription only** | Live dictation needs `bun` alone; `ffmpeg` decodes the picked file. |
-| A Vercel AI Gateway key       | transcription               | `AI_GATEWAY_API_KEY` or `VERCEL_AI_GATEWAY_API_KEY`.                |
+| Component                     | Needed for                  | Notes                                                                                                                       |
+| ----------------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Linux, macOS or Windows       | everything                  | Linux is the primary platform; macOS and Windows are best effort.                                                           |
+| Rust 1.92 or later            | building                    | Install with [rustup](https://rust-lang.org/tools/install/).                                                                |
+| `bun` ≥ 1.4.0                 | live and file transcription | Runs the STT worker as a child process.                                                                                     |
+| `ffmpeg` ≥ 6.0 with `ffprobe` | **file transcription only** | Live dictation needs `bun` alone; `ffmpeg` decodes the picked file.                                                         |
+| `SpeechTT-*-x86_64.AppImage`  | running without a build     | Linux only. Still needs `bun` on `PATH`, `ffmpeg`+`ffprobe` for file transcription, and a Vulkan-capable graphical session. |
+| A Vercel AI Gateway key       | transcription               | `AI_GATEWAY_API_KEY` or `VERCEL_AI_GATEWAY_API_KEY`.                                                                        |
 
 Verify and install the two runtime binaries with one command per platform:
 
@@ -93,8 +116,8 @@ The bootstrap installs `bun` itself when it is absent, then hands the flags to
 
 ### 3. Build and run
 
-Clone the repository, then run every command from its root — the widget spawns
-`bun run src/stt/worker.ts`, a path relative to the root:
+Clone the repository, then run every command from its root, where
+`bun install` and the source tree live:
 
 ```sh
 git clone https://github.com/zipang/spechtt.git
@@ -154,7 +177,7 @@ design files are referenced by the MCP mockups, not loaded by the binary.
 ```text
 speechtt/
 ├── Cargo.toml                       # Cargo workspace (edition 2024)
-├── package.json                     # Bun scripts: setup, design checks, UI run/build/test
+├── package.json                     # Bun scripts: setup, package, design checks, UI run/build/test
 ├── AGENTS.md                        # Engineering rules, quality gates, module boundaries
 ├── PRODUCT.md                       # Vision, users, functional requirements
 ├── DESIGN.md                        # Design-system contract
@@ -214,16 +237,19 @@ speechtt/
 │
 ├── scripts/
 │   ├── setup.ts, setup.spec.ts      # Dependency probe, plan and installer, with their tests
+│   ├── package.ts, package.spec.ts  # AppImage build, staging and checksum, with their tests
 │   ├── setup.sh, setup.ps1          # Thin bootstraps for Unix shells and PowerShell
 │   ├── validate-design.ts           # DESIGN.md + design-tokens.css contract check
 │   └── sync-contrast.ts             # Regenerates colour variants and contrast pairs
+├── packaging/                       # AppImage icon source and its rendered 256×256 PNG
 ├── tests/                           # Bun tests for the design contract, plus a gateway helper
 ├── mockups/                         # Reference renders exported from Paper (never imported)
 ├── vendor/design-tokens/            # Vendored design-token validator and contrast helpers
 ├── tickets/                         # The Kanban board: planned, in_progress, review, done
 ├── .agents/skills/                  # Agent skills installed for this repository
 ├── bun.lock                         # Bun dependency lockfile
-└── Cargo.lock                       # Rust dependency lockfile
+├── Cargo.lock                       # Rust dependency lockfile
+└── LICENSE                          # MIT licence, shipped in the AppImage
 ```
 
 ### What lives where
@@ -237,8 +263,9 @@ speechtt/
   contract onto `gpui-kit` with the fonts embedded in the binary.
 - **`src/stt/`** — the stateless worker. It reads NDJSON commands on `stdin`,
   writes NDJSON events on `stdout` and keeps `stderr` for human diagnostics.
-- **`scripts/`** — dependency bootstrap and design-system tooling, run with Bun.
-  They are development tools and never ship inside the widget.
+- **`scripts/`** — dependency bootstrap, AppImage packaging and design-system
+  tooling, run with Bun. They are development tools and never ship inside the
+  widget.
 - **Root design files** — `design-tokens.css` is the single source of truth for
   visual values and `DESIGN.md` describes their intent; `color-variants.css` and
   `reset.css` support the reference renderings and load after it. The binary
@@ -259,6 +286,7 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 bun test
 bun check src/stt
+bun check scripts/package.ts scripts/package.spec.ts
 bun run design:validate
 ```
 
