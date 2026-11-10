@@ -1,14 +1,16 @@
 //! Help and Settings dialog behaviour.
 //!
 //! The interaction contract is exercised through `SessionController` commands
-//! (and one headless render smoke test). No assertion depends on element
-//! placement, geometry or labels, so the dialog design stays free to change.
+//! (and headless render tests). No assertion depends on element placement,
+//! geometry or labels: row order is read from the document order of the
+//! rendered element ids, and the dialog design stays free to change.
 
 use speechtt_core::backend::{BackendError, SttSessionSink};
 use speechtt_core::protocol::{
     ModelCapabilityInfo, ProviderCapability, SttCommand, TranscriptionMode,
 };
-use speechtt_core::settings::Settings;
+use speechtt_core::settings::{DEFAULT_PROVIDER, Settings};
+use speechtt_ui::components::SettingRow;
 use speechtt_ui::controller::{
     AppError, BackendFailure, Dialog, HelpTab, STORED_KEY_REVEAL_HINT, SessionController,
     SettingsChange,
@@ -47,6 +49,19 @@ fn catalogue() -> Vec<ProviderCapability> {
 
 fn install_catalogue(controller: &mut SessionController) {
     controller.set_capabilities(catalogue());
+}
+
+/// A catalogue with a second provider, so the provider menu has a choice.
+fn two_provider_catalogue() -> Vec<ProviderCapability> {
+    let mut providers = catalogue();
+    providers.push(ProviderCapability {
+        id: "mistral".to_string(),
+        label: "Mistral".to_string(),
+        available: true,
+        key_env_vars: vec!["MISTRAL_API_KEY".to_string()],
+        models: Vec::new(),
+    });
+    providers
 }
 
 fn settings_with_mixed_case_key() -> Settings {
@@ -175,6 +190,114 @@ fn saving_an_incomplete_draft_keeps_the_dialog_open() {
 }
 
 #[test]
+fn settings_offers_a_provider_choice_only_with_two_providers() {
+    let mut controller = SessionController::new();
+    assert!(
+        !controller.settings_offers_provider_choice(),
+        "no catalogue offers nothing to choose"
+    );
+
+    install_catalogue(&mut controller);
+    assert!(
+        !controller.settings_offers_provider_choice(),
+        "a single provider is not a choice"
+    );
+
+    controller.set_capabilities(two_provider_catalogue());
+    assert!(
+        controller.settings_offers_provider_choice(),
+        "two providers are a choice"
+    );
+}
+
+#[test]
+fn pin_single_provider_uses_the_catalogue_entry_or_the_default() {
+    let mut single = SessionController::new();
+    single.set_capabilities(vec![ProviderCapability {
+        id: "mistral".to_string(),
+        label: "Mistral".to_string(),
+        available: true,
+        key_env_vars: vec!["MISTRAL_API_KEY".to_string()],
+        models: Vec::new(),
+    }]);
+    single.open_settings();
+    assert_eq!(
+        single.settings_draft().provider.as_deref(),
+        Some("mistral"),
+        "the only catalogue provider is pinned"
+    );
+
+    let mut empty = SessionController::new();
+    empty.open_settings();
+    assert_eq!(
+        empty.settings_draft().provider.as_deref(),
+        Some(DEFAULT_PROVIDER),
+        "a fresh install without a catalogue pins the fallback"
+    );
+}
+
+#[test]
+fn pin_single_provider_never_overwrites_or_pins_when_there_is_a_choice() {
+    let mut chosen = SessionController::new();
+    install_catalogue(&mut chosen);
+    chosen.open_settings_with(Some("vercel-ai-gateway"), None, None, false);
+    chosen.pin_single_provider();
+    assert_eq!(
+        chosen.settings_draft().provider.as_deref(),
+        Some("vercel-ai-gateway"),
+        "an existing provider is left alone"
+    );
+
+    let mut choice = SessionController::new();
+    choice.set_capabilities(two_provider_catalogue());
+    choice.open_settings();
+    assert_eq!(
+        choice.settings_draft().provider,
+        None,
+        "the menu starts empty when there is a choice"
+    );
+    choice.pin_single_provider();
+    assert_eq!(
+        choice.settings_draft().provider,
+        None,
+        "a choice is never pinned"
+    );
+}
+
+#[test]
+fn a_catalogue_arriving_while_settings_is_open_pins_the_only_provider() {
+    let mut controller = SessionController::new();
+    controller.set_capabilities(two_provider_catalogue());
+    controller.open_settings();
+    assert_eq!(controller.settings_draft().provider, None);
+
+    install_catalogue(&mut controller);
+
+    assert_eq!(
+        controller.settings_draft().provider.as_deref(),
+        Some("vercel-ai-gateway"),
+        "the arriving catalogue pins its only provider"
+    );
+}
+
+#[test]
+fn a_fresh_install_without_a_catalogue_saves_with_a_path_and_a_key() {
+    let mut controller = SessionController::new();
+    controller.note_backend_failure(BackendFailure::Unavailable);
+    controller.open_settings();
+    controller.set_settings_bun_executable("/home/ada/.bun/bin/bun");
+    controller.set_settings_api_key("sk-fresh-install");
+
+    let change = controller
+        .settings_change()
+        .expect("the pinned provider, path and key are enough");
+
+    assert_eq!(change.provider, DEFAULT_PROVIDER);
+    assert_eq!(change.bun_executable, "/home/ada/.bun/bin/bun");
+    assert_eq!(change.api_key.as_deref(), Some("sk-fresh-install"));
+}
+
+#[test]
 fn cancel_discards_the_draft() {
     let mut controller = SessionController::new();
     controller.open_settings();
@@ -187,7 +310,11 @@ fn cancel_discards_the_draft() {
     assert_eq!(controller.active_dialog(), None);
 
     controller.open_settings();
-    assert_eq!(controller.settings_draft().provider, None);
+    assert_eq!(
+        controller.settings_draft().provider.as_deref(),
+        Some(DEFAULT_PROVIDER),
+        "an empty catalogue pins the fallback provider"
+    );
     assert_eq!(controller.settings_draft().model_streaming, None);
     assert_eq!(controller.settings_draft().model_batch, None);
     assert_eq!(controller.settings_draft().api_key, "");
@@ -220,7 +347,11 @@ fn opening_a_dialog_does_not_disturb_the_recording_session() {
 mod common;
 
 use gpui_kit::AppContext as _;
-use gpui_kit::test::{TestAppContextExt as _, TestWindowExt};
+use gpui_kit::test::{TestAppContextExt as _, TestQueryExt, TestWindowExt};
+use gpui_kit::{
+    ElementId, InteractiveElement as _, IntoElement, ParentElement as _, Render, Styled as _,
+    TestSupportExt as _, div,
+};
 
 #[gpui_kit::test]
 fn dialogs_render_and_save_through_the_app(cx: &mut gpui_kit::TestAppContext) {
@@ -654,4 +785,181 @@ fn a_failed_respawn_keeps_settings_open_with_the_error_and_the_draft(
     .unwrap();
     assert_eq!(cx.update(|cx| view.read(cx).active_dialog()), None);
     assert_eq!(cx.update(|cx| view.read(cx).app_error().cloned()), None);
+}
+
+/// A view that renders one `SettingRow` per builder combination, so the
+/// component's opt-in forms are observed without the dialog around them.
+struct SettingRowProbe;
+
+impl Render for SettingRowProbe {
+    fn render(
+        &mut self,
+        _: &mut gpui_kit::Window,
+        _: &mut gpui_kit::Context<Self>,
+    ) -> impl IntoElement {
+        div()
+            .flex()
+            .flex_col()
+            .w_full()
+            .child(
+                SettingRow::new("Default", "the roomy default form")
+                    .control(div().id("probe-default-control").test_support()),
+            )
+            .child(
+                SettingRow::new("Prominent", "the dialog form")
+                    .prominent()
+                    .control(div().id("probe-prominent-control").test_support()),
+            )
+            .child(
+                SettingRow::new("Dense", "the tighter dialog form")
+                    .dense()
+                    .control(div().id("probe-dense-control").test_support()),
+            )
+            .child(
+                SettingRow::new("Stacked", "a control on its own line")
+                    .dense()
+                    .stacked()
+                    .accessory(div().id("probe-accessory").test_support())
+                    .control(div().id("probe-stacked-control").test_support()),
+            )
+            .child(
+                SettingRow::new("Mono", "AI_GATEWAY_API_KEY")
+                    .dense()
+                    .mono_description()
+                    .control(div().id("probe-mono-control").test_support()),
+            )
+    }
+}
+
+#[gpui_kit::test]
+fn setting_row_builders_render_their_content(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(common::init_kit);
+    let (window, _view) = common::open_window(cx, None, |_window, cx| cx.new(|_| SettingRowProbe));
+
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        for id in [
+            "probe-default-control",
+            "probe-prominent-control",
+            "probe-dense-control",
+            "probe-stacked-control",
+            "probe-accessory",
+            "probe-mono-control",
+        ] {
+            assert!(window.try_find(id).is_some(), "{id} is rendered");
+        }
+    })
+    .unwrap();
+}
+
+/// The element ids of `ids` in the order the frame observed them, which is the
+/// document order of the rendered tree. Unknown ids are skipped, so a missing
+/// row fails the caller's equality assertion instead of this helper.
+fn document_order(window: &gpui_kit::Window, ids: &[&str]) -> Vec<String> {
+    window
+        .elements()
+        .iter()
+        .filter_map(|element| match element.path().last()? {
+            ElementId::Name(name) if ids.contains(&name.as_ref()) => Some(name.to_string()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[gpui_kit::test]
+fn settings_leads_with_the_runtime_and_the_api_key(cx: &mut gpui_kit::TestAppContext) {
+    let (main, view) = common::open_speechtt_window(cx);
+
+    cx.update_window(main.into(), |_, window, cx| {
+        view.update(cx, |app, cx| app.open_settings(window, cx));
+    })
+    .unwrap();
+
+    let dialog = cx
+        .windows()
+        .into_iter()
+        .find(|window| window.window_id() != main.window_id())
+        .expect("Settings opened its own window");
+
+    cx.update_window(dialog, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(
+            document_order(
+                window,
+                &[
+                    "field-settings-bun-path",
+                    "field-settings-api-key",
+                    "field-settings-language",
+                    "field-settings-streaming",
+                    "field-settings-batch",
+                ]
+            ),
+            vec![
+                "field-settings-bun-path",
+                "field-settings-api-key",
+                "field-settings-language",
+                "field-settings-streaming",
+                "field-settings-batch",
+            ],
+            "the runtime and the credential lead the row list"
+        );
+        assert!(
+            window.try_find("field-settings-api-key").is_some(),
+            "the API-key field is still reachable"
+        );
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn settings_hides_the_provider_row_when_there_is_no_choice(cx: &mut gpui_kit::TestAppContext) {
+    let (main, view) = common::open_speechtt_window(cx);
+
+    cx.update_window(main.into(), |_, window, cx| {
+        view.update(cx, |app, cx| app.open_settings(window, cx));
+    })
+    .unwrap();
+
+    let dialog = cx
+        .windows()
+        .into_iter()
+        .find(|window| window.window_id() != main.window_id())
+        .expect("Settings opened its own window");
+
+    cx.update_window(dialog, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            window.try_find("field-settings-provider").is_none(),
+            "a menu with one entry restates what the app decided"
+        );
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn settings_shows_the_provider_row_when_two_providers_exist(cx: &mut gpui_kit::TestAppContext) {
+    let (main, view) = common::open_speechtt_window(cx);
+
+    cx.update_window(main.into(), |_, window, cx| {
+        view.update(cx, |app, cx| {
+            app.apply_capabilities(two_provider_catalogue(), cx);
+            app.open_settings(window, cx);
+        });
+    })
+    .unwrap();
+
+    let dialog = cx
+        .windows()
+        .into_iter()
+        .find(|window| window.window_id() != main.window_id())
+        .expect("Settings opened its own window");
+
+    cx.update_window(dialog, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            window.try_find("field-settings-provider").is_some(),
+            "two providers are a choice, so the row appears"
+        );
+    })
+    .unwrap();
 }

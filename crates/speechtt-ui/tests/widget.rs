@@ -874,12 +874,26 @@ async fn the_setup_form_menus_commit_the_provider_and_model(cx: &mut TestAppCont
     });
 }
 
+/// The Settings provider menu appears only when the catalogue offers a choice,
+/// so this test installs a second provider before opening the dialog and then
+/// commits a provider and both defaults through the menus.
 #[gpui_kit::test]
 async fn the_settings_menus_commit_the_settings_draft(cx: &mut TestAppContext) {
     let (main, view) = open_speechtt_window(cx);
 
     cx.update_window(main.into(), |_, window, cx| {
-        view.update(cx, |app, cx| app.open_settings(window, cx));
+        view.update(cx, |app, cx| {
+            let mut providers = common::test_catalogue();
+            providers.push(speechtt_core::protocol::ProviderCapability {
+                id: "mistral".to_string(),
+                label: "Mistral".to_string(),
+                available: true,
+                key_env_vars: vec!["MISTRAL_API_KEY".to_string()],
+                models: Vec::new(),
+            });
+            app.apply_capabilities(providers, cx);
+            app.open_settings(window, cx);
+        });
         window.render_frame(cx);
     })
     .unwrap();

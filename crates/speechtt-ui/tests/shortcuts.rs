@@ -378,9 +378,8 @@ fn space_is_inert_on_the_transcript_screen(cx: &mut TestAppContext) {
 /// any action in a headless window (it is empty even for the copy shortcut,
 /// which does dispatch when pressed).
 ///
-/// The field is the last row of the scrolling dialog body, so the test scrolls
-/// it into view before typing — the reachability step a user performs, not a
-/// geometry assertion.
+/// The API-key field is the second row of the dialog body and needs no
+/// scrolling: the test clicks it where it is drawn.
 #[gpui_kit::test]
 fn space_typed_into_the_settings_api_key_field_stays_a_character(cx: &mut TestAppContext) {
     let (main, view) = common::open_speechtt_window(cx);
@@ -388,12 +387,6 @@ fn space_typed_into_the_settings_api_key_field_stays_a_character(cx: &mut TestAp
     let settings = dialog_window(cx, main);
 
     cx.update_window(settings, |_, window, cx| {
-        window.render_frame(cx);
-        window.within("field-settings-provider").scroll(
-            "input",
-            gpui_kit::ScrollDelta::Lines(gpui_kit::point(0., -5.)),
-            cx,
-        );
         window.render_frame(cx);
         window.click("field-settings-api-key", cx);
         window.input("sk", cx);
