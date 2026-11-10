@@ -4,6 +4,8 @@
 - **Wave**: 1 (independent — pure move plus the gate that guards it)
 - **Depends on**: nothing
 - **Blocks**: nothing
+- **Owner**: coding sub-agent, supervised by CTO
+- **Started**: 2026-11-10
 - **References**:
     - `AGENTS.md` §2 (module boundaries, the view rule, the component rule), §3
       (documentation in code — names its callers), §5 (quality gates), §6
