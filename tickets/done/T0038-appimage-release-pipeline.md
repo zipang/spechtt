@@ -333,7 +333,7 @@ gains the AppImage row:
 
 ## TDD Tasks
 
-- [ ] **T38.1 — Resolution specs first**: write `crates/speechtt-core/tests/worker_resolution.rs`
+- [x] **T38.1 — Resolution specs first**: write `crates/speechtt-core/tests/worker_resolution.rs`
       red. The workspace has no `tempfile` dependency and does not gain one:
       exercise the rules with fake `exists` closures and path arithmetic only —
       no directory is created and no file is read. Cover the full order: the
@@ -342,11 +342,11 @@ gains the AppImage row:
       → `None`; a root-like `exe_dir` does not panic; the candidate list is
       ordered and joined onto `exe_dir`. Assert `WORKER_SCRIPT` is still
       `src/stt/worker.ts`.
-- [ ] **T38.2 — Resolution implementation**: add `worker_candidates`,
+- [x] **T38.2 — Resolution implementation**: add `worker_candidates`,
       `resolve_worker_in`, `BackendError::WorkerMissing`, and rewire
       `spawn_default` per Contract §1. Existing `spawn_with` tests keep passing
       untouched.
-- [ ] **T38.3 — Packaging specs first**: write `scripts/package.spec.ts` red for
+- [x] **T38.3 — Packaging specs first**: write `scripts/package.spec.ts` red for
       every pure function — `appImageFileName`, `archFrom`, `versionFromMetadata`
       (agreeing packages, mismatched packages, missing field),
       `desktopEntryLinux`, `appRunScriptLinux`, `stagePlanLinux`,
@@ -356,13 +356,13 @@ gains the AppImage row:
       `bun build`, `fetch` or `gh`. Linux is in each name on purpose: the
       macOS and Windows targets share the CLI and add their own staging
       function instead of rewriting this one.
-- [ ] **T38.4 — Packaging implementation**: `scripts/package.ts` implementing
+- [x] **T38.4 — Packaging implementation**: `scripts/package.ts` implementing
       Contract §2–§8, with `runCli(argv, deps)` and the `import.meta.main`
       guard used by `scripts/setup.ts`.
-- [ ] **T38.5 — Icon and licence**: write `packaging/icon.svg` per §7, render
+- [x] **T38.5 — Icon and licence**: write `packaging/icon.svg` per §7, render
       `packaging/speechtt.png`, add `LICENSE` (MIT), and present the PNG to the
       CEO for approval **before** committing it.
-- [ ] **T38.6 — Packaged-layout launch test**: append to
+- [x] **T38.6 — Packaged-layout launch test**: append to
       `crates/speechtt-ui/tests/launch.rs` a test that builds a temporary
       AppDir-shaped tree (a **copy** of the real binary at `usr/bin/speechtt-ui`
       and a copy of the real worker at `usr/share/speechtt/worker.js`; a symlink
@@ -377,16 +377,16 @@ gains the AppImage row:
       `usr/share/speechtt/worker.js`. The test must never open a window on the
       user's desktop, must not spawn a real `bun`, and must kill and reap the
       child on every path, mirroring the existing helpers in that file.
-- [ ] **T38.7 — Wiring**: `package.json` `"package"` script, `.gitignore`
+- [x] **T38.7 — Wiring**: `package.json` `"package"` script, `.gitignore`
       `dist/`, `README.md` `## Download` + requirements, `tickets/README.md`
       board row.
-- [ ] **T38.8 — Real artifact**: run `bun run package`, then verify from the
+- [x] **T38.8 — Real artifact**: run `bun run package`, then verify from the
       artifact, not the build tree: extract it (`--appimage-extract`), inspect
       the tree against §3, `objdump -p` the payload binary for unexpected
       absolute build paths, and run the extracted `usr/bin/speechtt-ui` headless
       with a throwaway `HOME` until the `status=window-open` line appears. Record
       the AppImage size and the `sha256sum -c` result in `## Implementation Notes`.
-- [ ] **T38.9 — Gates**: `cargo fmt -- --check`,
+- [x] **T38.9 — Gates**: `cargo fmt -- --check`,
       `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
       `bun check src/stt`, `bun check scripts/package.ts scripts/package.spec.ts`,
       `bun run design:validate`. Zero warnings; nothing skipped or `#[ignore]`d.
@@ -425,5 +425,194 @@ gains the AppImage row:
 
 ## Implementation Notes
 
-_(added during work: decisions, deviations, exact gate output, artifact size,
-checksum, and the release URL.)_
+### What landed
+
+- `crates/speechtt-core/tests/worker_resolution.rs` (new) — 11 hermetic specs for
+  `worker_candidates` / `resolve_worker_in` / `BackendError::WorkerMissing`. Fake
+  `exists` closures and path arithmetic only; no directory created, no file read,
+  no `tempfile` dependency added.
+- `crates/speechtt-core/src/backend.rs` — `worker_candidates`,
+  `resolve_worker_in`, the `WorkerMissing { searched }` variant, and
+  `spawn_default` rewired to the caller-independent lookup. `WORKER_SCRIPT` keeps
+  its value and its role as the Cargo fallback. The module header now describes
+  the relative-to-executable spawn instead of the CWD-relative one.
+- `scripts/package.ts` (new) — the whole pipeline behind `runCli(argv, deps)`
+  with the `CliDeps` (exec/fetch/exists/readFile/writeFile/copyFile/makeDir/
+  removePath/chmod/sha256/machine) seam, plus the pure functions
+  `archFrom`, `appImageFileName`, `versionFromMetadata`, `appRunScriptLinux`,
+  `desktopEntryLinux`, `stagePlanLinux`, `workerBundleArgs`, `appimagetoolArgs`,
+  `checksumLine`, `releaseCommand`.
+- `scripts/package.spec.ts` (new) — 36 unit tests; the harness fakes every
+  machine capability, so no test runs `cargo`, `bun build`, `fetch` or `gh`, and
+  none touches `dist/`.
+- `packaging/icon.svg` + `packaging/speechtt.png` — 256×256, `#ea5514`
+  background, `#000000` microphone glyph at ~55 % of the canvas, no text, no
+  gradient, no second colour.
+- `LICENSE` — MIT, `Copyright (c) 2026 Christophe Desguez`.
+- `crates/speechtt-ui/tests/launch.rs` — one appended test,
+  `the_packaged_appdir_finds_the_worker_beside_the_binary`, plus a
+  `wait_for_marker` helper. Existing assertions untouched.
+- `package.json` (one appended script), `.gitignore` (one appended `dist/` line),
+  `README.md` (`## Download` after `## Demo`, AppImage row in the requirements
+  table, project-tree and gate lists).
+
+### Red → green evidence
+
+| Group | Red                                                                                                                                                                                                                                                                                  | Green                                                                                       |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| T38.1 | Against the ticket's base tree (`667c9d1`) × the new spec: `error[E0432]: unresolved imports … no 'worker_candidates' in 'backend'` and `error[E0599]: no variant named 'WorkerMissing'`.                                                                                            | `cargo test -p speechtt-core --test worker_resolution` → 11 passed.                         |
+| T38.3 | Spec × base tree: `error: Cannot find module './package' from …/scripts/package.spec.ts`, 0 pass / 1 fail.                                                                                                                                                                           | `bun test scripts/package.spec.ts` → 36 passed; full `bun test` → 459 passed.               |
+| T38.6 | The appended launch test × base `backend.rs`: `assertion left == right failed: the packaged widget must spawn the AppDir worker, not a repository path` — `left: "src/stt/worker.ts"` (the old CWD-relative lookup), `right: …/SpeechTT.AppDir/usr/bin/../share/speechtt/worker.js`. | `cargo test -p speechtt-ui --test launch` → 5 passed, the new test records the AppDir path. |
+
+### T38.8 artifact facts (`bun run package`, x86_64)
+
+- Worker bundle: `dist/worker.js`, 1 472 364 bytes (1.47 MB), `bun build
+src/stt/worker.ts --target=bun --outfile dist/worker.js` — 134 modules.
+- AppImage: `dist/SpeechTT-0.5.0-x86_64.AppImage`, **19 286 520 bytes
+  (18.4 MB)** — well under the 150 MB ceiling. Built with `appimagetool
+--appimage-extract-and-run --no-appstream` and `ARCH=x86_64`. Rebuilt once
+  after the icon was revised, so this is the digest of the artifact that ships.
+- Checksum: `dist/SpeechTT-0.5.0-x86_64.AppImage.sha256` =
+  `087adb2f7c7b36b29424cbde0c52d85ca4ef47bc5b07fb794f63b0a540c00b68  SpeechTT-0.5.0-x86_64.AppImage`;
+  `sha256sum -c` → `SpeechTT-0.5.0-x86_64.AppImage: OK`.
+- Extracted tree (`--appimage-extract`) matches §3 with the stated modes:
+  `AppRun` 0755, `speechtt.desktop` 0644, `speechtt.png` 0644 (256×256),
+  `usr/bin/speechtt-ui` 0755, `usr/share/speechtt/worker.js` 0644,
+  `usr/share/applications/speechtt.desktop` 0644,
+  `usr/share/icons/hicolor/256x256/apps/speechtt.png` 0644,
+  `usr/share/licenses/speechtt/LICENSE` 0644. Both icon copies are byte-identical
+  to `packaging/speechtt.png` (`7f2bff97…`).
+- `objdump -p usr/bin/speechtt-ui`: no `RPATH`/`RUNPATH` entry at all; `NEEDED`
+  is only the usual system set (`libasound.so.2`, `libxcb.so.1`,
+  `libxkbcommon.so.0`, `libxkbcommon-x11.so.0`, `libgcc_s.so.1`, `libm.so.6`,
+  `libc.so.6`, `ld-linux-x86-64.so.2`). `strings` still contains
+  `~/.cargo/registry/src/**` and `~/.rustup/**` paths — they are compiler and
+  panic-location strings from dependencies, not runtime lookups, and the binary
+  resolves nothing through them.
+- Headless launch of the extracted payload (throwaway `HOME`/`XDG_CONFIG_HOME`,
+  `DISPLAY`/`WAYLAND_DISPLAY` removed, fake `bun` first on `PATH`): stderr carried
+  `[speechtt] startup status=window-open`, and the fake `bun` recorded
+  `run` +
+  `/…/squashfs-root/usr/bin/../share/speechtt/worker.js` — the AppDir path, not a
+  repository path. Child killed and reaped.
+- `bun dist/worker.js` with a `capabilities` command answers
+  `{"type":"ready"}` then the `capabilities` event; `grep -c 'from "ai"'` and
+  `grep -c 'from "@ai-sdk/'` on the bundle both return `0`.
+
+### Deviations from the contract
+
+1. **`--dry-run` runs one read-only command.** §6 says "runs nothing"; the version
+   must come from `cargo metadata` rather than a hardcoded number, so a dry run
+   executes that single read-only query (and prints it) and runs nothing else —
+   no `bun build`, no `cargo build`, no download, no staging. The spec pins
+   exactly that single call.
+2. **`--no-build` requires `cargo`, not `bun`.** It still needs `cargo metadata`
+   for the version, and it never bundles. A full run requires both tools; both
+   absences exit `2` with a readable message.
+3. **`appimagetool` adds `.DirIcon`.** The produced AppImage carries the §3 tree
+   plus a `.DirIcon → speechtt.png` symlink at the root, which `appimagetool`
+   creates itself. Removing it is not part of the documented tool behaviour.
+4. **README fence repair.** The Development gate block and the project tree were
+   fenced with four backticks in the working copy, and adding the
+   `bun check scripts/package.ts scripts/package.spec.ts` line inside it left the
+   fences unbalanced. Both blocks are back to ` ``` ` now; this is a
+   documentation-only change inside the ticket's README scope.
+5. **`tickets/README.md` board row needed no edit** — T0038 already has its
+   In Progress row (title, track) from the board commit, and the ticket stays in
+   `in_progress/` for the CTO's review.
+
+### Gates (final run on the working tree)
+
+```text
+$ cargo fmt -- --check
+(no output)                                     # OK
+
+$ cargo clippy --all-targets -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.33s
+
+$ cargo test
+test result: ok. 229 passed; 0 failed   (speechtt-core lib)
+test result: ok. 5 passed;   0 failed   (bridge_smoke)
+test result: ok. 14 passed;  0 failed   (session_machine)
+test result: ok. 5 passed;   0 failed   (transcript_captures)
+test result: ok. 11 passed;  0 failed   (worker_resolution)
+test result: ok. 128 passed; 0 failed   (speechtt-ui lib)
+test result: ok. 3 passed;   0 failed   (design_system)
+test result: ok. 13 passed;  0 failed   (dialogs)
+test result: ok. 37 passed;  0 failed   (end_to_end)
+test result: ok. 14 passed;  0 failed   (error_ux)
+test result: ok. 5 passed;   0 failed   (launch)
+test result: ok. 96 passed;  0 failed   (session_flow)
+test result: ok. 23 passed;  0 failed   (shortcuts)
+test result: ok. 5 passed;   0 failed   (startup)
+test result: ok. 4 passed;   0 failed   (theme_contract)
+test result: ok. 35 passed;  0 failed   (widget)
+(0 failed, 0 ignored anywhere)
+
+$ bun test
+ 459 pass
+ 0 fail
+ 1530 expect() calls
+Ran 459 tests across 18 files. [659.00ms]
+
+$ bun check src/stt
+✓ No type errors in 32 files [71.04ms]
+
+$ bun check scripts/package.ts scripts/package.spec.ts
+✓ No type errors in 2 files [22.73ms]
+
+$ bun run design:validate
+✓ Design contract valid — 66 tokens, 0 errors.
+```
+
+### Review round 1
+
+An independent reviewer audited the diff against the contract, `AGENTS.md` and
+the local skills, and reproduced the artifact and the gates itself. Verdict was
+`POLISH_REQUIRED` with no blocker and no incomplete wiring. Every finding was
+applied:
+
+1. **Exit codes** (`scripts/package.ts`) — the catch-all returned `2` for every
+   non-`UsageError`, so a failing staging copy, a rejected `appimagetool`
+   download or a throwing checksum reported a usage error instead of a build
+   failure. Non-usage exceptions now return `1`; `UsageError` keeps `2`. Four
+   specs pin it (`a staging copy that throws exits 1, not 2`, `a failed
+appimagetool download exits 1, not 2`, `a checksum step that throws exits 1,
+not 2`, `an exec that throws while building exits 1, not 2`).
+2. **The tested resolver is the production path** (`backend.rs`) —
+   `spawn_default` called `resolve_worker_in` only in tests while duplicating the
+   find loop; it now calls `resolve_worker_in(exe_dir, |p| p.exists())`, so the
+   hermetic precedence specs exercise what ships.
+3. **Architecture fallback** — `uname -m` failing fell back to `process.arch`
+   (`x64`/`arm64`), which `archFrom` rejected as an unsupported architecture.
+   `archFrom` now accepts both spellings for each architecture.
+4. **Cached `appimagetool` mode** — `chmod 0755` ran only after a fresh
+   download, so a tool cached by an interrupted run could be non-executable. It
+   now runs unconditionally after the existence check.
+5. **`--no-build` self-containment** — the bare-`ai`/`@ai-sdk` import check ran
+   only after a build, so a hand-made `dist/worker.js` could ship broken. The
+   `--no-build` branch runs the same check.
+6. **Test quality** — the tautological `arch type` block is gone, and the
+   bare-import assertion pins the exact emitted message instead of an
+   alternation that could pass for the wrong reason.
+7. **Launch test name** — renamed to
+   `the_packaged_appdir_resolves_the_worker_through_the_usr_share_layout`,
+   which names candidate 1 rather than candidate 3.
+8. **Documentation** — `worker_candidates` now names all five layouts including
+   the `target/<profile>/deps/` variant, and `spawn_default`'s doc states the
+   positive rule instead of defending against the removed working-directory
+   behaviour.
+
+The icon was revised by the CEO after the first artifact: the microphone stem
+grew from 26 to 28 px in `packaging/icon.svg`, and `packaging/speechtt.png` was
+re-rendered from it with `rsvg-convert -w 256 -h 256`. The artifact was rebuilt
+afterwards, and all three icon entries inside it (`.DirIcon`, root
+`speechtt.png`, `usr/share/icons/…/speechtt.png`) hash to the new
+`7f2bff97…31bbfd`.
+
+### CEO validation
+
+The CEO ran the built AppImage on the target machine: it launches. A
+configuration problem surfaced during that run and is out of this ticket's
+scope — it is filed separately rather than reopening this one. The packaging
+work itself is accepted.

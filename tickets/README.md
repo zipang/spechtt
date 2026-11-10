@@ -125,12 +125,11 @@ Decisions, deviations, verification output.
 | [T0035](done/T0035-window-scoped-keyboard-shortcuts.md)         | Window- and state-scoped keyboard shortcuts, and a Help tab generated from them | Cross-cutting (core + UI + docs)                          |
 | [T0036](done/T0036-gpui-kit-0-9-migration.md)                   | Migrate the UI to gpui-kit 0.9.1                                                | Rust UI (framework bump)                                  |
 | [T0037](done/T0037-launch-smoke-gate.md)                        | A gate that launches the built binary                                           | Rust UI (test infrastructure)                             |
+| [T0038](done/T0038-appimage-release-pipeline.md)                | Build an installable AppImage and publish it on GitHub Releases                 | Tooling (TypeScript/Bun) + Rust core + docs               |
 
 ### In Progress
 
-| Ticket                                                  | Title                                                           | Track                                       |
-| ------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------- |
-| [T0038](in_progress/T0038-appimage-release-pipeline.md) | Build an installable AppImage and publish it on GitHub Releases | Tooling (TypeScript/Bun) + Rust core + docs |
+_(none)_
 
 ### Review
 
