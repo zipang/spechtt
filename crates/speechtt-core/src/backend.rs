@@ -6,13 +6,13 @@
 //! - [`StdioClient`] is a pure generic NDJSON transport over any
 //!   `Write`/`BufRead` pair. Each command is one JSON line plus `\n`, flushed
 //!   immediately; each event line is parsed in isolation.
-//! - [`BunSubprocess`] spawns `bun run src/stt/worker.ts`, owns the child's
-//!   `stdin` for commands, and forwards parsed `stdout` events over an
-//!   [`async_channel`]. Dropping it closes `stdin`, which tells the worker to
-//!   abort its session and exit.
+//! - [`BunSubprocess`] locates the worker relative to its own executable and
+//!   spawns `bun run <worker>`, owns the child's `stdin` for commands, and
+//!   forwards parsed `stdout` events over an [`async_channel`]. Dropping it
+//!   closes `stdin`, which tells the worker to abort its session and exit.
 
 use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::thread::JoinHandle;
 
@@ -22,6 +22,39 @@ use crate::protocol::{SttCommand, SttEvent};
 
 /// Worker entrypoint, relative to the repository root.
 pub const WORKER_SCRIPT: &str = "src/stt/worker.ts";
+
+/// Candidate worker locations for a process whose executable lives in
+/// `exe_dir`, most specific first.
+///
+/// Every supported layout is listed so one resolver serves all of them: the
+/// Linux AppDir (`usr/bin/speechtt-ui` → `usr/share/speechtt/worker.js`), a
+/// macOS app bundle (`Contents/MacOS/speechtt-ui` → `Contents/Resources/worker.js`),
+/// a folder where the worker sits beside the executable (Windows portable, flat
+/// Linux), a Cargo build tree (`target/{debug,release}/speechtt-ui` →
+/// `<repo>/src/stt/worker.ts`) and the `target/<profile>/deps/` variant beside
+/// it, so a developer run needs no install step.
+#[must_use]
+pub fn worker_candidates(exe_dir: &Path) -> Vec<PathBuf> {
+    vec![
+        exe_dir.join("../share/speechtt/worker.js"),
+        exe_dir.join("../Resources/worker.js"),
+        exe_dir.join("worker.js"),
+        exe_dir.join("../../src/stt/worker.ts"),
+        exe_dir.join("../../../src/stt/worker.ts"),
+    ]
+}
+
+/// Picks the first candidate `exists` accepts.
+///
+/// `exists` is a parameter, not `Path::exists`, so the rule is testable without
+/// a filesystem. Returns `None` when no candidate exists; it never panics and
+/// never guesses.
+#[must_use]
+pub fn resolve_worker_in(exe_dir: &Path, exists: impl Fn(&Path) -> bool) -> Option<PathBuf> {
+    worker_candidates(exe_dir)
+        .into_iter()
+        .find(|candidate| exists(candidate))
+}
 
 /// Events forwarded from a duplex backend. `Err` reports a transport or
 /// protocol failure; the stream ends (channel closed) when the worker exits.
@@ -61,6 +94,8 @@ pub enum BackendError {
         #[source]
         source: std::io::Error,
     },
+    #[error("could not find the STT worker; looked in: {searched:?}")]
+    WorkerMissing { searched: Vec<PathBuf> },
     #[error("the stt worker is no longer accepting commands")]
     Disconnected,
 }
@@ -122,13 +157,33 @@ impl BunSubprocess {
         Self::spawn_with("bun", script)
     }
 
-    /// Spawn the repository worker ([`WORKER_SCRIPT`]).
+    /// Spawn the worker found next to this executable.
+    ///
+    /// The lookup resolves [`worker_candidates`] against [`std::env::current_exe`]'s
+    /// directory, so the same binary works from an AppDir, a macOS bundle, a
+    /// portable folder and a Cargo build tree. [`WORKER_SCRIPT`] is the
+    /// repository-relative entrypoint that tests and `bridge_smoke` spawn
+    /// directly.
     ///
     /// # Errors
     ///
-    /// See [`BunSubprocess::spawn`].
+    /// Returns [`BackendError::WorkerMissing`] with every searched path when no
+    /// candidate exists, and [`BackendError::Spawn`] when `bun` cannot start.
     pub fn spawn_default() -> Result<Self, BackendError> {
-        Self::spawn(WORKER_SCRIPT)
+        let exe_dir = std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(Path::to_path_buf));
+        let candidates = exe_dir
+            .as_deref()
+            .map(worker_candidates)
+            .unwrap_or_default();
+        let script = exe_dir
+            .as_deref()
+            .and_then(|dir| resolve_worker_in(dir, |path| path.exists()))
+            .ok_or(BackendError::WorkerMissing {
+                searched: candidates,
+            })?;
+        Self::spawn(&script)
     }
 
     /// Spawn `program run <script>`. `program` is injectable so tests can
