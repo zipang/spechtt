@@ -236,9 +236,11 @@ matches `Icon=speechtt` (AppImage's icon rule).
 
 - Version comes from `cargo metadata --format-version 1 --no-deps`, the
   workspace package version. All workspace packages must agree; a mismatch
-  exits `2` naming both versions. Never hardcode `0.1.0` in the script.
+  exits `2` naming both versions. Never hardcode the version in the script;
+  the workspace is at `0.5.0` when this ticket starts, and the script must
+  keep working at `1.0.0` without an edit.
 - `appImageFileName(version, arch)` → `SpeechTT-<version>-<arch>.AppImage`
-  (`SpeechTT-0.1.0-x86_64.AppImage`).
+  (`SpeechTT-0.5.0-x86_64.AppImage`).
 - `arch` defaults to the host: `x86_64` → `x86_64`, `aarch64` → `aarch64`;
   any other `uname -m` exits `2` with the unsupported value.
 - The checksum file is `<AppImage>.sha256` whose single line is
