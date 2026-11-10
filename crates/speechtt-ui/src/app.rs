@@ -68,12 +68,15 @@ use gpui_kit::{
 };
 use speechtt_core::actions::SessionAction;
 use speechtt_core::audio::{AudioError, AudioSource, CpalAudioSource, PcmChunk};
-use speechtt_core::backend::{BackendError, BunSubprocess, SttEventReceiver, SttSessionSink};
+use speechtt_core::backend::{
+    BackendError, BunSubprocess, SttEventReceiver, SttSessionSink, bun_candidates, resolve_bun_in,
+    which_on_path,
+};
 use speechtt_core::fft::SpectrumAnalyzer;
 use speechtt_core::output::clipboard::{ClipboardSink, SystemClipboard};
 use speechtt_core::output::file::{FileOpener, SystemOpener, suggested_transcript_name};
 use speechtt_core::output::paste::{PasteSink, SystemPaste};
-use speechtt_core::protocol::TranscriptionMode;
+use speechtt_core::protocol::{SttEvent, TranscriptionMode};
 use speechtt_core::session::{SessionField, SessionState};
 use speechtt_core::settings::{JsonFileStore, Settings, SettingsStore, WindowLayout};
 
@@ -82,9 +85,9 @@ use crate::components::{
     SelectFields, SelectSnapshot,
 };
 use crate::controller::{
-    AppError, CleanStatus, CleanToggle, Clock, Dialog, ErrorAction, FinishedTake, HelpTab,
-    SAMPLE_RATE, SessionController, SessionMode, SettingsChange, SettingsDraft, SystemClock,
-    ViewState,
+    AppError, BackendFailure, CleanStatus, CleanToggle, Clock, Dialog, ErrorAction, FinishedTake,
+    HelpTab, SAMPLE_RATE, SessionController, SessionMode, SettingsChange, SettingsDraft,
+    StartupSettingsAction, SystemClock, ViewState,
 };
 use crate::tokens::color;
 use crate::views;
@@ -233,6 +236,15 @@ pub struct AppServices {
 
 type AudioFactory = Box<dyn FnMut() -> Result<Box<dyn AudioSource>, AudioError> + Send>;
 
+/// How the widget obtains a worker process.
+///
+/// The production value is [`spawn_backend`], which resolves `bun` and starts
+/// the real subprocess. The headless fixtures replace it with a closure that
+/// returns an in-memory sink or a chosen failure, so the save → respawn path in
+/// [`SpeechTtApp::save_settings`] is reachable without a `bun` installation and
+/// without starting a process.
+type BackendSpawn = Box<dyn Fn(&Settings) -> Result<Box<dyn SttSessionSink>, BackendFailure>>;
+
 /// Root view of the widget window.
 pub struct SpeechTtApp {
     /// The window's keyboard target.
@@ -255,6 +267,9 @@ pub struct SpeechTtApp {
     ripple: Option<Ripple>,
     ripple_seq: u64,
     settings_api_key: Entity<InputState>,
+    /// The Settings dialog's `Bun path` field. Its value mirrors
+    /// [`SettingsDraft::bun_executable`].
+    settings_bun_path: Entity<InputState>,
     settings_key_revealed: bool,
     /// The provider and model dropdowns of the Session setup form.
     draft_selects: SelectFields,
@@ -270,6 +285,16 @@ pub struct SpeechTtApp {
     _subscriptions: Vec<Subscription>,
     /// Backend event pump; dropped (and cancelled) with the view.
     _event_task: Option<Task<()>>,
+    /// The process spawn behind startup and the save-triggered respawn.
+    /// See [`BackendSpawn`]; [`SpeechTtApp::set_backend_spawn`] replaces it in
+    /// the headless fixtures.
+    backend_spawn: BackendSpawn,
+    /// Whether the first catalogue can only have come from the startup spawn.
+    ///
+    /// Set when the startup spawn attaches a worker and cleared when a save
+    /// respawns one, so the event pump does not report a recovered backend as a
+    /// healthy launch.
+    catalogue_from_startup: bool,
     /// Clock-driven elapsed read-out.
     _clock_task: Option<Task<()>>,
     /// Capture pump; dropped (and cancelled) with the view.
@@ -299,30 +324,21 @@ impl SpeechTtApp {
     /// Production composition root: real capture, duplex Bun backend,
     /// settings file, clipboard/paste/opener and the platform save dialog.
     ///
-    /// A missing Bun binary never prevents the widget from opening; the failure
-    /// is surfaced as a typed error strip instead.
+    /// The runtime is resolved from the persisted `bun_executable` override,
+    /// `PATH` and the well-known install locations, in that order. A missing
+    /// `bun` never prevents the widget from opening: the failure is recorded so
+    /// Settings can name it, and the dialog opens by itself when the widget
+    /// cannot work without it.
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let (sink, events, backend_failed) = match BunSubprocess::spawn_default() {
-            Ok(backend) => {
-                let events = backend.events();
-                (Box::new(backend) as Box<dyn SttSessionSink>, events, false)
-            }
-            Err(_) => {
-                let (_sender, receiver) = speechtt_core::async_channel::unbounded();
-                (
-                    Box::new(UnavailableSink) as Box<dyn SttSessionSink>,
-                    receiver,
-                    true,
-                )
-            }
-        };
-
         let factory: AudioFactory =
             Box::new(|| Ok(Box::new(CpalAudioSource::open_default()?) as Box<dyn AudioSource>));
+        // The composition root swaps this stand-in for a real worker once the
+        // settings store has answered; until then no commands leave the view.
+        let (_sender, events) = speechtt_core::async_channel::unbounded();
         let services = AppServices {
             audio: Box::new(LazyCpalAudioSource::default()),
             analyzer: SpectrumAnalyzer::new(SAMPLE_RATE),
-            sink,
+            sink: Box::new(UnavailableSink),
             events,
             settings: Box::new(JsonFileStore::new(JsonFileStore::default_path())),
             clipboard: Box::new(SystemClipboard::new()),
@@ -332,10 +348,18 @@ impl SpeechTtApp {
             clock: Box::new(SystemClock),
         };
 
-        let mut app = Self::with_services_and_factory(services, Some(factory), window, cx);
-        if backend_failed {
-            app.controller.report_error(AppError::BackendUnavailable);
-        }
+        let mut app = Self::with_services_and_factory(
+            services,
+            Some(factory),
+            // The startup spawn below attaches the real pump; a pump over the
+            // stand-in's closed channel would report a second, less specific
+            // failure over the recorded one.
+            false,
+            window,
+            cx,
+        );
+        app.attach_backend_on_startup(cx);
+        app.open_settings_if_startup_requires(window, cx);
         app
     }
 
@@ -345,12 +369,29 @@ impl SpeechTtApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        Self::with_services_and_factory(services, None, window, cx)
+        Self::with_services_and_factory(services, None, true, window, cx)
     }
 
+    /// Replaces the process-spawning half of the backend seam.
+    ///
+    /// Production installs [`spawn_backend`]. A headless fixture installs a
+    /// closure that returns a sink it can inspect, or the failure the test
+    /// wants to pin, so both branches of the save → respawn rule are reachable
+    /// without a `bun` installation and without starting a process.
+    pub fn set_backend_spawn(
+        &mut self,
+        spawn: impl Fn(&Settings) -> Result<Box<dyn SttSessionSink>, BackendFailure> + 'static,
+    ) {
+        self.backend_spawn = Box::new(spawn);
+    }
+
+    /// Shared constructor. `start_events` is `false` only for the production
+    /// path, which replaces the stand-in backend before it attaches the real
+    /// event pump.
     fn with_services_and_factory(
         services: AppServices,
         audio_factory: Option<AudioFactory>,
+        start_events: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -364,6 +405,17 @@ impl SpeechTtApp {
                 if matches!(event, InputEvent::Change) {
                     this.controller
                         .set_settings_api_key(input.read(cx).value().to_string());
+                    cx.notify();
+                }
+            });
+
+        let settings_bun_path =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Auto: resolved from PATH"));
+        let bun_path_subscription =
+            cx.subscribe(&settings_bun_path, |this, input, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.controller
+                        .set_settings_bun_executable(input.read(cx).value().to_string());
                     cx.notify();
                 }
             });
@@ -429,6 +481,7 @@ impl SpeechTtApp {
             ripple: None,
             ripple_seq: 0,
             settings_api_key,
+            settings_bun_path,
             settings_key_revealed: false,
             draft_selects,
             live_model_field,
@@ -437,12 +490,17 @@ impl SpeechTtApp {
             pending_settings: None,
             _subscriptions: vec![
                 settings_subscription,
+                bun_path_subscription,
                 provider_subscription,
                 model_subscription,
                 live_model_subscription,
                 window_closed,
             ],
             _event_task: None,
+            backend_spawn: Box::new(|settings| {
+                spawn_backend(settings).map(|backend| Box::new(backend) as Box<dyn SttSessionSink>)
+            }),
+            catalogue_from_startup: false,
             _clock_task: None,
             _audio_task: None,
             audio_thread: None,
@@ -465,9 +523,14 @@ impl SpeechTtApp {
         if let Some(error) = settings_error {
             app.controller.report_error(AppError::from_settings(&error));
         }
-        app.start_event_loop(services.events, cx);
+        if start_events {
+            app.start_event_loop(services.events, cx);
+            // The test seam has its sink already attached; the production
+            // path asks for the catalogue after it spawned the real worker, so
+            // a healthy launch never sends a command to the stand-in.
+            app.controller.request_capabilities();
+        }
         app.start_clock_loop(cx);
-        app.controller.request_capabilities();
         // The widget root holds focus until a control inside it takes over, so
         // the window's key context is on the dispatch path from the first frame.
         app.focus.focus(window, cx);
@@ -673,6 +736,11 @@ impl SpeechTtApp {
 
     pub(crate) fn settings_api_key_input(&self) -> &Entity<InputState> {
         &self.settings_api_key
+    }
+
+    /// The `Bun path` field of the Settings dialog.
+    pub(crate) fn settings_bun_path_input(&self) -> &Entity<InputState> {
+        &self.settings_bun_path
     }
 
     pub fn settings_key_revealed(&self) -> bool {
@@ -1297,7 +1365,12 @@ impl SpeechTtApp {
         let provider = stored.provider.clone();
         let streaming = stored.model_streaming.clone();
         let batch = stored.model_batch.clone();
-        if streaming.trim().is_empty() && batch.trim().is_empty() {
+        if !self.controller.catalogue_loaded() {
+            // No catalogue can validate the stored ids, and none may arrive
+            // while the backend is down; show the persisted values so the
+            // `Bun path` correction is savable.
+            self.controller.open_settings_from_stored();
+        } else if streaming.trim().is_empty() && batch.trim().is_empty() {
             self.controller.open_settings();
         } else {
             let has_key = stored.api_key(&stored.provider).is_some();
@@ -1309,13 +1382,20 @@ impl SpeechTtApp {
             );
         }
         // Refresh the provider/model catalogue each time the dialog opens so
-        // a key exported after startup appears as connected.
-        self.controller.request_capabilities();
+        // a key exported after startup appears as connected. With no worker
+        // attached the command has nowhere to go, and the dialog shows the
+        // recorded failure instead.
+        if !self.controller.backend_unavailable() {
+            self.controller.request_capabilities();
+        }
         self.settings_key_revealed = false;
         self.settings_api_key.update(cx, |state, cx| {
             state.set_value("", window, cx);
             state.set_masked(true, window, cx);
         });
+        let bun_path = self.controller.settings_draft().bun_executable.clone();
+        self.settings_bun_path
+            .update(cx, |state, cx| state.set_value(bun_path, window, cx));
         self.request_dialog_window(Dialog::Settings, cx);
         cx.notify();
     }
@@ -1505,6 +1585,23 @@ impl SpeechTtApp {
         true
     }
 
+    /// Mirrors a typed `Bun path` into both the controller and its input.
+    ///
+    /// The same pair the API-key setter mirrors: the draft is what the save
+    /// reads, the input is what the dialog shows, and they must not diverge.
+    pub fn set_settings_bun_executable(
+        &mut self,
+        value: impl Into<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let value = value.into();
+        self.controller.set_settings_bun_executable(value.clone());
+        self.settings_bun_path
+            .update(cx, |state, cx| state.set_value(value, window, cx));
+        cx.notify();
+    }
+
     /// Mirrors a typed key into both the controller and the masked input.
     pub fn set_settings_api_key_value(
         &mut self,
@@ -1532,13 +1629,30 @@ impl SpeechTtApp {
         cx.notify();
     }
 
-    /// Commits the Settings draft. Returns `false` and leaves the dialog open
-    /// when the draft is incomplete.
+    /// Commits the Settings draft, spawning a worker when the dialog was the
+    /// last chance to reach one.
+    ///
+    /// Returns `false` — with the dialog and the draft still on screen — when
+    /// the draft is incomplete, the store rejects the save, or the respawn the
+    /// save made possible still fails. A *healthy* backend is never replaced:
+    /// only an unattached one, or one whose worker has died while its sink was
+    /// still attached, is respawned. When the backend is healthy the existing
+    /// handshake refresh stands.
     pub fn save_settings(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(change) = self.controller.save_settings() else {
+        let Some(change) = self.controller.settings_change() else {
             return false;
         };
-        self.apply_settings_change(change);
+        if !self.apply_settings_change(change) {
+            cx.notify();
+            return false;
+        }
+
+        if self.controller.backend_unavailable() && !self.respawn_backend(cx) {
+            cx.notify();
+            return false;
+        }
+
+        self.controller.close_dialog();
         cx.notify();
         true
     }
@@ -1546,24 +1660,11 @@ impl SpeechTtApp {
     /// Persist a committed Settings draft and make it current for the next
     /// take. The draft key is written only to the store; it never appears in
     /// `pending_settings` debug output because `SettingsChange` redacts it.
-    pub fn apply_settings_change(&mut self, change: SettingsChange) {
-        let provider = change.provider.clone();
-        let next = Settings {
-            provider: change.provider.clone(),
-            model_streaming: change.model_streaming.clone(),
-            model_batch: change.model_batch.clone(),
-            model: String::new(),
-            language_model: change.language_model.clone().unwrap_or_default(),
-            language: change.language.clone().unwrap_or_default(),
-            api_keys: self.stored_settings.api_keys.clone(),
-            shortcuts: self.stored_settings.shortcuts.clone(),
-            auto_paste: self.stored_settings.auto_paste,
-            window: self.stored_settings.window,
-        };
-        let mut next = next;
-        if let Some(key) = &change.api_key {
-            next.set_api_key(&provider, key.clone());
-        }
+    ///
+    /// Returns whether the store accepted the value. Attaching a backend is
+    /// [`SpeechTtApp::save_settings`]'s job because it needs the window context.
+    pub fn apply_settings_change(&mut self, change: SettingsChange) -> bool {
+        let next = settings_after_change(&change, &self.stored_settings);
 
         self.pending_settings = Some(change);
 
@@ -1573,12 +1674,18 @@ impl SpeechTtApp {
                 self.controller.apply_settings(next);
                 self.controller.dismiss_error();
                 // Re-run the handshake so the newly saved key flips the
-                // provider to CONNECTED without reopening the app.
-                self.controller.request_capabilities();
+                // provider to CONNECTED without reopening the app. When no
+                // backend is attached, `save_settings` respawns it and that
+                // path asks for the catalogue instead.
+                if !self.controller.backend_unavailable() {
+                    self.controller.request_capabilities();
+                }
+                true
             }
             Err(error) => {
                 self.controller
                     .report_error(AppError::from_settings(&error));
+                false
             }
         }
     }
@@ -1603,6 +1710,81 @@ impl SpeechTtApp {
         cx.notify();
     }
 
+    /// Spawns the worker the persisted settings resolve, and attaches it.
+    ///
+    /// The startup path: the settings store has answered, so the runtime
+    /// override, `PATH` and the well-known locations are all available. A
+    /// failure is recorded so Settings can name it; it never prevents the
+    /// widget from opening.
+    fn attach_backend_on_startup(&mut self, cx: &mut Context<Self>) {
+        match (self.backend_spawn)(&self.stored_settings) {
+            Ok(backend) => self.attach_backend(backend, true, cx),
+            Err(failure) => self.record_backend_failure(failure),
+        }
+    }
+
+    /// Retries the spawn after a save that supplied a usable runtime.
+    ///
+    /// Called only while [`SessionController::backend_unavailable`] holds: no
+    /// worker is attached, or the attached one has died. A dead worker is
+    /// replaced because it can never answer again; a healthy one is not,
+    /// because replacing it would drop the take it is running. A failed retry
+    /// records the new failure and leaves the dialog, and the user's
+    /// correction, on screen.
+    fn respawn_backend(&mut self, cx: &mut Context<Self>) -> bool {
+        match (self.backend_spawn)(&self.stored_settings) {
+            Ok(backend) => {
+                self.attach_backend(backend, false, cx);
+                true
+            }
+            Err(failure) => {
+                self.record_backend_failure(failure);
+                false
+            }
+        }
+    }
+
+    /// Makes `backend` the controller's sink and asks it for the catalogue.
+    ///
+    /// `from_startup` decides how the first catalogue is reported: the startup
+    /// spawn owns the healthy-launch marker, a save respawn must not claim one.
+    fn attach_backend(
+        &mut self,
+        backend: Box<dyn SttSessionSink>,
+        from_startup: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.catalogue_from_startup = from_startup;
+        // Exactly one pump owns the event stream: detach the previous one even
+        // when the replacement has no inbound events.
+        self._event_task = None;
+        self.connect_backend(backend, cx);
+        self.controller.clear_backend_failure();
+        self.controller.request_capabilities();
+    }
+
+    fn record_backend_failure(&mut self, failure: BackendFailure) {
+        self.controller.note_backend_failure(failure);
+        self.controller.report_error(AppError::BackendUnavailable);
+    }
+
+    /// Opens Settings once per launch when the widget cannot work.
+    ///
+    /// The controller owns the one-shot decision and names the action that is
+    /// missing; the dialog seeds its rows from the stored settings, and its
+    /// failure note says what is wrong.
+    fn open_settings_if_startup_requires(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(action) = self.controller.check_startup_settings() else {
+            return;
+        };
+        crate::diagnostics::log_settings_recovery(match action {
+            StartupSettingsAction::BunPath => "bun-missing",
+            StartupSettingsAction::Backend => "backend-unavailable",
+            StartupSettingsAction::ApiKey => "api-key-missing",
+        });
+        self.open_settings(window, cx);
+    }
+
     /// Own the backend event receiver. The task lives as long as the view;
     /// dropping it cancels the pump.
     fn start_event_loop(&mut self, events: SttEventReceiver, cx: &mut Context<Self>) {
@@ -1613,7 +1795,18 @@ impl SpeechTtApp {
             while let Ok(message) = events.recv().await {
                 let updated = this.update(cx, |this, cx| {
                     match message {
-                        Ok(event) => this.controller.handle_stt_event(event),
+                        Ok(event) => {
+                            if !this.controller.catalogue_loaded()
+                                && let SttEvent::Capabilities { providers, .. } = &event
+                            {
+                                if this.catalogue_from_startup {
+                                    crate::diagnostics::log_catalogue_loaded(providers.len());
+                                } else {
+                                    crate::diagnostics::log_catalogue_respawned(providers.len());
+                                }
+                            }
+                            this.controller.handle_stt_event(event);
+                        }
                         Err(error) => this.controller.report_error(AppError::from_backend(&error)),
                     }
                     // A `Stopped` event refines the finished take, so the
@@ -1631,6 +1824,8 @@ impl SpeechTtApp {
                 // A dead worker will never send the final `Stopped`: the take
                 // that asked for a copy/paste still gets the text there is.
                 this.flush_auto_paste();
+                this.controller
+                    .note_backend_failure(BackendFailure::Unavailable);
                 this.controller.report_error(AppError::BackendUnavailable);
                 cx.notify();
             });
@@ -2041,6 +2236,123 @@ impl AudioSource for LazyCpalAudioSource {
     }
 }
 
+/// The Settings a committed change produces from the stored file.
+///
+/// Every field of [`SettingsChange`] is copied here; a field the change carries
+/// but this literal omits would be dropped on every save. Fields the dialog
+/// does not edit (API keys other than the current provider's, the legacy
+/// shortcut map, auto-paste, window geometry) are carried over from `stored`.
+fn settings_after_change(change: &SettingsChange, stored: &Settings) -> Settings {
+    let mut next = Settings {
+        provider: change.provider.clone(),
+        model_streaming: change.model_streaming.clone(),
+        model_batch: change.model_batch.clone(),
+        model: String::new(),
+        language_model: change.language_model.clone().unwrap_or_default(),
+        language: change.language.clone().unwrap_or_default(),
+        api_keys: stored.api_keys.clone(),
+        bun_executable: change.bun_executable.trim().to_owned(),
+        shortcuts: stored.shortcuts.clone(),
+        auto_paste: stored.auto_paste,
+        window: stored.window,
+    };
+    if let Some(key) = &change.api_key {
+        next.set_api_key(&change.provider, key.clone());
+    }
+    next
+}
+
+/// Resolves the configured `bun` and spawns the worker beside this executable.
+///
+/// Resolution order is [`bun_candidates`]'s: the persisted override (with a
+/// leading `~` expanded), `PATH`, `$HOME/.bun/bin/bun`, then the system
+/// locations. A configured path that exists without the execute bit is
+/// [`BackendFailure::NotExecutable`] rather than a silent fall-through to
+/// `PATH`: the user's explicit answer is wrong in a way only they can fix.
+/// Called by [`SpeechTtApp::new`] at startup and by
+/// [`SpeechTtApp::save_settings`] when a save supplied the missing runtime. A
+/// missing runtime is reported with every candidate it searched.
+fn spawn_backend(settings: &Settings) -> Result<BunSubprocess, BackendFailure> {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let configured = configured_bun_path(&settings.bun_executable, home.as_deref());
+    if let Some(path) = &configured
+        && let Some(problem) = configured_path_problem(path, |path| path.is_file(), is_executable)
+    {
+        return Err(problem);
+    }
+
+    let searched = bun_candidates(configured.as_deref(), home.as_deref());
+    let program = resolve_bun_in(
+        configured.as_deref(),
+        home.as_deref(),
+        which_on_path,
+        |path| path.is_file(),
+    )
+    .ok_or(BackendFailure::BunMissing { searched })?;
+
+    BunSubprocess::spawn_default_with(program.to_string_lossy().into_owned(), |path| {
+        path.is_file()
+    })
+    .map_err(|error| BackendFailure::from_backend_error(&error))
+}
+
+/// The `bun_executable` setting as a path, with a leading `~` expanded against
+/// `home`.
+///
+/// A user copies the value from a shell prompt, where `~` is the shell's to
+/// expand, so the widget must expand it too: `~/bin/bun` is never a literal
+/// directory name. `None` means "resolve automatically" — the setting is empty
+/// or whitespace, or it starts with `~` and there is no home directory to
+/// expand it against.
+fn configured_bun_path(configured: &str, home: Option<&Path>) -> Option<PathBuf> {
+    let trimmed = configured.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed == "~" {
+        return home.map(Path::to_path_buf);
+    }
+    if let Some(rest) = trimmed.strip_prefix("~/") {
+        return home.map(|home| home.join(rest));
+    }
+    Some(PathBuf::from(trimmed))
+}
+
+/// Whether a configured path is a problem before any fallback is tried.
+///
+/// `None` when the path may be used, or when it does not exist at all: a
+/// configured value that is simply absent falls through to the automatic
+/// lookup, exactly as an empty setting does. `Some` only when the user's
+/// explicit answer is present but cannot be executed, which no fallback should
+/// hide. Both lookups are parameters so the rule is testable without a
+/// filesystem.
+fn configured_path_problem(
+    path: &Path,
+    exists: impl Fn(&Path) -> bool,
+    executable: impl Fn(&Path) -> bool,
+) -> Option<BackendFailure> {
+    (exists(path) && !executable(path)).then(|| BackendFailure::NotExecutable {
+        path: path.to_path_buf(),
+    })
+}
+
+/// Whether `path` is a file the OS can execute.
+///
+/// On Unix that is any execute bit; elsewhere the extension rule belongs to the
+/// OS, so a regular file is the most this can prove without starting it.
+#[cfg(unix)]
+fn is_executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::metadata(path)
+        .map(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
+}
+
+#[cfg(not(unix))]
+fn is_executable(path: &Path) -> bool {
+    path.is_file()
+}
+
 /// Stand-in backend when the Bun worker cannot be spawned.
 struct UnavailableSink;
 
@@ -2052,12 +2364,113 @@ impl SttSessionSink for UnavailableSink {
 
 #[cfg(test)]
 mod tests {
-    use super::copyable_selection;
+    use super::{
+        configured_bun_path, configured_path_problem, copyable_selection, settings_after_change,
+    };
+    use crate::controller::{BackendFailure, SettingsChange};
+    use speechtt_core::settings::Settings;
+    use std::path::{Path, PathBuf};
+
+    /// A path copied from a shell prompt starts with `~`, which the shell would
+    /// have expanded. The widget must resolve it against `$HOME` itself,
+    /// because no shell runs between the saved setting and the spawn.
+    #[test]
+    fn a_configured_path_expands_a_leading_tilde() {
+        let home = Path::new("/home/ada");
+
+        assert_eq!(
+            configured_bun_path("~/bin/bun", Some(home)),
+            Some(PathBuf::from("/home/ada/bin/bun"))
+        );
+        assert_eq!(
+            configured_bun_path("  ~/.bun/bin/bun  ", Some(home)),
+            Some(PathBuf::from("/home/ada/.bun/bin/bun")),
+            "the setting is trimmed before the expansion"
+        );
+        assert_eq!(
+            configured_bun_path("~", Some(home)),
+            Some(PathBuf::from("/home/ada"))
+        );
+        assert_eq!(
+            configured_bun_path("~/bin/bun", None),
+            None,
+            "without a home directory there is nothing to expand, so the lookup goes automatic"
+        );
+    }
+
+    /// An absolute or relative path without a tilde is used verbatim; the
+    /// empty setting means "resolve automatically".
+    #[test]
+    fn a_configured_path_without_a_tilde_is_used_as_written() {
+        assert_eq!(
+            configured_bun_path("/opt/bun/bin/bun", Some(Path::new("/home/ada"))),
+            Some(PathBuf::from("/opt/bun/bin/bun"))
+        );
+        assert_eq!(
+            configured_bun_path("bin/bun", None),
+            Some(PathBuf::from("bin/bun"))
+        );
+        assert_eq!(configured_bun_path("", Some(Path::new("/home/ada"))), None);
+        assert_eq!(configured_bun_path("  \t ", None), None);
+    }
+
+    /// A configured path that is present but cannot be executed is reported
+    /// instead of falling through to `PATH`, because falling through would tell
+    /// the user "not found" about a file they can see.
+    #[test]
+    fn a_configured_path_is_reported_when_it_exists_but_is_not_executable() {
+        let path = Path::new("/home/ada/bin/bun");
+
+        assert_eq!(
+            configured_path_problem(path, |_| true, |_| false),
+            Some(BackendFailure::NotExecutable {
+                path: PathBuf::from("/home/ada/bin/bun")
+            })
+        );
+        assert_eq!(
+            configured_path_problem(path, |_| true, |_| true),
+            None,
+            "an executable path is usable"
+        );
+        assert_eq!(
+            configured_path_problem(path, |_| false, |_| false),
+            None,
+            "an absent path falls through to the automatic lookup"
+        );
+    }
 
     /// A stray shortcut with nothing selected must not empty the clipboard.
     #[test]
     fn an_empty_selection_leaves_the_clipboard_alone() {
         assert_eq!(copyable_selection(""), None);
+    }
+
+    /// The §2 trap: a field `SettingsChange` carries but the rebuild omits is
+    /// dropped on every save. The bun override must survive, trimmed, with the
+    /// fields the dialog does not edit carried over.
+    #[test]
+    fn a_committed_change_keeps_the_bun_executable_and_the_untouched_fields() {
+        let stored = Settings {
+            auto_paste: false,
+            language: "fr".to_owned(),
+            ..Settings::default()
+        };
+        let change = SettingsChange {
+            provider: "vercel-ai-gateway".to_owned(),
+            model_streaming: "openai/gpt-realtime-whisper".to_owned(),
+            model_batch: "openai/gpt-4o-transcribe".to_owned(),
+            language: Some("de".to_owned()),
+            language_model: None,
+            bun_executable: "  /home/ada/.bun/bin/bun  ".to_owned(),
+            api_key: None,
+        };
+
+        let next = settings_after_change(&change, &stored);
+
+        assert_eq!(next.bun_executable, "/home/ada/.bun/bin/bun");
+        assert_eq!(next.language, "de");
+        assert!(!next.auto_paste, "a field the dialog does not edit is kept");
+        assert_eq!(next.api_keys, stored.api_keys);
     }
 
     /// Whitespace is a selection the user cannot see, so it never replaces the

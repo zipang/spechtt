@@ -359,6 +359,7 @@ fn error_messages_never_contain_secret_material_or_transcript_text() {
         model_batch: "openai/gpt-4o-transcribe".into(),
         language: Some("fr".into()),
         language_model: None,
+        bun_executable: String::new(),
         api_key: Some(secret.into()),
     };
     let debug = format!("{change:?}");

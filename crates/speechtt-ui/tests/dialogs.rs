@@ -4,11 +4,18 @@
 //! (and one headless render smoke test). No assertion depends on element
 //! placement, geometry or labels, so the dialog design stays free to change.
 
-use speechtt_core::protocol::{ModelCapabilityInfo, ProviderCapability, TranscriptionMode};
+use speechtt_core::backend::{BackendError, SttSessionSink};
+use speechtt_core::protocol::{
+    ModelCapabilityInfo, ProviderCapability, SttCommand, TranscriptionMode,
+};
 use speechtt_core::settings::Settings;
 use speechtt_ui::controller::{
-    Dialog, HelpTab, STORED_KEY_REVEAL_HINT, SessionController, SettingsChange,
+    AppError, BackendFailure, Dialog, HelpTab, STORED_KEY_REVEAL_HINT, SessionController,
+    SettingsChange,
 };
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 const MIXED_CASE_KEY: &str = "vck_AbCdEfGhIjKlMnOpQrStUvWxYzH0123456789";
 
@@ -101,6 +108,7 @@ fn settings_saves_a_complete_draft_and_closes() {
             model_batch: "openai/gpt-4o-transcribe".to_string(),
             language: None,
             language_model: None,
+            bun_executable: String::new(),
             api_key: Some("sk-dialog-test".to_string()),
         }
     );
@@ -470,4 +478,180 @@ async fn the_dialog_commits_the_dictation_language_and_offers_the_cleanup_models
         );
     })
     .unwrap();
+}
+
+/// A sink the injected spawn returns: it records the commands the app sends,
+/// so a test can prove the worker was attached without starting one.
+#[derive(Clone, Default)]
+struct InjectedSink {
+    commands: Arc<Mutex<Vec<SttCommand>>>,
+}
+
+impl InjectedSink {
+    fn commands(&self) -> Vec<SttCommand> {
+        self.commands.lock().expect("injected sink lock").clone()
+    }
+}
+
+impl SttSessionSink for InjectedSink {
+    fn send(&mut self, cmd: SttCommand) -> Result<(), BackendError> {
+        self.commands.lock().expect("injected sink lock").push(cmd);
+        Ok(())
+    }
+}
+
+/// Saving a `Bun path` while no worker is attached spawns one and attaches it.
+#[gpui_kit::test]
+fn saving_a_bun_path_respawns_and_attaches_the_worker(cx: &mut gpui_kit::TestAppContext) {
+    let (main, view, events) = common::open_speechtt_window_without_catalogue(cx);
+    drop(events);
+    cx.run_until_parked();
+    assert_eq!(
+        cx.update(|cx| view.read(cx).app_error().cloned()),
+        Some(AppError::BackendUnavailable),
+        "a closed event stream is the dead-worker state"
+    );
+
+    let spawns = Arc::new(AtomicUsize::new(0));
+    let sink = InjectedSink::default();
+    let recorder = sink.clone();
+    let calls = spawns.clone();
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            app.set_backend_spawn(move |settings| {
+                assert_eq!(
+                    settings.bun_executable, "/home/ada/.bun/bin/bun",
+                    "the save hands the spawn the corrected runtime"
+                );
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(Box::new(recorder.clone()))
+            });
+        });
+    });
+
+    cx.update_window(main.into(), |_, window, cx| {
+        view.update(cx, |app, cx| {
+            app.open_settings(window, cx);
+            app.set_settings_bun_executable("/home/ada/.bun/bin/bun", window, cx);
+        });
+        window.render_frame(cx);
+        view.update(cx, |app, cx| assert!(app.save_settings(cx)));
+    })
+    .unwrap();
+
+    assert_eq!(spawns.load(Ordering::SeqCst), 1, "exactly one respawn");
+    assert_eq!(
+        cx.update(|cx| view.read(cx).active_dialog()),
+        None,
+        "a successful save closes Settings"
+    );
+    assert_eq!(cx.update(|cx| view.read(cx).app_error().cloned()), None);
+    assert!(
+        sink.commands()
+            .iter()
+            .any(|command| matches!(command, SttCommand::Capabilities { .. })),
+        "the attached worker is asked for the catalogue"
+    );
+}
+
+/// A backend that is already working is never replaced: a save only refreshes
+/// the handshake, because respawning would drop a live take.
+#[gpui_kit::test]
+fn saving_with_a_healthy_backend_does_not_spawn_a_worker(cx: &mut gpui_kit::TestAppContext) {
+    let (main, view) = common::open_speechtt_window(cx);
+
+    let spawns = Arc::new(AtomicUsize::new(0));
+    let calls = spawns.clone();
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            app.set_backend_spawn(move |_| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Err(BackendFailure::Unavailable)
+            });
+        });
+    });
+
+    cx.update_window(main.into(), |_, window, cx| {
+        view.update(cx, |app, cx| {
+            app.open_settings(window, cx);
+            assert!(app.set_settings_provider("vercel-ai-gateway", cx));
+            assert!(app.set_settings_streaming_model("openai/gpt-realtime-whisper", cx));
+            assert!(app.set_settings_batch_model("openai/gpt-4o-transcribe", cx));
+            app.set_settings_api_key_value("sk-app-test", window, cx);
+        });
+        window.render_frame(cx);
+        view.update(cx, |app, cx| assert!(app.save_settings(cx)));
+    })
+    .unwrap();
+
+    assert_eq!(
+        spawns.load(Ordering::SeqCst),
+        0,
+        "a healthy backend is not replaced"
+    );
+    assert_eq!(cx.update(|cx| view.read(cx).active_dialog()), None);
+}
+
+/// A respawn that fails keeps the dialog, the error and the correction: the
+/// user can fix the path again without reopening anything.
+#[gpui_kit::test]
+fn a_failed_respawn_keeps_settings_open_with_the_error_and_the_draft(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let (main, view, events) = common::open_speechtt_window_without_catalogue(cx);
+    drop(events);
+    cx.run_until_parked();
+
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            app.set_backend_spawn(|_| {
+                Err(BackendFailure::BunMissing {
+                    searched: vec![PathBuf::from("/home/ada/.nowhere/bun")],
+                })
+            });
+        });
+    });
+
+    cx.update_window(main.into(), |_, window, cx| {
+        view.update(cx, |app, cx| {
+            app.open_settings(window, cx);
+            app.set_settings_bun_executable("/home/ada/.nowhere/bun", window, cx);
+        });
+        window.render_frame(cx);
+        view.update(cx, |app, cx| assert!(!app.save_settings(cx)));
+    })
+    .unwrap();
+
+    assert_eq!(
+        cx.update(|cx| view.read(cx).active_dialog()),
+        Some(Dialog::Settings),
+        "a failed respawn keeps the dialog open"
+    );
+    assert_eq!(
+        cx.update(|cx| view.read(cx).app_error().cloned()),
+        Some(AppError::BackendUnavailable),
+        "the failure is still reported"
+    );
+    assert_eq!(
+        cx.update(|cx| view.read(cx).settings_draft().bun_executable.clone()),
+        "/home/ada/.nowhere/bun",
+        "the correction is still in the draft"
+    );
+
+    // Editable, not merely visible: a second correction saves once the spawn
+    // succeeds, so the dialog never became a dead end.
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            app.set_backend_spawn(|_| Ok(Box::new(InjectedSink::default())));
+        });
+    });
+    cx.update_window(main.into(), |_, window, cx| {
+        view.update(cx, |app, cx| {
+            app.set_settings_bun_executable("/home/ada/.bun/bin/bun", window, cx);
+            assert!(app.save_settings(cx));
+        });
+    })
+    .unwrap();
+    assert_eq!(cx.update(|cx| view.read(cx).active_dialog()), None);
+    assert_eq!(cx.update(|cx| view.read(cx).app_error().cloned()), None);
 }

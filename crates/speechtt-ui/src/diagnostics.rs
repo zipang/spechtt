@@ -8,7 +8,10 @@
 //! in `controller::SessionController::handle_stt_event`; nothing else writes an
 //! error line. `lib.rs::run` writes the launch handshake ([`log_launched`])
 //! through the same channel, and `tests/launch.rs` waits for it to judge a real
-//! launch.
+//! launch. `app::SpeechTtApp` writes the two startup markers — the Settings
+//! self-check ([`log_settings_recovery`]) and the first catalogue
+//! ([`log_catalogue_loaded`] / [`log_catalogue_respawned`]) — here as well, so
+//! every `[speechtt]` line has one writer and one format.
 
 use crate::controller::{AppError, sanitize_detail};
 use speechtt_core::protocol::SttEvent;
@@ -37,6 +40,62 @@ pub fn launched_line() -> String {
 /// Called by `lib.rs::run` once the window is open; nothing else writes it.
 pub fn log_launched() {
     eprintln!("{}", launched_line());
+}
+
+/// The line the startup self-check writes when it opens Settings:
+/// `[speechtt] startup settings=open reason=<reason>`.
+///
+/// `reason` is a fixed vocabulary (`bun-missing`, `backend-unavailable`,
+/// `api-key-missing`) and carries no user data. A headless launch cannot show
+/// the Settings window, so this line is how the self-check is observed from
+/// outside the process.
+#[must_use]
+pub fn settings_recovery_line(reason: &str) -> String {
+    format!("[speechtt] startup settings=open reason={reason}")
+}
+
+/// Write the line [`settings_recovery_line`] describes.
+///
+/// Called by `app::SpeechTtApp` when it opens Settings at startup; nothing else
+/// writes it.
+pub fn log_settings_recovery(reason: &str) {
+    eprintln!("{}", settings_recovery_line(reason));
+}
+
+/// The line the first catalogue of the startup worker writes:
+/// `[speechtt] startup catalogue=loaded providers=<n>`.
+///
+/// The first catalogue proves the worker answered the handshake, which a
+/// headless run cannot show any other way.
+#[must_use]
+pub fn catalogue_loaded_line(providers: usize) -> String {
+    format!("[speechtt] startup catalogue=loaded providers={providers}")
+}
+
+/// Write the line [`catalogue_loaded_line`] describes.
+///
+/// Called by `app::SpeechTtApp`'s event pump for the first catalogue of the
+/// worker the startup spawn attached.
+pub fn log_catalogue_loaded(providers: usize) {
+    eprintln!("{}", catalogue_loaded_line(providers));
+}
+
+/// The line for a first catalogue that arrived after a save respawned the
+/// worker: `[speechtt] catalogue=loaded providers=<n>`.
+///
+/// It deliberately omits the `startup` prefix: the catalogue is the evidence
+/// that a save recovered the backend, not that the launch was healthy.
+#[must_use]
+pub fn catalogue_respawned_line(providers: usize) -> String {
+    format!("[speechtt] catalogue=loaded providers={providers}")
+}
+
+/// Write the line [`catalogue_respawned_line`] describes.
+///
+/// Called by `app::SpeechTtApp`'s event pump when the catalogue belongs to a
+/// worker the save-triggered respawn attached.
+pub fn log_catalogue_respawned(providers: usize) {
+    eprintln!("{}", catalogue_respawned_line(providers));
 }
 
 /// Write exactly one redacted diagnostic line for `error`.
@@ -225,6 +284,29 @@ mod tests {
     fn nothing_recorded_produces_no_loggable_line() {
         assert!(loggable_line("controller", &AppError::NothingRecorded).is_none());
         assert!(loggable_line("controller", &AppError::BackendUnavailable).is_some());
+    }
+
+    /// The startup markers keep the shape T40.11's artifact check observes, and
+    /// a respawned catalogue is never labelled as a startup one.
+    #[test]
+    fn the_startup_markers_keep_their_command_line_shape() {
+        assert_eq!(
+            settings_recovery_line("bun-missing"),
+            "[speechtt] startup settings=open reason=bun-missing"
+        );
+        assert_eq!(
+            catalogue_loaded_line(1),
+            "[speechtt] startup catalogue=loaded providers=1"
+        );
+        assert_eq!(
+            catalogue_respawned_line(2),
+            "[speechtt] catalogue=loaded providers=2"
+        );
+        assert!(
+            !catalogue_respawned_line(2).contains("startup"),
+            "a save respawn is not a startup event"
+        );
+        assert_eq!(catalogue_respawned_line(2).lines().count(), 1);
     }
 
     /// The trace carries the shape of a text event — type, identity, accepted,

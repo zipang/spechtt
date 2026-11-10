@@ -349,8 +349,97 @@ impl fmt::Display for AppError {
 
 impl std::error::Error for AppError {}
 
+/// Why the widget has no usable backend, as the Settings dialog reports it.
+///
+/// [`AppError`] is the status strip's vocabulary and keeps its existing
+/// variants; this type carries the one piece the strip does not need and the
+/// dialog does: the paths a failed lookup walked. The composition root sets it
+/// from the spawn attempt, and [`SessionController`] reads it to decide the
+/// startup self-check and the dialog's failure note.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BackendFailure {
+    /// No `bun` executable resolved. `searched` is the list the lookup tried.
+    BunMissing { searched: Vec<PathBuf> },
+    /// The configured `bun` exists but cannot be executed. `path` is the
+    /// configured value after `~` expansion.
+    NotExecutable { path: PathBuf },
+    /// The worker script was not found. `searched` is the list of locations
+    /// beside the executable the lookup tried.
+    WorkerMissing { searched: Vec<PathBuf> },
+    /// The backend is absent or dead for any other reason.
+    Unavailable,
+}
+
+impl BackendFailure {
+    /// The failure a spawn attempt reported.
+    ///
+    /// The variants that name a location are kept distinct from [`Self::Unavailable`]
+    /// because only they can tell the user what to fix: a missing runtime, a
+    /// configured path without the execute bit, and a missing worker script
+    /// each need a different action, and none of them is fixed by installing
+    /// `bun`.
+    #[must_use]
+    pub fn from_backend_error(error: &BackendError) -> Self {
+        match error {
+            BackendError::BunMissing { searched } => Self::BunMissing {
+                searched: searched.clone(),
+            },
+            BackendError::WorkerMissing { searched } => Self::WorkerMissing {
+                searched: searched.clone(),
+            },
+            _ => Self::Unavailable,
+        }
+    }
+}
+
+/// What the API-key badge may claim about the current provider.
+///
+/// `Unknown` is the state before a catalogue arrives: a stored key alone says
+/// nothing about whether the worker can use it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectionState {
+    /// No catalogue has arrived, so availability has not been verified.
+    Unknown,
+    /// The provider is in the catalogue and is not reported unavailable.
+    Connected,
+    /// A catalogue exists and the provider is unavailable, or no key is stored.
+    NotConnected,
+}
+
+/// The row the startup self-check wants the user to act on.
+///
+/// Returned by [`SessionController::check_startup_settings`] at most once per
+/// launch; `SpeechTtApp` turns it into the Settings window it opens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StartupSettingsAction {
+    /// The `bun` runtime could not be found: the `Bun path` row is the fix.
+    BunPath,
+    /// The backend is missing for another reason: the dialog names it.
+    Backend,
+    /// No API key is stored for the configured provider.
+    ApiKey,
+}
+
 fn contains_any(haystack: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| haystack.contains(needle))
+}
+
+/// A trimmed model id, or `None` for the empty "use the default" value.
+fn non_empty_model(model: &str) -> Option<String> {
+    let trimmed = model.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
+}
+
+/// The searched paths as one comma-separated line for a failure note.
+///
+/// The list is the resolver's own candidates, so it is the whole answer to
+/// "where did you look?" and never a guess.
+fn join_paths(paths: &[PathBuf]) -> String {
+    paths
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Reduce an untrusted detail to one safe, bounded line.
@@ -657,6 +746,8 @@ pub struct SettingsDraft {
     pub language: Option<String>,
     /// Cleanup model id; `None` means "use the worker's default".
     pub language_model: Option<String>,
+    /// Absolute `bun` path, or empty to resolve it automatically.
+    pub bun_executable: String,
     /// Raw user input. Never printed by `Debug` or written to logs.
     pub api_key: String,
     /// `true` when a key was already stored and the field is untouched.
@@ -672,6 +763,7 @@ impl fmt::Debug for SettingsDraft {
             .field("model_batch", &self.model_batch)
             .field("language", &self.language)
             .field("language_model", &self.language_model)
+            .field("bun_executable", &self.bun_executable)
             .field(
                 "api_key",
                 &if self.api_key.is_empty() {
@@ -696,6 +788,8 @@ pub struct SettingsChange {
     pub language: Option<String>,
     /// Cleanup model id; `None` keeps the worker's default.
     pub language_model: Option<String>,
+    /// Absolute `bun` path, or empty to resolve it automatically.
+    pub bun_executable: String,
     pub api_key: Option<String>,
 }
 
@@ -708,6 +802,7 @@ impl fmt::Debug for SettingsChange {
             .field("model_batch", &self.model_batch)
             .field("language", &self.language)
             .field("language_model", &self.language_model)
+            .field("bun_executable", &self.bun_executable)
             .field("api_key", &self.api_key.as_ref().map(|_| "[REDACTED]"))
             .finish()
     }
@@ -946,6 +1041,11 @@ pub struct SessionController {
     capabilities: Option<Vec<ProviderCapability>>,
     /// Where that catalogue came from (`builtin` fallback or live discovery).
     capability_source: Option<CapabilitySource>,
+    /// Why no backend is attached, as the Settings dialog reports it. `None`
+    /// once a worker is running and has not died.
+    backend_failure: Option<BackendFailure>,
+    /// The launch-time self-check runs once: a dismissal must not reopen it.
+    startup_checked: bool,
     /// The last `Start` command, kept so Retry can reuse the session id.
     last_start: Option<SttCommand>,
     sink: Option<Box<dyn SttSessionSink>>,
@@ -990,6 +1090,8 @@ impl fmt::Debug for SessionController {
                 "capability_count",
                 &self.capabilities.as_ref().map(Vec::len),
             )
+            .field("backend_failure", &self.backend_failure)
+            .field("startup_checked", &self.startup_checked)
             .field("has_sink", &self.sink.is_some())
             .field("has_event_stream", &self.events.is_some())
             .finish()
@@ -1048,6 +1150,8 @@ impl SessionController {
             settings: None,
             capabilities: None,
             capability_source: None,
+            backend_failure: None,
+            startup_checked: false,
             last_start: None,
             sink: None,
             events: None,
@@ -1680,21 +1784,156 @@ impl SessionController {
         !self.settings_draft.api_key.is_empty() || self.settings_draft.api_key_unchanged
     }
 
-    /// Whether the dialog shows a connected badge: a key is available and the
-    /// provider is not reported unavailable.
+    /// Whether the dialog shows a connected badge: a catalogue has arrived, a
+    /// key is available and the provider is not reported unavailable.
+    ///
+    /// The catalogue is required because availability is what the badge claims;
+    /// before it arrives, [`Self::settings_connection_state`] reports
+    /// [`ConnectionState::Unknown`] instead of guessing.
     #[must_use]
     pub fn settings_connected(&self) -> bool {
+        self.settings_connection_state() == ConnectionState::Connected
+    }
+
+    /// What the API-key badge may claim: unknown, connected or not connected.
+    #[must_use]
+    pub fn settings_connection_state(&self) -> ConnectionState {
+        if !self.catalogue_loaded() {
+            return ConnectionState::Unknown;
+        }
         let unavailable = self
             .settings_draft
             .provider
             .as_deref()
             .and_then(|provider| self.provider_available(provider))
             == Some(false);
-        self.settings_has_key() && !unavailable
+        if self.settings_has_key() && !unavailable {
+            ConnectionState::Connected
+        } else {
+            ConnectionState::NotConnected
+        }
     }
 
-    /// A complete provider + one default per mode + usable key is required
-    /// before saving.
+    /// The provider menu's placeholder for the current handshake state.
+    ///
+    /// "Loading providers…" is only honest while a backend can still answer.
+    /// Once the backend is known to be unavailable, the row states that instead
+    /// of implying progress that will never arrive.
+    #[must_use]
+    pub fn settings_provider_placeholder(&self) -> &'static str {
+        if self.catalogue_loaded() {
+            "Choose provider"
+        } else if self.backend_unavailable() {
+            "Backend unavailable"
+        } else {
+            "Loading providers…"
+        }
+    }
+
+    /// The failure note the Settings dialog draws, or `None` when there is
+    /// nothing to explain.
+    ///
+    /// Present exactly while no catalogue has arrived and the backend is
+    /// unavailable. It carries paths from [`BackendFailure::BunMissing`],
+    /// [`BackendFailure::NotExecutable`] and [`BackendFailure::WorkerMissing`]
+    /// and nothing else: no key material and no stack detail.
+    #[must_use]
+    pub fn settings_backend_note(&self) -> Option<String> {
+        if self.catalogue_loaded() {
+            return None;
+        }
+        match self.backend_failure.as_ref()? {
+            BackendFailure::BunMissing { searched } => {
+                let searched = join_paths(searched);
+                Some(format!(
+                    "The bun runtime was not found, so the transcription backend could not start. \
+                     Install bun, or set its path below. Looked for: {searched}."
+                ))
+            }
+            BackendFailure::NotExecutable { path } => Some(format!(
+                "The bun path below exists but is not executable: {}. Give that file the execute \
+                 permission, or set its correct path below.",
+                path.display()
+            )),
+            BackendFailure::WorkerMissing { searched } => {
+                let searched = join_paths(searched);
+                Some(format!(
+                    "The worker script was not found next to SpeechTT, so the transcription \
+                     backend could not start. Reinstalling SpeechTT restores it. Looked for: \
+                     {searched}."
+                ))
+            }
+            BackendFailure::Unavailable => Some(
+                "The transcription backend is unavailable. Save this dialog to try again."
+                    .to_owned(),
+            ),
+        }
+    }
+
+    /// Records why the backend is not attached.
+    pub fn note_backend_failure(&mut self, failure: BackendFailure) {
+        self.backend_failure = Some(failure);
+    }
+
+    /// Clears the recorded failure once a worker is attached.
+    pub fn clear_backend_failure(&mut self) {
+        self.backend_failure = None;
+    }
+
+    /// Whether no worker is attached, so a save may need to spawn one.
+    #[must_use]
+    pub fn backend_unavailable(&self) -> bool {
+        self.backend_failure.is_some()
+    }
+
+    /// Why the backend is unavailable, if it is.
+    #[must_use]
+    pub fn backend_failure(&self) -> Option<&BackendFailure> {
+        self.backend_failure.as_ref()
+    }
+
+    /// The launch-time self-check, run once per process.
+    ///
+    /// Reports the row the user must act on when the widget cannot work: a
+    /// missing `bun` runtime, another backend failure, or a missing API key for
+    /// the configured provider. `None` when the backend is healthy and a key is
+    /// stored, and on every later call, so dismissing Settings is final for the
+    /// launch.
+    #[must_use]
+    pub fn check_startup_settings(&mut self) -> Option<StartupSettingsAction> {
+        if self.startup_checked {
+            return None;
+        }
+        self.startup_checked = true;
+
+        if let Some(failure) = &self.backend_failure {
+            return Some(match failure {
+                BackendFailure::BunMissing { .. } | BackendFailure::NotExecutable { .. } => {
+                    StartupSettingsAction::BunPath
+                }
+                BackendFailure::WorkerMissing { .. } | BackendFailure::Unavailable => {
+                    StartupSettingsAction::Backend
+                }
+            });
+        }
+
+        let has_key = self
+            .settings
+            .as_ref()
+            .is_some_and(|settings| settings.api_key(&settings.provider).is_some());
+        if has_key {
+            None
+        } else {
+            Some(StartupSettingsAction::ApiKey)
+        }
+    }
+
+    /// Whether the draft is complete and every default is in the loaded
+    /// catalogue: a provider, one default per mode and a usable key.
+    ///
+    /// This is the catalogue-validated rule alone; [`Self::settings_can_save`]
+    /// is what gates `Save changes`, because it also accepts the recovery
+    /// draft while the backend is unavailable and no catalogue can arrive.
     ///
     /// Availability is deliberately not required: saving a key is how an
     /// unavailable provider becomes connected on the next handshake.
@@ -1704,6 +1943,26 @@ impl SessionController {
             && self.settings_draft.model_streaming.is_some()
             && self.settings_draft.model_batch.is_some()
             && self.settings_has_key()
+    }
+
+    /// Whether `Save changes` may commit the draft.
+    ///
+    /// Normally that is [`Self::settings_draft_valid`], whose provider check
+    /// needs the catalogue. While the backend is unavailable no catalogue can
+    /// arrive, and the draft was seeded from the persisted settings; requiring
+    /// one would leave the `Bun path` correction unsavable — the dead end this
+    /// dialog exists to escape. In that state a provider and a key are enough:
+    /// the two defaults may still be empty on a fresh install, and the next
+    /// catalogue lets the user choose them.
+    #[must_use]
+    pub fn settings_can_save(&self) -> bool {
+        if self.settings_draft_valid() {
+            return true;
+        }
+        if self.catalogue_loaded() || !self.backend_unavailable() {
+            return false;
+        }
+        self.settings_draft.provider.is_some() && self.settings_has_key()
     }
 
     /// The provider catalogue from the latest handshake, if any.
@@ -2424,6 +2683,7 @@ impl SessionController {
             model_batch: None,
             language: None,
             language_model: None,
+            bun_executable: String::new(),
             api_key: String::new(),
             api_key_unchanged,
         };
@@ -2446,6 +2706,33 @@ impl SessionController {
             .as_ref()
             .map(|settings| settings.language_model.trim().to_owned())
             .filter(|model| !model.is_empty());
+        self.settings_draft.bun_executable = stored
+            .as_ref()
+            .map(|settings| settings.bun_executable.clone())
+            .unwrap_or_default();
+        self.active_dialog = Some(Dialog::Settings);
+    }
+
+    /// Seeds the draft from the persisted settings without a catalogue.
+    ///
+    /// The normal seeding validates the provider and model ids against the
+    /// catalogue, which is absent exactly when the backend never started. The
+    /// persisted ids are what the previous session used, so they are shown as
+    /// they are; the menus stay disabled, and the `Bun path` row is the only
+    /// editable field that matters in that state.
+    pub fn open_settings_from_stored(&mut self) {
+        let stored = self.settings.clone().unwrap_or_default();
+        let has_key = stored.api_key(&stored.provider).is_some();
+        self.settings_draft = SettingsDraft {
+            provider: Some(stored.provider.clone()),
+            model_streaming: non_empty_model(&stored.model_streaming),
+            model_batch: non_empty_model(&stored.model_batch),
+            language: stored.language(),
+            language_model: non_empty_model(&stored.language_model),
+            bun_executable: stored.bun_executable.clone(),
+            api_key: String::new(),
+            api_key_unchanged: has_key,
+        };
         self.active_dialog = Some(Dialog::Settings);
     }
 
@@ -2454,7 +2741,6 @@ impl SessionController {
         self.active_dialog = None;
         self.settings_draft = SettingsDraft::default();
     }
-
     /// Same effect as Cancel, named for the Escape key path.
     pub fn dismiss_dialog_with_escape(&mut self) {
         self.close_dialog();
@@ -2518,6 +2804,11 @@ impl SessionController {
         self.settings_draft.api_key_unchanged = false;
     }
 
+    /// Mirrors the `Bun path` field. Empty means "resolve automatically".
+    pub fn set_settings_bun_executable(&mut self, value: impl Into<String>) {
+        self.settings_draft.bun_executable = value.into();
+    }
+
     pub fn clear_settings_api_key(&mut self) {
         self.settings_draft.api_key.clear();
         self.settings_draft.api_key_unchanged = false;
@@ -2536,23 +2827,47 @@ impl SessionController {
     ///
     /// Returns `None` and leaves the dialog open otherwise.
     pub fn save_settings(&mut self) -> Option<SettingsChange> {
-        if !self.settings_draft_valid() {
+        let change = self.settings_change()?;
+        self.close_dialog();
+        Some(change)
+    }
+
+    /// Builds the change a save would commit, leaving the dialog open.
+    ///
+    /// The caller that also has to spawn a backend uses this so a failed spawn
+    /// can keep the dialog, and the user's correction, on screen.
+    pub fn settings_change(&self) -> Option<SettingsChange> {
+        if !self.settings_can_save() {
             return None;
         }
-        let change = SettingsChange {
-            provider: self.settings_draft.provider.clone()?,
-            model_streaming: self.settings_draft.model_streaming.clone()?,
-            model_batch: self.settings_draft.model_batch.clone()?,
+        let stored = self.settings.as_ref();
+        Some(SettingsChange {
+            provider: self
+                .settings_draft
+                .provider
+                .clone()
+                .or_else(|| stored.map(|settings| settings.provider.clone()))?,
+            model_streaming: self
+                .settings_draft
+                .model_streaming
+                .clone()
+                .or_else(|| stored.map(|settings| settings.model_streaming.clone()))
+                .unwrap_or_default(),
+            model_batch: self
+                .settings_draft
+                .model_batch
+                .clone()
+                .or_else(|| stored.map(|settings| settings.model_batch.clone()))
+                .unwrap_or_default(),
             language: self.settings_draft.language.clone(),
             language_model: self.settings_draft.language_model.clone(),
+            bun_executable: self.settings_draft.bun_executable.clone(),
             api_key: if self.settings_draft.api_key_unchanged {
                 None
             } else {
                 Some(self.settings_draft.api_key.clone())
             },
-        };
-        self.close_dialog();
-        Some(change)
+        })
     }
 
     /// Enter the workflow for `mode`.
@@ -3774,6 +4089,7 @@ mod tests {
                 model_batch: "openai/gpt-4o-transcribe".to_string(),
                 language: None,
                 language_model: None,
+                bun_executable: String::new(),
                 api_key: Some("sk-test-key".to_string()),
             }
         );
@@ -4780,5 +5096,418 @@ mod tests {
         assert!(empty.toggle_recording_at(Instant::now()));
         assert!(empty.finish_take());
         assert!(!empty.can_save_transcript());
+    }
+
+    // Bun recovery, an honest badge, the startup check --------------------
+
+    /// Stored settings whose provider already has a key.
+    fn keyed_settings(streaming: &str, batch: &str) -> Settings {
+        let mut settings = stored_settings(streaming, batch);
+        settings.set_api_key("vercel-ai-gateway", "sk-startup-test");
+        settings
+    }
+
+    /// The built-in catalogue, with its provider reported as available.
+    fn available_capabilities() -> Vec<ProviderCapability> {
+        let mut providers = test_capabilities();
+        providers[0].available = true;
+        providers
+    }
+
+    #[test]
+    fn a_save_carries_the_bun_executable_from_the_draft() {
+        let mut controller = SessionController::new();
+        assert!(valid_settings(&mut controller));
+        controller.set_settings_bun_executable("/home/ada/.bun/bin/bun");
+
+        let change = controller.save_settings().expect("valid draft saves");
+
+        assert_eq!(change.bun_executable, "/home/ada/.bun/bin/bun");
+    }
+
+    #[test]
+    fn a_settings_change_is_built_without_closing_the_dialog() {
+        let mut controller = SessionController::new();
+        assert!(valid_settings(&mut controller));
+        controller.set_settings_bun_executable(" /opt/bun/bin/bun ");
+
+        let change = controller.settings_change().expect("valid draft commits");
+
+        assert_eq!(change.bun_executable, " /opt/bun/bin/bun ");
+        assert_eq!(
+            controller.active_dialog(),
+            Some(Dialog::Settings),
+            "the caller decides when the dialog closes, so a failed respawn can keep it"
+        );
+        assert_eq!(
+            controller.settings_draft().bun_executable,
+            " /opt/bun/bin/bun ",
+            "a failed save leaves the user's correction in the draft"
+        );
+        assert!(controller.save_settings().is_some());
+        assert_eq!(controller.active_dialog(), None);
+    }
+
+    #[test]
+    fn reopening_settings_seeds_the_stored_bun_executable() {
+        let mut controller = SessionController::new();
+        install_catalogue(&mut controller);
+        controller.apply_settings(Settings {
+            bun_executable: "/home/ada/.bun/bin/bun".to_owned(),
+            ..keyed_settings("openai/gpt-realtime-whisper", "openai/gpt-4o-transcribe")
+        });
+
+        controller.open_settings();
+
+        assert_eq!(
+            controller.settings_draft().bun_executable,
+            "/home/ada/.bun/bin/bun"
+        );
+    }
+
+    #[test]
+    fn a_backend_failure_marks_an_absent_backend_and_a_successful_spawn_clears_it() {
+        let mut controller = SessionController::new();
+        assert!(!controller.backend_unavailable());
+
+        controller.note_backend_failure(BackendFailure::Unavailable);
+        assert!(controller.backend_unavailable());
+
+        controller.clear_backend_failure();
+        assert!(!controller.backend_unavailable());
+    }
+
+    #[test]
+    fn the_connected_badge_requires_a_catalogue() {
+        let mut controller = SessionController::new();
+        controller.apply_settings(keyed_settings(
+            "openai/gpt-realtime-whisper",
+            "openai/gpt-4o-transcribe",
+        ));
+        controller.open_settings_with(
+            Some("vercel-ai-gateway"),
+            Some("openai/gpt-realtime-whisper"),
+            Some("openai/gpt-4o-transcribe"),
+            true,
+        );
+
+        assert!(!controller.catalogue_loaded());
+        assert!(
+            !controller.settings_connected(),
+            "a stored key alone is not a verified connection"
+        );
+        assert_eq!(
+            controller.settings_connection_state(),
+            ConnectionState::Unknown
+        );
+
+        controller.set_capabilities(available_capabilities());
+        assert!(controller.catalogue_loaded());
+        assert_eq!(
+            controller.settings_connection_state(),
+            ConnectionState::Connected
+        );
+        assert!(controller.settings_connected());
+    }
+
+    #[test]
+    fn the_dialog_names_a_missing_runtime_only_while_no_catalogue_exists() {
+        let mut controller = SessionController::new();
+        assert_eq!(controller.settings_backend_note(), None);
+        assert_eq!(
+            controller.settings_provider_placeholder(),
+            "Loading providers…"
+        );
+
+        controller.note_backend_failure(BackendFailure::BunMissing {
+            searched: vec![
+                PathBuf::from("bun"),
+                PathBuf::from("/home/ada/.bun/bin/bun"),
+            ],
+        });
+
+        let note = controller
+            .settings_backend_note()
+            .expect("the cause is named");
+        assert!(note.contains("bun runtime was not found"), "{note}");
+        assert!(note.contains("/home/ada/.bun/bin/bun"), "{note}");
+        assert_eq!(
+            controller.settings_provider_placeholder(),
+            "Backend unavailable"
+        );
+        assert!(
+            !controller
+                .settings_provider_placeholder()
+                .contains("Loading"),
+            "an unavailable backend has nothing to load"
+        );
+
+        install_catalogue(&mut controller);
+        assert_eq!(
+            controller.settings_backend_note(),
+            None,
+            "the note explains the absence of a catalogue, so a catalogue removes it"
+        );
+        assert_eq!(
+            controller.settings_provider_placeholder(),
+            "Choose provider"
+        );
+    }
+
+    #[test]
+    fn startup_asks_for_settings_when_the_runtime_is_missing() {
+        let mut controller = SessionController::new();
+        controller.apply_settings(keyed_settings(
+            "openai/gpt-realtime-whisper",
+            "openai/gpt-4o-transcribe",
+        ));
+        controller.note_backend_failure(BackendFailure::BunMissing {
+            searched: vec![PathBuf::from("bun")],
+        });
+
+        assert_eq!(
+            controller.check_startup_settings(),
+            Some(StartupSettingsAction::BunPath)
+        );
+    }
+
+    #[test]
+    fn startup_asks_for_settings_when_the_backend_is_unavailable_for_another_reason() {
+        let mut controller = SessionController::new();
+        controller.apply_settings(keyed_settings(
+            "openai/gpt-realtime-whisper",
+            "openai/gpt-4o-transcribe",
+        ));
+        controller.note_backend_failure(BackendFailure::Unavailable);
+
+        assert_eq!(
+            controller.check_startup_settings(),
+            Some(StartupSettingsAction::Backend)
+        );
+    }
+
+    #[test]
+    fn startup_asks_for_settings_when_no_key_is_stored() {
+        let mut controller = SessionController::new();
+        controller.apply_settings(stored_settings(
+            "openai/gpt-realtime-whisper",
+            "openai/gpt-4o-transcribe",
+        ));
+
+        assert_eq!(
+            controller.check_startup_settings(),
+            Some(StartupSettingsAction::ApiKey)
+        );
+    }
+
+    #[test]
+    fn a_healthy_startup_asks_for_nothing() {
+        let mut controller = SessionController::new();
+        controller.apply_settings(keyed_settings(
+            "openai/gpt-realtime-whisper",
+            "openai/gpt-4o-transcribe",
+        ));
+
+        assert_eq!(controller.check_startup_settings(), None);
+    }
+
+    #[test]
+    fn the_startup_check_runs_once_and_never_reopens_after_a_dismissal() {
+        let mut controller = SessionController::new();
+        controller.apply_settings(stored_settings(
+            "openai/gpt-realtime-whisper",
+            "openai/gpt-4o-transcribe",
+        ));
+
+        assert_eq!(
+            controller.check_startup_settings(),
+            Some(StartupSettingsAction::ApiKey)
+        );
+        controller.close_dialog();
+
+        assert_eq!(
+            controller.check_startup_settings(),
+            None,
+            "dismissing Settings must not be undone by the self-check"
+        );
+    }
+
+    #[test]
+    fn the_bun_path_is_savable_while_the_backend_is_unavailable() {
+        let mut controller = SessionController::new();
+        controller.apply_settings(keyed_settings(
+            "openai/gpt-realtime-whisper",
+            "openai/gpt-4o-transcribe",
+        ));
+        controller.note_backend_failure(BackendFailure::BunMissing {
+            searched: vec![PathBuf::from("bun")],
+        });
+        controller.open_settings_from_stored();
+
+        assert!(!controller.catalogue_loaded());
+        assert!(
+            !controller.settings_draft_valid(),
+            "no catalogue can validate the provider ids"
+        );
+        assert!(
+            controller.settings_can_save(),
+            "the recovery row must be savable"
+        );
+        assert_eq!(
+            controller.settings_draft().provider.as_deref(),
+            Some("vercel-ai-gateway"),
+            "the persisted provider is shown even without a catalogue"
+        );
+
+        controller.set_settings_bun_executable("/home/ada/.bun/bin/bun");
+        let change = controller.settings_change().expect("the correction saves");
+
+        assert_eq!(change.bun_executable, "/home/ada/.bun/bin/bun");
+        assert_eq!(change.model_streaming, "openai/gpt-realtime-whisper");
+    }
+
+    #[test]
+    fn a_fresh_install_can_save_a_bun_path_and_a_first_key() {
+        let mut controller = SessionController::new();
+        controller.note_backend_failure(BackendFailure::BunMissing {
+            searched: vec![PathBuf::from("bun")],
+        });
+        controller.open_settings_from_stored();
+        assert!(!controller.settings_can_save(), "no key yet");
+
+        controller.set_settings_api_key("sk-first-key");
+        controller.set_settings_bun_executable("/home/ada/.bun/bin/bun");
+        let change = controller
+            .settings_change()
+            .expect("the first key and path save");
+
+        assert_eq!(change.provider, "vercel-ai-gateway");
+        assert_eq!(change.model_streaming, "");
+        assert_eq!(change.model_batch, "");
+        assert_eq!(change.bun_executable, "/home/ada/.bun/bin/bun");
+        assert_eq!(change.api_key.as_deref(), Some("sk-first-key"));
+    }
+
+    /// The recovery branch is exactly "no catalogue and no backend": a
+    /// catalogue that did arrive still validates the defaults, so it must not
+    /// let an incomplete draft through just because the worker died afterwards.
+    #[test]
+    fn a_loaded_catalogue_does_not_relax_the_save_rule_when_the_backend_is_down() {
+        let mut controller = SessionController::new();
+        controller.apply_settings(keyed_settings("", ""));
+        install_catalogue(&mut controller);
+        controller.note_backend_failure(BackendFailure::Unavailable);
+        controller.open_settings_from_stored();
+
+        assert!(controller.catalogue_loaded());
+        assert!(controller.backend_unavailable());
+        assert!(
+            !controller.settings_draft_valid(),
+            "no default is in the catalogue"
+        );
+        assert!(
+            !controller.settings_can_save(),
+            "an arrived catalogue is the validator, so the recovery branch stays closed"
+        );
+    }
+
+    /// The recovery branch needs the backend to be unavailable: a healthy
+    /// worker means a catalogue is still coming, and Save waits for it.
+    #[test]
+    fn a_healthy_backend_without_a_catalogue_does_not_relax_the_save_rule() {
+        let mut controller = SessionController::new();
+        controller.apply_settings(keyed_settings("", ""));
+        controller.open_settings_from_stored();
+
+        assert!(!controller.catalogue_loaded());
+        assert!(!controller.backend_unavailable());
+        assert!(!controller.settings_draft_valid());
+        assert!(
+            !controller.settings_can_save(),
+            "the catalogue has not had its chance yet"
+        );
+    }
+
+    /// A missing worker script is not a missing `bun`: the note names the
+    /// places beside the executable the lookup tried, and never asks the user
+    /// to install a runtime that is already there.
+    #[test]
+    fn a_missing_worker_names_its_searched_paths_instead_of_bun() {
+        let mut controller = SessionController::new();
+        controller.note_backend_failure(BackendFailure::WorkerMissing {
+            searched: vec![
+                PathBuf::from("/opt/speechtt/usr/bin/../share/speechtt/worker.js"),
+                PathBuf::from("/opt/speechtt/usr/bin/../../src/stt/worker.ts"),
+            ],
+        });
+
+        let note = controller
+            .settings_backend_note()
+            .expect("the cause is named");
+        assert!(note.contains("worker script was not found"), "{note}");
+        assert!(
+            note.contains("/opt/speechtt/usr/bin/../share/speechtt/worker.js"),
+            "{note}"
+        );
+        assert!(
+            !note.to_lowercase().contains("bun"),
+            "a missing worker is not a missing runtime: {note}"
+        );
+        assert_eq!(
+            controller.check_startup_settings(),
+            Some(StartupSettingsAction::Backend)
+        );
+    }
+
+    /// A configured `bun` that exists without the execute bit is a different
+    /// repair from a missing one, and the note names it as such.
+    #[test]
+    fn a_configured_path_without_the_execute_bit_is_named() {
+        let mut controller = SessionController::new();
+        controller.note_backend_failure(BackendFailure::NotExecutable {
+            path: PathBuf::from("/home/ada/bin/bun"),
+        });
+
+        let note = controller
+            .settings_backend_note()
+            .expect("the cause is named");
+        assert!(note.contains("is not executable"), "{note}");
+        assert!(note.contains("/home/ada/bin/bun"), "{note}");
+        assert_eq!(
+            controller.check_startup_settings(),
+            Some(StartupSettingsAction::BunPath),
+            "the Bun path row is the fix"
+        );
+    }
+
+    /// The catch-all note explains nothing it cannot know, so it must not
+    /// suggest installing `bun` for a failure that has another cause.
+    #[test]
+    fn the_generic_backend_note_does_not_blame_bun() {
+        let mut controller = SessionController::new();
+        controller.note_backend_failure(BackendFailure::Unavailable);
+
+        let note = controller
+            .settings_backend_note()
+            .expect("the cause is named");
+        assert!(!note.to_lowercase().contains("bun"), "{note}");
+    }
+
+    /// The mapping keeps the failures that name a location, and falls back to
+    /// the generic variant for everything else.
+    #[test]
+    fn the_backend_error_mapping_keeps_the_paths_it_can_name() {
+        assert_eq!(
+            BackendFailure::from_backend_error(&BackendError::WorkerMissing {
+                searched: vec![PathBuf::from("/opt/worker.js")],
+            }),
+            BackendFailure::WorkerMissing {
+                searched: vec![PathBuf::from("/opt/worker.js")],
+            }
+        );
+        assert_eq!(
+            BackendFailure::from_backend_error(&BackendError::Disconnected),
+            BackendFailure::Unavailable
+        );
     }
 }

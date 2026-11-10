@@ -1,14 +1,23 @@
 //! Settings dialog, per `mockups/dialogs/settings.png`.
 //!
-//! Six rows, top to bottom: **Dictation Language** (Auto first — it is what the
+//! Seven rows, top to bottom: **Dictation Language** (Auto first — it is what the
 //! transcriber is told, so it leads the model rows), **Transcription Service**,
-//! the two take defaults, **Cleanup Model** and the API key. Each dropdown is a
-//! component owned by `views::dialogs::window`; this file only composes the rows
-//! and passes the current values.
+//! the two take defaults, **Cleanup Model**, **Bun path** and the API key. Each
+//! dropdown is a component owned by `views::dialogs::window`; this file only
+//! composes the rows and passes the current values.
+//!
+//! The `Bun path` row is a `SettingRow` with an `Input`: empty means the runtime
+//! is resolved automatically, a value is the user's explicit override. The
+//! provider row's placeholder and the failure note come from the controller, so
+//! an unavailable backend states its cause instead of implying that a catalogue
+//! is still loading, and the API-key badge reports `NOT VERIFIED` until a
+//! catalogue has arrived.
 //!
 //! The dialog edits a draft (see `controller::SettingsDraft`); saving stages a
 //! `SettingsChange` through `SpeechTtApp::apply_settings_change`, which writes
 //! it to the Rust settings store.
+//!
+//! Rendered by `views::dialogs::window` for the `Dialog::Settings` window.
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::button::Button;
@@ -24,6 +33,7 @@ use crate::components::{
 };
 use speechtt_core::protocol::TranscriptionMode;
 
+use crate::controller::ConnectionState;
 use crate::tokens::color;
 use crate::views::dialogs::{DialogShell, DialogWindow};
 
@@ -33,12 +43,15 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
         catalogue_loaded,
         streaming_mode,
         batch_mode,
-        connected,
+        connection,
         valid,
         key_env,
         unavailable,
         revealed,
         api_key_input,
+        bun_path_input,
+        backend_note,
+        provider_placeholder,
         reveal_enabled,
         stored_key_label,
         stored_key_hint,
@@ -60,8 +73,8 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
             catalogue_loaded,
             controller.settings_streaming_model_mode(),
             controller.settings_batch_model_mode(),
-            controller.settings_connected(),
-            controller.settings_draft_valid(),
+            controller.settings_connection_state(),
+            controller.settings_can_save(),
             controller
                 .settings_api_key_env()
                 .map(std::string::ToString::to_string)
@@ -69,6 +82,9 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
             unavailable,
             app.settings_key_revealed(),
             app.settings_api_key_input().clone(),
+            app.settings_bun_path_input().clone(),
+            controller.settings_backend_note(),
+            controller.settings_provider_placeholder(),
             app.settings_key_reveal_enabled(),
             app.settings_stored_key_label(),
             app.settings_stored_key_hint(),
@@ -81,11 +97,7 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
 
     let provider_select =
         ProviderSelect::new("field-settings-provider", dialog.selects().provider())
-            .placeholder(if catalogue_loaded {
-                "Choose provider"
-            } else {
-                "Loading providers…"
-            })
+            .placeholder(provider_placeholder)
             .disabled(!catalogue_loaded);
     let model_placeholder = if has_provider {
         "Choose model"
@@ -133,8 +145,8 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
             .into_any_element()
     };
 
-    let badge = if connected {
-        h_flex()
+    let badge = match connection {
+        ConnectionState::Connected => h_flex()
             .gap_1p5()
             .items_center()
             .child(StatusDot::new(gpui_kit::rgb(color::SUCCESS).into()))
@@ -143,9 +155,11 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
                     .bold()
                     .tone(gpui_kit::rgb(color::SUCCESS).into()),
             )
-            .into_any_element()
-    } else {
-        StatusBadge::new("NOT CONNECTED").into_any_element()
+            .into_any_element(),
+        ConnectionState::NotConnected => StatusBadge::new("NOT CONNECTED").into_any_element(),
+        // No catalogue has arrived, so availability is not known: the badge
+        // must not claim either outcome.
+        ConnectionState::Unknown => StatusBadge::new("NOT VERIFIED").into_any_element(),
     };
 
     let mut reveal = Button::new("btn-settings-reveal")
@@ -241,6 +255,18 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
             .prominent()
             .control(cleanup_control),
         )
+        .body(
+            SettingRow::new(
+                "Bun path",
+                "The bun runtime the worker runs on; empty finds it automatically",
+            )
+            .prominent()
+            .control(
+                Input::new(&bun_path_input)
+                    .id("field-settings-bun-path")
+                    .w_full(),
+            ),
+        )
         .body(api_key);
 
     // The note explains why this provider cannot be used yet, so it is drawn
@@ -251,6 +277,12 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
             InfoNote::new("This provider is not connected. Add an API key to enable it.")
                 .id("note-settings-provider"),
         );
+    }
+
+    // A backend that never started cannot deliver a catalogue, so the note
+    // names the cause instead of leaving the provider row loading forever.
+    if let Some(note) = backend_note {
+        shell = shell.body(InfoNote::new(note).id("note-settings-backend"));
     }
 
     shell.footer(footer).into_any_element()

@@ -391,6 +391,29 @@ pub fn open_speechtt_window_with_events(
     (window, view, sender)
 }
 
+/// Opens the widget window with no catalogue and a backend event stream the
+/// test owns.
+///
+/// No catalogue is applied, so the Settings dialog opens on the persisted
+/// values. Closing the returned sender is how a test reaches the dead-backend
+/// state: the pump records the failure, which is the condition
+/// [`speechtt_ui::app::SpeechTtApp::save_settings`] reacts to.
+pub fn open_speechtt_window_without_catalogue(
+    cx: &mut TestAppContext,
+) -> (
+    WindowHandle<Root>,
+    Entity<speechtt_ui::app::SpeechTtApp>,
+    EventSender,
+) {
+    cx.update(init_kit);
+    let (sender, events) = speechtt_core::async_channel::unbounded();
+    let (window, view) = open_window(cx, None, |window, cx| {
+        window.set_window_title(speechtt_ui::app::APP_TITLE);
+        cx.new(|cx| SpeechTtApp::with_services(services_with_events(events), window, cx))
+    });
+    (window, view, sender)
+}
+
 /// Opens the widget window with a save dialog the test answers.
 pub fn open_speechtt_window_with_save_prompt(
     cx: &mut TestAppContext,

@@ -1645,6 +1645,7 @@ fn saving_settings_keeps_the_remembered_geometry(cx: &mut gpui_kit::TestAppConte
                 model_batch: "openai/gpt-4o-transcribe".to_string(),
                 language: None,
                 language_model: None,
+                bun_executable: String::new(),
                 api_key: Some("sk-rotated".to_string()),
             });
         });
