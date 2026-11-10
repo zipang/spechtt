@@ -1,0 +1,46 @@
+{
+	"$schema": "https://opencode.ai/config.json",
+	// Format files after the write/edit/patch tools change them, using the
+	// project's Bun formatter. OpenCode replaces $FILE with the edited file's
+	// absolute path and runs the command from the project directory, so
+	// `bun fmt` picks up bunfig.toml, .editorconfig and .gitignore.
+	//
+	// A custom formatter runs only for the extensions listed here — OpenCode
+	// matches the file's final extension and has no "all files" wildcard. This
+	// is the complete set `bun fmt` accepts; unsupported types such as .rs,
+	// .sass, .xml and .astro are handled by the built-in formatters instead.
+	"formatter": {
+		"bun": {
+			"command": ["bun", "fmt", "$FILE"],
+			"extensions": [
+				".js",
+				".jsx",
+				".mjs",
+				".cjs",
+				".ts",
+				".tsx",
+				".mts",
+				".cts",
+				".css",
+				".scss",
+				".less",
+				".html",
+				".htm",
+				".vue",
+				".svelte",
+				".json",
+				".jsonc",
+				".json5",
+				".yaml",
+				".yml",
+				".toml",
+				".md",
+				".mdx",
+				".graphql",
+				".gql",
+				".hbs",
+				".handlebars"
+			]
+		}
+	}
+}
