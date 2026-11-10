@@ -21,6 +21,7 @@ import {
 	releaseCommand,
 	runCli,
 	stagePlanLinux,
+	staleArtifacts,
 	versionFromMetadata,
 	workerBundleArgs
 } from "./package";
@@ -316,6 +317,74 @@ describe("releaseCommand", () => {
 	});
 });
 
+describe("staleArtifacts", () => {
+	const CURRENT = "SpeechTT-0.5.1-x86_64.AppImage";
+	const OLD = ["SpeechTT-0.5.0-x86_64.AppImage", "SpeechTT-0.5.0-x86_64.AppImage.sha256"];
+
+	test("keeps the current artifact and its checksum, removes an older pair", () => {
+		const entries = [CURRENT, `${CURRENT}.sha256`, ...OLD];
+
+		expect(staleArtifacts(entries, CURRENT)).toEqual(OLD);
+	});
+
+	test("leaves the tool cache, the worker bundle and the AppDir alone", () => {
+		const entries = [
+			CURRENT,
+			`${CURRENT}.sha256`,
+			"tools",
+			"worker.js",
+			"SpeechTT.AppDir",
+			"notes.txt",
+			"SpeechTT-0.5.0-x86_64.AppImage"
+		];
+
+		expect(staleArtifacts(entries, CURRENT)).toEqual(["SpeechTT-0.5.0-x86_64.AppImage"]);
+	});
+
+	test("returns the names sorted, whatever order the listing reports", () => {
+		const entries = [
+			"SpeechTT-0.4.0-aarch64.AppImage.sha256",
+			"SpeechTT-0.6.0-x86_64.AppImage",
+			"SpeechTT-0.4.1-x86_64.AppImage"
+		];
+
+		expect(staleArtifacts(entries, CURRENT)).toEqual([
+			"SpeechTT-0.4.0-aarch64.AppImage.sha256",
+			"SpeechTT-0.4.1-x86_64.AppImage",
+			"SpeechTT-0.6.0-x86_64.AppImage"
+		]);
+	});
+
+	test("never returns an entry that carries a path separator", () => {
+		const entries = [
+			"tools/SpeechTT-0.5.0-x86_64.AppImage",
+			"..\\SpeechTT-0.5.0-x86_64.AppImage",
+			"/SpeechTT-0.5.0-x86_64.AppImage.sha256"
+		];
+
+		expect(staleArtifacts(entries, CURRENT)).toEqual([]);
+	});
+
+	test("an empty listing removes nothing", () => {
+		expect(staleArtifacts([], CURRENT)).toEqual([]);
+	});
+
+	test("a name that only looks close is not a candidate", () => {
+		const entries = [
+			"SpeechTTX-0.5.0-x86_64.AppImage",
+			"SpeechTT-0.5.0-x86_64.AppImage.zip",
+			"speechtt-0.5.0-x86_64.AppImage",
+			"SpeechTT-0.5.0-x86_64.AppImage.asc"
+		];
+
+		expect(staleArtifacts(entries, CURRENT)).toEqual([]);
+	});
+
+	test("keeps the current checksum even when its artifact is listed too", () => {
+		expect(staleArtifacts([`${CURRENT}.sha256`], CURRENT)).toEqual([]);
+	});
+});
+
 interface ExecCall {
 	readonly argv: readonly string[];
 	readonly env: Readonly<Record<string, string>>;
@@ -331,6 +400,7 @@ interface Harness {
 	readonly chmodCalls: { path: string; mode: number }[];
 	readonly stdout: string[];
 	readonly stderr: string[];
+	readonly listDirCalls: string[];
 	readonly files: Set<string>;
 	bundle: string;
 	manifest: string;
@@ -394,6 +464,7 @@ function harness(
 		fetchError?: Error;
 		sha256Error?: Error;
 		execThrows?: (argv: readonly string[]) => boolean;
+		listDir?: (path: string) => string[];
 	} = {}
 ): Harness {
 	const execCalls: ExecCall[] = [];
@@ -404,6 +475,7 @@ function harness(
 	const chmodCalls: { path: string; mode: number }[] = [];
 	const stdout: string[] = [];
 	const stderr: string[] = [];
+	const listDirCalls: string[] = [];
 	const files = new Set<string>();
 
 	const state: Harness = {
@@ -416,6 +488,7 @@ function harness(
 		chmodCalls,
 		stdout,
 		stderr,
+		listDirCalls,
 		files,
 		bundle: options.bundle ?? "export const ready = true;\n",
 		manifest: options.manifest ?? MANIFEST,
@@ -492,6 +565,10 @@ function harness(
 				throw options.sha256Error;
 			}
 			return options.digest ?? DIGEST;
+		},
+		listDir: (path) => {
+			listDirCalls.push(path);
+			return options.listDir?.(path) ?? [];
 		},
 		out: (line) => {
 			stdout.push(line);
@@ -663,6 +740,131 @@ describe("runCli --no-build", () => {
 		expect(code).toBe(0);
 		expect(fake.fetchCalls).toEqual([]);
 		expect(fake.chmodCalls).toContainEqual({ path: tool, mode: 0o755 });
+	});
+});
+
+describe("runCli stale artifacts in dist/", () => {
+	const DIST_ENTRIES = [
+		"SpeechTT-0.5.0-x86_64.AppImage",
+		"SpeechTT-0.5.0-x86_64.AppImage.sha256",
+		"SpeechTT-0.6.0-x86_64.AppImage",
+		"SpeechTT-0.6.0-x86_64.AppImage.sha256",
+		"SpeechTT.AppDir",
+		"tools",
+		"worker.js"
+	];
+
+	const stalePaths = (removed: readonly string[]) =>
+		removed.filter((path) => path.endsWith(".AppImage") || path.endsWith(".AppImage.sha256"));
+
+	const buildAddsArtifacts = (argv: readonly string[]) => {
+		if (argv[0] === "bun" && argv[1] === "build") return true;
+		if (argv[0] === "cargo" && argv[1] === "build") return true;
+		return false;
+	};
+
+	test("a successful run removes the other releases and names each one", async () => {
+		const fake = harness({
+			listDir: () => DIST_ENTRIES,
+			onExec: (argv) => {
+				if (buildAddsArtifacts(argv)) {
+					if (argv[0] === "bun") fake.files.add("dist/worker.js");
+					if (argv[0] === "cargo") fake.files.add("target/release/speechtt-ui");
+				}
+			}
+		});
+
+		expect(await runCli([], fake.deps)).toBe(0);
+
+		expect(fake.listDirCalls).toEqual(["dist"]);
+		expect(stalePaths(fake.removed)).toEqual([
+			"dist/SpeechTT-0.5.0-x86_64.AppImage",
+			"dist/SpeechTT-0.5.0-x86_64.AppImage.sha256",
+			"dist/SpeechTT-0.6.0-x86_64.AppImage",
+			"dist/SpeechTT-0.6.0-x86_64.AppImage.sha256"
+		]);
+		for (const path of stalePaths(fake.removed)) {
+			expect(fake.stdout).toContain(`removed: ${path}`);
+		}
+	});
+
+	test("the cleanup and its lines follow the checksum and precede the release command", async () => {
+		const fake = harness({
+			listDir: () => DIST_ENTRIES,
+			onExec: (argv) => {
+				if (buildAddsArtifacts(argv)) {
+					if (argv[0] === "bun") fake.files.add("dist/worker.js");
+					if (argv[0] === "cargo") fake.files.add("target/release/speechtt-ui");
+				}
+			}
+		});
+
+		expect(await runCli([], fake.deps)).toBe(0);
+
+		const checksumIndex = fake.stdout.findIndex((line) =>
+			line.startsWith("wrote: dist/SpeechTT-0.5.1-x86_64.AppImage.sha256")
+		);
+		const removedIndex = fake.stdout.findIndex((line) => line.startsWith("removed: dist/"));
+		const releaseIndex = fake.stdout.findIndex((line) => line.startsWith("gh release create"));
+
+		expect(checksumIndex).toBeGreaterThanOrEqual(0);
+		expect(removedIndex).toBeGreaterThan(checksumIndex);
+		expect(releaseIndex).toBeGreaterThan(removedIndex);
+	});
+
+	test("a failing appimagetool removes nothing", async () => {
+		const fake = harness({
+			listDir: () => DIST_ENTRIES,
+			onExec: (argv) => {
+				if (buildAddsArtifacts(argv)) {
+					if (argv[0] === "bun") fake.files.add("dist/worker.js");
+					if (argv[0] === "cargo") fake.files.add("target/release/speechtt-ui");
+				}
+			},
+			exitCode: (argv) => (argv[0]?.includes("appimagetool") ? 3 : 0),
+			stderr: (argv) =>
+				argv[0]?.includes("appimagetool") ? "appimagetool: cannot build" : ""
+		});
+
+		expect(await runCli([], fake.deps)).toBe(1);
+
+		expect(stalePaths(fake.removed)).toEqual([]);
+		expect(lineMatches(fake.stdout, /^removed: /)).toBe(false);
+	});
+
+	test("--dry-run names what it would remove and removes nothing", async () => {
+		const fake = harness({ listDir: () => DIST_ENTRIES });
+
+		expect(await runCli(["--dry-run"], fake.deps)).toBe(0);
+
+		expect(fake.removed).toEqual([]);
+		for (const path of [
+			"dist/SpeechTT-0.5.0-x86_64.AppImage",
+			"dist/SpeechTT-0.5.0-x86_64.AppImage.sha256",
+			"dist/SpeechTT-0.6.0-x86_64.AppImage",
+			"dist/SpeechTT-0.6.0-x86_64.AppImage.sha256"
+		]) {
+			expect(fake.stdout).toContain(`would remove: ${path}`);
+		}
+		expect(lineMatches(fake.stdout, /^gh release create v0\.5\.1 /)).toBe(true);
+	});
+
+	test("--no-build also cleans after a successful repackage", async () => {
+		const fake = harness({
+			listDir: () => DIST_ENTRIES,
+			exists: (path) =>
+				path === "target/release/speechtt-ui" ||
+				path === "dist/worker.js" ||
+				path === "dist/tools/appimagetool-x86_64.AppImage"
+		});
+
+		expect(await runCli(["--no-build"], fake.deps)).toBe(0);
+
+		// `--no-build` repackages the current version, so its own pair is the release kept.
+		expect(stalePaths(fake.removed)).toEqual([
+			"dist/SpeechTT-0.6.0-x86_64.AppImage",
+			"dist/SpeechTT-0.6.0-x86_64.AppImage.sha256"
+		]);
 	});
 });
 

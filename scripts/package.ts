@@ -10,6 +10,11 @@
  * `V<version>` the widget shows must be the same number. A failure after the write restores the
  * manifest and the lock file, so a retry does not consume a second version.
  *
+ * Once the artifact and its checksum are written, the run removes the other `SpeechTT-*.AppImage`
+ * files and their `.sha256` companions from `dist/`, so the directory names only the release just
+ * produced. The cleanup runs last so a failed build keeps the previous release; the tool cache
+ * (`tools/`), the worker bundle (`worker.js`) and the staged `SpeechTT.AppDir` stay in place.
+ *
  * # Callers
  *
  * - `package.json`'s `package` script (`bun run package`), the documented entry point.
@@ -88,6 +93,8 @@ export interface CliDeps {
 	readonly makeDir: (path: string) => void;
 	/** Removes a file or directory tree. */
 	readonly removePath: (path: string) => void;
+	/** Lists the bare entry names of a directory; an empty list when it does not exist. */
+	readonly listDir: (path: string) => string[];
 	/** Sets a file mode. */
 	readonly chmod: (path: string, mode: number) => void;
 	/** The lowercase hex SHA-256 digest of a file. */
@@ -98,6 +105,9 @@ export interface CliDeps {
 
 /** Where the staged AppDir lives. */
 export const APP_DIR = "dist/SpeechTT.AppDir";
+
+/** The output directory a release lands in, holding every file {@link staleArtifacts} inspects. */
+export const DIST_DIR = "dist";
 
 /** Where the worker bundle lives. */
 export const WORKER_BUNDLE = "dist/worker.js";
@@ -257,6 +267,33 @@ export function bumpedManifest(manifest: string, version: string): string | null
 	});
 
 	return sawSection && replaced ? updated.join("\n") : null;
+}
+
+/**
+ * Artifacts in `entries` that belong to another version than `keep`.
+ *
+ * Only the two release shapes are candidates: `SpeechTT-*.AppImage` and
+ * `SpeechTT-*.AppImage.sha256`. Everything else is left alone, so the cached `appimagetool`
+ * download (`tools/`), the worker bundle (`worker.js`) and the staged `SpeechTT.AppDir` survive a
+ * run.
+ *
+ * `entries` are bare names from {@link CliDeps.listDir}, never paths: an entry that contains a `/`
+ * or a `\` is never returned, so a directory listing cannot escape `dist/`. `keep` is the artifact
+ * just built, and its `.sha256` companion is kept with it. The result is sorted, so a run removes
+ * files in a stable order. Called by the packaging pipeline once the checksum is written.
+ */
+export function staleArtifacts(entries: readonly string[], keep: string): string[] {
+	const kept = new Set([keep, `${keep}.sha256`]);
+	return entries
+		.filter(
+			(entry) =>
+				!entry.includes("/") &&
+				!entry.includes("\\") &&
+				!kept.has(entry) &&
+				(/^SpeechTT-.+\.AppImage$/.test(entry) ||
+					/^SpeechTT-.+\.AppImage\.sha256$/.test(entry))
+		)
+		.sort();
 }
 
 /** The `AppRun` launcher, byte for byte. */
@@ -428,6 +465,23 @@ function materialize(deps: CliDeps, plan: StagePlan): void {
 	}
 }
 
+/**
+ * Leaves `dist/` carrying only the release `keep` just produced.
+ *
+ * A successful run writes the artifact and its checksum first and cleans afterwards, so a build
+ * that failed produced nothing to keep and the previous release survives. Every removal is named on
+ * its own line. Under `--dry-run` the same names are printed and nothing is removed.
+ */
+function discardStaleArtifacts(deps: CliDeps, keep: string, dryRun: boolean): void {
+	for (const entry of staleArtifacts(deps.listDir(DIST_DIR), keep)) {
+		const path = `${DIST_DIR}/${entry}`;
+		deps.out(dryRun ? `would remove: ${path}` : `removed: ${path}`);
+		if (!dryRun) {
+			deps.removePath(path);
+		}
+	}
+}
+
 /** A worker bundle that still imports a package the AppImage does not ship. */
 function hasBarePackageImport(bundle: string): boolean {
 	return bundle.includes('from "ai"') || bundle.includes('from "@ai-sdk/');
@@ -510,11 +564,12 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
  * build`, re-reads `cargo metadata`, and names the artifact from that answer. A failure after the
  * write restores the original manifest, so a retry does not consume a second version.
  *
- * `--dry-run` prints every command, the release version it would use and every staged path, and
- * runs only the read-only `cargo metadata` query. `--no-build` reuses `target/release/speechtt-ui`
- * and `dist/worker.js`, checks that bundle for bare imports, and fails with exit `1` when either
- * artifact is absent. `--no-bump` packages the current version without writing the manifest. The
- * script never runs `gh`.
+ * `--dry-run` prints every command, the release version it would use, every staged path and the
+ * files a run would discard from `dist/`, and runs only the read-only `cargo metadata` query and
+ * the `dist/` listing. `--no-build` reuses `target/release/speechtt-ui` and `dist/worker.js`,
+ * checks that bundle for bare imports, and fails with exit `1` when either artifact is absent.
+ * `--no-bump` packages the current version without writing the manifest. The script never runs
+ * `gh`.
  */
 export async function runCli(argv: readonly string[], deps: CliDeps): Promise<number> {
 	try {
@@ -553,7 +608,8 @@ async function runPipeline(argv: readonly string[], deps: CliDeps): Promise<numb
 	const plan = stagePlanLinux();
 
 	if (parsed.dryRun) {
-		const out = `dist/${appImageFileName(releaseVersion, arch)}`;
+		const name = appImageFileName(releaseVersion, arch);
+		const out = `dist/${name}`;
 		deps.out(`release version: ${releaseVersion}`);
 		deps.out(execLine(["bun", ...workerBundleArgs()]));
 		deps.out(execLine(CARGO_BUILD_ARGV));
@@ -570,6 +626,7 @@ async function runPipeline(argv: readonly string[], deps: CliDeps): Promise<numb
 			)
 		);
 		deps.out(`download: ${tool}`);
+		discardStaleArtifacts(deps, name, true);
 		deps.out(releaseCommand(releaseVersion, arch));
 		return 0;
 	}
@@ -661,6 +718,9 @@ async function runPipeline(argv: readonly string[], deps: CliDeps): Promise<numb
 		const checksum = checksumLine(deps.sha256(out), name);
 		deps.writeFile(`${out}.sha256`, checksum);
 		deps.out(`wrote: ${out}.sha256`);
+		// The release exists on disk now, so anything older in `dist/` is superseded. Cleaning after
+		// the checksum keeps a failed build from destroying the previous release.
+		discardStaleArtifacts(deps, name, false);
 		deps.out(releaseCommand(version, arch));
 		succeeded = true;
 		return 0;
@@ -732,6 +792,15 @@ function systemDeps(): CliDeps {
 		},
 		removePath: (path) => {
 			fs.rmSync(path, { recursive: true, force: true });
+		},
+		listDir: (path) => {
+			try {
+				return fs.readdirSync(path);
+			} catch {
+				// A missing `dist/` on a first run lists as empty, so the cleanup step has nothing
+				// to do instead of failing the release it just built.
+				return [];
+			}
 		},
 		chmod: (path, mode) => {
 			fs.chmodSync(path, mode);

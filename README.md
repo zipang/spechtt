@@ -336,6 +336,15 @@ AppDir, writes `dist/SpeechTT-<version>-<arch>.AppImage` with its `.sha256`
 companion, and prints the `gh release create` command. Commit `Cargo.toml` and
 `Cargo.lock` with the release; the script itself never runs `git` or `gh`.
 
+Once the artifact and its checksum are written, the run removes the other
+`SpeechTT-*.AppImage` files and their `.sha256` companions from `dist/`, so a
+successful run leaves `dist/` carrying only the release it just produced and the
+publish command always names the current file. `tools/`, `worker.js` and
+`SpeechTT.AppDir` are kept: the first is a download the next build would repeat,
+and the AppDir is replaced wholesale when it is staged. A run that fails before
+the checksum removes nothing, so a broken build never destroys the previous
+release.
+
 A build that fails after the bump restores `Cargo.toml`, so retrying after an
 error does not consume a second version.
 
@@ -346,7 +355,8 @@ Opt out explicitly when the run is not a release:
 - `--no-build` repackages the existing binary and worker and never bumps,
   because a new number would name an artifact whose binary reports the old one.
   Without `--no-bump` it prints one line saying the bump was skipped.
-- `--dry-run` prints the release version and the full plan, and writes nothing.
+- `--dry-run` prints the release version, the full plan and the files it would
+  discard from `dist/`, and writes nothing.
 
 ## Documentation map
 
