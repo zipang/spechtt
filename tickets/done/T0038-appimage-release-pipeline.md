@@ -616,3 +616,14 @@ The CEO ran the built AppImage on the target machine: it launches. A
 configuration problem surfaced during that run and is out of this ticket's
 scope — it is filed separately rather than reopening this one. The packaging
 work itself is accepted.
+
+### Follow-up found while validating
+
+Launching from the desktop menu put Settings on an endless "Loading providers…"
+with a misleading CONNECTED badge. The cause was not the API key: the launch
+environment carrying no `~/.bun/bin` on `PATH` made `bun` unresolvable, so the
+worker never started and no catalogue ever arrived. The artifact behaved exactly
+as designed — it requires a system `bun` — but the failure was undiagnosable
+from inside the app, which is a product defect rather than a packaging one.
+Filed as `tickets/planned/T0040-bun-runtime-and-settings-recovery.md`; no code
+in this ticket changes.
