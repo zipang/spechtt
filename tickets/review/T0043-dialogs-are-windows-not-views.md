@@ -148,19 +148,19 @@ fn styled_ui_dirs() -> Vec<PathBuf>;
 
 ## TDD Tasks
 
-- [ ] **T43.1 — Coverage test first**: refactor the scan root of
+- [x] **T43.1 — Coverage test first**: refactor the scan root of
       `tests/design_system.rs` into `styled_ui_dirs()`, add
       `the_spacing_gate_checks_the_dialogs_too`, and run it: red while `src/dialogs`
       does not exist or the helper still returns one directory.
-- [ ] **T43.2 — Move**: `git mv crates/speechtt-ui/src/views/dialogs
+- [x] **T43.2 — Move**: `git mv crates/speechtt-ui/src/views/dialogs
 crates/speechtt-ui/src/dialogs`, wire `lib.rs` and drop the declaration from
       `views/mod.rs`.
-- [ ] **T43.3 — References**: code paths per §2; `cargo check` clean.
-- [ ] **T43.4 — Green**: `the_spacing_gate_checks_the_dialogs_too` passes, and
+- [x] **T43.3 — References**: code paths per §2; `cargo check` clean.
+- [x] **T43.4 — Green**: `the_spacing_gate_checks_the_dialogs_too` passes, and
       `views_and_dialogs_do_not_choose_spacing_type_or_radius` still passes on the
       moved files.
-- [ ] **T43.5 — Docs**: §2 of this contract, plus `AGENTS.md` §2.
-- [ ] **T43.6 — Gates**: `cargo fmt -- --check`,
+- [x] **T43.5 — Docs**: §2 of this contract, plus `AGENTS.md` §2.
+- [x] **T43.6 — Gates**: `cargo fmt -- --check`,
       `cargo clippy --all-targets -- -D warnings`, `cargo test`, `bun test`,
       `bun check src/stt`, `bun run design:validate`. Zero warnings; nothing skipped
       or `#[ignore]`d.
@@ -182,5 +182,44 @@ crates/speechtt-ui/src/dialogs`, wire `lib.rs` and drop the declaration from
 
 ## Implementation Notes
 
-_(added during work: the exact commands run, the test counts before and after,
-and any deviation from the contract with its reason.)_
+### Commands run
+
+- `git mv crates/speechtt-ui/src/views/dialogs crates/speechtt-ui/src/dialogs`
+- `cargo fmt`, then `cargo fmt -- --check`
+
+### T43.1 red evidence
+
+The coverage test ran before the move and failed for the right reason:
+
+```
+the spacing gate must read dialogs/settings.rs; it reads:
+views/dialogs/help.rs
+views/dialogs/mod.rs
+views/dialogs/settings.rs
+views/dialogs/window.rs
+views/mod.rs
+...
+```
+
+The gate was reaching the dialogs only through `views/`, which is exactly the
+silent exemption Contract §3 exists to prevent.
+
+### Test counts
+
+691 Rust before, 692 after: the rename of the spacing gate keeps the count and
+`the_spacing_gate_checks_the_dialogs_too` is the one addition. 515 Bun unchanged.
+No pre-existing test changed its name or its assertions.
+
+### Behaviour
+
+`diff`ing each moved file against `git show HEAD:<old path>` with only the
+three path substitutions applied shows no logic change: `window.rs` is
+byte-identical, `help.rs` and `settings.rs` differ only in import ordering
+(`cargo fmt`), and `mod.rs` gains the dispatcher sentence `AGENTS.md` §3 asks
+for. Rename detection reports 93–99 % similarity; `git log --follow` reaches the
+pre-move history of `dialogs/settings.rs` once the rename is committed.
+
+### Deviations
+
+None from the contract. `DESIGN.md` was not touched, as §Scope requires (it
+names no module path).

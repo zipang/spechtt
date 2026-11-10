@@ -130,9 +130,7 @@ Decisions, deviations, verification output.
 
 ### In Progress
 
-| Ticket                                              | Title                                                  | Track                        |
-| --------------------------------------------------- | ------------------------------------------------------ | ---------------------------- |
-| [T0043](in_progress/T0043-dialogs-are-windows-not-views.md) | Dialogs are their own windows, not views of the widget | Rust UI + design-system gate |
+_(none)_
 
 ### Review
 
@@ -141,6 +139,7 @@ Decisions, deviations, verification output.
 | [T0016](review/T0016-dependency-bootstrap-script.md)       | Dependency bootstrap for Bun and ffmpeg, and a welcome README | Tooling (TypeScript/Bun) + docs |
 | [T0040](review/T0040-bun-runtime-and-settings-recovery.md) | Find `bun`, and never leave Settings as a dead end            | Rust core + Rust UI + docs      |
 | [T0042](review/T0042-settings-density-and-order.md) | Settings fits, leads with what matters, and drops the empty choice | Rust UI + design system          |
+| [T0043](review/T0043-dialogs-are-windows-not-views.md) | Dialogs are their own windows, not views of the widget | Rust UI + design-system gate     |
 
 ### Planned
 
