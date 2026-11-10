@@ -224,6 +224,21 @@ it: the code, the tests and the ticket already hold the truth.
   window after it. It needs no display server, no audio server and no user
   configuration, so it runs on every machine and in CI.
 
+### Release builds
+
+`bun run package` is the release command. It advances the minor version in the
+`[workspace.package]` table of `Cargo.toml` **before** `cargo build`, then
+re-reads `cargo metadata`, so the artifact name and the version compiled into the
+binary (`env!("CARGO_PKG_VERSION")`) agree. A failure after the write restores
+the original manifest, so a retry does not consume a second version.
+
+- `--no-bump` builds and packages the current version without writing the
+  manifest; use it when verifying the pipeline rather than cutting a release.
+- `--no-build` never bumps: it repackages the binary compiled earlier, and a new
+  number would name an artifact whose binary reports the old one. Without
+  `--no-bump` it prints one line saying the bump was skipped.
+- `--dry-run` prints the release version and the full plan and writes nothing.
+
 ### TypeScript / Bun
 
 - `bun test`

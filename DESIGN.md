@@ -233,6 +233,22 @@ drag indicator.
 
 ## Components
 
+### Application header
+
+Rendered by `components::AppHeader` in the widget window and in every dialog
+window. One bold `Body` title on the left over the `title_bar` role, a 1px
+`title_bar_border` hairline below, and `IconButton` actions on the right in
+insertion order. A caller may attach a close button or another window action
+without changing the strip.
+
+The widget window appends its compiled version after the title through
+`AppHeader::version`; dialog windows do not, because the Help footer already
+carries the version and its header would otherwise say it twice in one window.
+The version is a `Label` with `.mono().muted()` — `--font-size-sm`,
+`--font-family-mono`, `--color-text-muted` — so it reads exactly like the
+`SPEECHTT V<version>` line in the Help footer. It shows `V<major>.<minor>.<patch>`,
+the value compiled into the binary, never a literal in the view.
+
 ### Round button
 
 Rendered by `components::RoundButton` — never a raw `div` sized at the call

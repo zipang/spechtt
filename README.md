@@ -317,6 +317,35 @@ Tests are hermetic: they inject fakes for audio, clipboard, input, the STT
 backend and the package managers, so no suite needs a microphone, a display, the
 network or a real user configuration directory. Write the failing test first.
 
+## Releasing
+
+A release is one command, run from the repository root:
+
+```sh
+bun run package
+```
+
+The script advances the minor version in the `[workspace.package]` table of
+`Cargo.toml` **before** it builds, then reads the version back from
+`cargo metadata`, so the AppImage file name and the version the widget reports
+(`V<version>` in the header and in the Help footer) come from the same number.
+It bundles the worker, builds the release widget, stages and packages the
+AppDir, writes `dist/SpeechTT-<version>-<arch>.AppImage` with its `.sha256`
+companion, and prints the `gh release create` command. Commit `Cargo.toml` and
+`Cargo.lock` with the release; the script itself never runs `git` or `gh`.
+
+A build that fails after the bump restores `Cargo.toml`, so retrying after an
+error does not consume a second version.
+
+Opt out explicitly when the run is not a release:
+
+- `--no-bump` builds and packages the current version without advancing it, for
+  example while checking a change to the packaging script.
+- `--no-build` repackages the existing binary and worker and never bumps,
+  because a new number would name an artifact whose binary reports the old one.
+  Without `--no-bump` it prints one line saying the bump was skipped.
+- `--dry-run` prints the release version and the full plan, and writes nothing.
+
 ## Documentation map
 
 | Document                                 | What it answers                                                        |
