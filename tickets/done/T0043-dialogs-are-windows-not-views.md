@@ -223,3 +223,13 @@ pre-move history of `dialogs/settings.rs` once the rename is committed.
 
 None from the contract. `DESIGN.md` was not touched, as §Scope requires (it
 names no module path).
+
+### Closure
+
+Validated by the CEO on 2026-11-11.
+
+The design-system coverage this ticket added is the durable part: the scan root
+is `src/views` and `src/dialogs`, and `the_spacing_gate_checks_the_dialogs_too`
+fails if either leaves the set. The tests deleted alongside T0042 afterwards were
+composition tests on dialog rows, which `AGENTS.md` §6 now forbids; none of them
+covered the gate this ticket widened.
