@@ -12,7 +12,7 @@ with a stateless Bun worker doing the speech-to-text behind a local pipe.
 ## Download
 
 The latest Linux build is on the
-[Releases page](https://github.com/zipang/spechtt/releases/latest). Download the
+[Releases page](https://github.com/zipang/speechtt/releases/latest). Download the
 AppImage for your architecture, then run it:
 
 ```sh
@@ -131,8 +131,8 @@ Clone the repository, then run every command from its root, where
 `bun install` and the source tree live:
 
 ```sh
-git clone https://github.com/zipang/spechtt.git
-cd spechtt
+git clone https://github.com/zipang/speechtt.git
+cd speechtt
 bun install
 bun run ui
 ```
