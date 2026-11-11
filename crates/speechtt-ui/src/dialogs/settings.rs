@@ -72,7 +72,7 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
         (
             has_provider,
             catalogue_loaded,
-            controller.settings_connection_state(),
+            app.gateway_state(),
             controller.settings_can_save(),
             controller
                 .settings_api_key_env()

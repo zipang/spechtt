@@ -38,7 +38,7 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
                 .to_owned(),
             controller.catalogue_source(),
             controller.help_models().to_vec(),
-            controller.settings_connection_state(),
+            app.gateway_state(),
         )
     };
 

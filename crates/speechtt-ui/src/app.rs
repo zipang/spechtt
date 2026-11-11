@@ -85,9 +85,9 @@ use crate::components::{
     SelectFields, SelectSnapshot,
 };
 use crate::controller::{
-    AppError, BackendFailure, CleanStatus, CleanToggle, Clock, Dialog, ErrorAction, FinishedTake,
-    HelpTab, SAMPLE_RATE, SessionController, SessionMode, SettingsChange, SettingsDraft,
-    StartupSettingsAction, SystemClock, ViewState,
+    AppError, BackendFailure, CleanStatus, CleanToggle, Clock, ConnectionState, Dialog,
+    ErrorAction, FinishedTake, HelpTab, SAMPLE_RATE, SessionController, SessionMode,
+    SettingsChange, SettingsDraft, StartupSettingsAction, SystemClock, ViewState,
 };
 use crate::dialogs;
 use crate::dialogs::{DIALOG_WIDTH, DialogWindow, HELP_DIALOG_HEIGHT, SETTINGS_DIALOG_HEIGHT};
@@ -666,8 +666,10 @@ impl SpeechTtApp {
         self.controller.settings_draft()
     }
 
-    pub fn settings_connected(&self) -> bool {
-        self.controller.settings_connected()
+    /// The gateway reading both dialog footers draw; see
+    /// [`SessionController::gateway_state`].
+    pub fn gateway_state(&self) -> ConnectionState {
+        self.controller.gateway_state()
     }
 
     /// The masked stored-key line for the Settings API-key row, if any.

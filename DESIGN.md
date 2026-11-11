@@ -259,14 +259,20 @@ identically, and no form row carries a connection badge of its own.
 
 The gateway text has three readings, and `NOT VERIFIED` is not a failure:
 
-| State          | Text                   | Dot               |
-| -------------- | ---------------------- | ----------------- |
-| `Connected`    | `GATEWAY CONNECTED`    | `success`         |
-| `NotConnected` | `GATEWAY NOT CONNECTED`| `danger`          |
-| `Unknown`      | `GATEWAY NOT VERIFIED` | `warning`         |
+| State          | Text                    | Dot       |
+| -------------- | ----------------------- | --------- |
+| `Connected`    | `GATEWAY CONNECTED`     | `success` |
+| `NotConnected` | `GATEWAY NOT CONNECTED` | `danger`  |
+| `Unknown`      | `GATEWAY NOT VERIFIED`  | `warning` |
 
 `Unknown` means no catalogue has arrived, so nothing has been checked yet;
 saying `NOT CONNECTED` there would report an outcome nobody observed.
+
+The reading comes from `SessionController::gateway_state()`, which reads the
+provider and the key from the persisted settings: those exist whether or not a
+dialog is open, so Help and Settings report the same thing. The Settings draft
+only contributes while a dialog holds one, so a key typed before Save moves the
+line immediately.
 
 ### Round button
 

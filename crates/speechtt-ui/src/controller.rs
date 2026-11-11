@@ -1823,17 +1823,6 @@ impl SessionController {
         !self.settings_draft.api_key.is_empty() || self.settings_draft.api_key_unchanged
     }
 
-    /// Whether the dialog shows a connected badge: a catalogue has arrived, a
-    /// key is available and the provider is not reported unavailable.
-    ///
-    /// The catalogue is required because availability is what the badge claims;
-    /// before it arrives, [`Self::settings_connection_state`] reports
-    /// [`ConnectionState::Unknown`] instead of guessing.
-    #[must_use]
-    pub fn settings_connected(&self) -> bool {
-        self.settings_connection_state() == ConnectionState::Connected
-    }
-
     /// Whether the backend reports the drafted provider as unavailable.
     ///
     /// False before a catalogue arrives: `provider_available` is unknown then,
@@ -1849,13 +1838,39 @@ impl SessionController {
             == Some(false)
     }
 
-    /// What the API-key badge may claim: unknown, connected or not connected.
+    /// The gateway reading both dialog footers draw.
+    ///
+    /// One function, so Help and Settings cannot disagree. The provider and the
+    /// key come from the persisted settings, which exist whether or not a
+    /// dialog is open; the Settings draft contributes only while a dialog holds
+    /// it, so a key typed before Save still moves the line.
+    ///
+    /// The catalogue is required because availability is what the line claims:
+    /// before it arrives the answer is [`ConnectionState::Unknown`], not a
+    /// disconnection nobody has observed.
     #[must_use]
-    pub fn settings_connection_state(&self) -> ConnectionState {
+    pub fn gateway_state(&self) -> ConnectionState {
         if !self.catalogue_loaded() {
             return ConnectionState::Unknown;
         }
-        if self.settings_has_key() && !self.settings_provider_unavailable() {
+        let provider = self
+            .settings_draft
+            .provider
+            .clone()
+            .or_else(|| {
+                self.settings
+                    .as_ref()
+                    .map(|settings| settings.provider.clone())
+            })
+            .unwrap_or_else(|| DEFAULT_PROVIDER.to_owned());
+        if self.provider_available(&provider) == Some(false) {
+            return ConnectionState::NotConnected;
+        }
+        let stored = self
+            .settings
+            .as_ref()
+            .is_some_and(|settings| settings.masked_api_key(&provider).is_some());
+        if self.settings_has_key() || stored {
             ConnectionState::Connected
         } else {
             ConnectionState::NotConnected
@@ -5258,8 +5273,35 @@ mod tests {
         );
     }
 
+    /// Help opens without building a Settings draft, so the footer must read a
+    /// state the persisted settings already describe. Deriving it from the
+    /// draft made Help report a disconnection Settings did not.
     #[test]
-    fn the_connected_badge_requires_a_catalogue() {
+    fn the_gateway_state_is_the_same_with_or_without_a_settings_draft() {
+        let mut controller = SessionController::new();
+        controller.apply_settings(keyed_settings(
+            "openai/gpt-realtime-whisper",
+            "openai/gpt-4o-transcribe",
+        ));
+        controller.set_capabilities(available_capabilities());
+
+        // No dialog open: this is the Help window's view of the controller.
+        assert_eq!(
+            controller.gateway_state(),
+            ConnectionState::Connected,
+            "a stored key for an available provider is connected before any draft exists"
+        );
+
+        controller.open_settings();
+        assert_eq!(
+            controller.gateway_state(),
+            ConnectionState::Connected,
+            "opening Settings must not change what the footer reports"
+        );
+    }
+
+    #[test]
+    fn the_gateway_state_requires_a_catalogue() {
         let mut controller = SessionController::new();
         controller.apply_settings(keyed_settings(
             "openai/gpt-realtime-whisper",
@@ -5273,22 +5315,19 @@ mod tests {
         );
 
         assert!(!controller.catalogue_loaded());
-        assert!(
-            !controller.settings_connected(),
-            "a stored key alone is not a verified connection"
-        );
         assert_eq!(
-            controller.settings_connection_state(),
-            ConnectionState::Unknown
+            controller.gateway_state(),
+            ConnectionState::Unknown,
+            "a stored key alone is not a verified connection"
         );
 
         controller.set_capabilities(available_capabilities());
         assert!(controller.catalogue_loaded());
         assert_eq!(
-            controller.settings_connection_state(),
-            ConnectionState::Connected
+            controller.gateway_state(),
+            ConnectionState::Connected,
+            "an available provider with a stored key is connected"
         );
-        assert!(controller.settings_connected());
     }
 
     #[test]

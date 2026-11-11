@@ -24,7 +24,8 @@ use speechtt_core::protocol::{
 use speechtt_core::settings::{Settings, SettingsError, SettingsStore, WindowLayout};
 use speechtt_ui::app::{AppServices, GpuiSavePrompt, SpeechTtApp};
 use speechtt_ui::controller::{
-    AppError, Clock, SAMPLE_RATE, SessionController, SessionMode, SettingsChange, ViewState,
+    AppError, Clock, ConnectionState, SAMPLE_RATE, SessionController, SessionMode, SettingsChange,
+    ViewState,
 };
 
 // ----- Fakes -----------------------------------------------------------
@@ -790,8 +791,9 @@ fn capabilities_populate_options_and_connection_state() {
     );
 
     controller.set_settings_api_key("sk-capability-test");
-    assert!(
-        !controller.settings_connected(),
+    assert_eq!(
+        controller.gateway_state(),
+        ConnectionState::NotConnected,
         "an unavailable provider is not connected even with a key"
     );
     assert!(
@@ -823,7 +825,7 @@ fn capabilities_populate_options_and_connection_state() {
             },
         ],
     }]);
-    assert!(controller.settings_connected());
+    assert_eq!(controller.gateway_state(), ConnectionState::Connected);
     assert!(controller.settings_draft_valid());
 }
 
@@ -1222,7 +1224,11 @@ fn the_app_constructs_from_fakes_and_persists_settings(cx: &mut gpui_kit::TestAp
             Some(saved.model_batch.as_str())
         );
         assert!(draft.api_key_unchanged, "the stored key is not re-typed");
-        assert!(app.settings_connected(), "the stored key shows CONNECTED");
+        assert_eq!(
+            app.gateway_state(),
+            ConnectionState::Connected,
+            "the stored key shows the gateway as connected"
+        );
     })
     .unwrap();
 }
