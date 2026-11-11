@@ -20,9 +20,13 @@ import {
 	desktopEntryLinux,
 	dirtyEntries,
 	nextPatchVersion,
+	GIT_PUSH_ARGV,
+	VERSION_FILES,
 	releaseArgs,
 	releaseCommand,
+	releaseCommitArgs,
 	runCli,
+	stageVersionFilesArgs,
 	stagePlanLinux,
 	staleArtifacts,
 	versionFromMetadata,
@@ -381,6 +385,29 @@ describe("command builders", () => {
 	});
 });
 
+describe("release commit builders", () => {
+	test("stages the three version files by path", () => {
+		const argv = stageVersionFilesArgs(VERSION_FILES);
+
+		expect(argv).toEqual(["git", "add", "Cargo.toml", "Cargo.lock", "package.json"]);
+		expect(argv).not.toContain("--all");
+		expect(argv).not.toContain("-A");
+	});
+
+	test("commits with the repository subject convention and the released number", () => {
+		expect(releaseCommitArgs("0.5.2")).toEqual([
+			"git",
+			"commit",
+			"-m",
+			"🔖 release: 0.5.2"
+		]);
+	});
+
+	test("pushes the commit the tag will point at", () => {
+		expect(GIT_PUSH_ARGV).toEqual(["git", "push"]);
+	});
+});
+
 describe("releaseCommand", () => {
 	test("prints the exact gh command and runs nothing", () => {
 		expect(releaseCommand("0.5.0", "x86_64")).toBe(
@@ -705,6 +732,11 @@ function ghCalls(fake: Harness): string[][] {
 	return fake.execCalls.filter((call) => call.argv[0] === "gh").map((call) => [...call.argv]);
 }
 
+/** The `git` calls the run made, as argv lists. */
+function gitCalls(fake: Harness): string[][] {
+	return fake.execCalls.filter((call) => call.argv[0] === "git").map((call) => [...call.argv]);
+}
+
 const GIT_STATUS_ARGV = ["git", "status", "--porcelain"];
 
 const METADATA_ARGV = ["cargo", "metadata", "--format-version", "1", "--no-deps"];
@@ -1012,6 +1044,65 @@ describe("runCli --release", () => {
 		expect(fake.stdout).toContain(releaseCommand("0.5.1", "x86_64"));
 	});
 
+	test("commits and pushes the bump before publishing, so the tag carries it", async () => {
+		const fake = harness();
+
+		expect(await runCli(["--release"], fake.deps)).toBe(0);
+
+		expect(gitCalls(fake)).toEqual([
+			GIT_STATUS_ARGV,
+			["git", "add", "Cargo.toml", "Cargo.lock", "package.json"],
+			["git", "commit", "-m", "🔖 release: 0.5.1"],
+			["git", "push"]
+		]);
+		// The tag `gh release create` makes is only correct once the commit is on the remote.
+		const pushIndex = fake.execCalls.findIndex((call) => call.argv === GIT_PUSH_ARGV);
+		const publishIndex = fake.execCalls.findIndex((call) => call.argv[0] === "gh");
+		expect(pushIndex).toBeGreaterThanOrEqual(0);
+		expect(publishIndex).toBeGreaterThan(pushIndex);
+	});
+
+	test("a plain package commits nothing and pushes nothing", async () => {
+		const fake = harness();
+
+		expect(await runCli([], fake.deps)).toBe(0);
+
+		expect(gitCalls(fake)).toEqual([]);
+	});
+
+	test("--no-bump republishes without a commit, since no version moved", async () => {
+		const fake = harness();
+
+		expect(await runCli(["--release", "--no-bump"], fake.deps)).toBe(0);
+
+		expect(gitCalls(fake)).toEqual([GIT_STATUS_ARGV]);
+		expect(ghCalls(fake)).toHaveLength(1);
+	});
+
+	test("a failed commit stops before publishing and says what to do", async () => {
+		const fake = harness({
+			exitCode: (argv) => (argv[0] === "git" && argv[1] === "commit" ? 1 : 0),
+			stderr: (argv) =>
+				argv[0] === "git" && argv[1] === "commit" ? "nothing to commit" : ""
+		});
+
+		expect(await runCli(["--release"], fake.deps)).toBe(1);
+
+		expect(ghCalls(fake)).toEqual([]);
+		expect(lineMatches(fake.stderr, /commit and push it/)).toBe(true);
+	});
+
+	test("a failed push stops before publishing", async () => {
+		const fake = harness({
+			exitCode: (argv) => (argv[0] === "git" && argv[1] === "push" ? 1 : 0),
+			stderr: (argv) => (argv[0] === "git" && argv[1] === "push" ? "rejected" : "")
+		});
+
+		expect(await runCli(["--release"], fake.deps)).toBe(1);
+
+		expect(ghCalls(fake)).toEqual([]);
+	});
+
 	test("the release runs after the cleanup and the checksum", async () => {
 		const fake = harness({ listDir: () => ["SpeechTT-0.4.0-x86_64.AppImage"] });
 
@@ -1046,6 +1137,19 @@ describe("runCli --release", () => {
 		expect(lineMatches(fake.stderr, /gh/)).toBe(true);
 		expect(fake.execCalls).toEqual([]);
 		expect(fake.written).toEqual([]);
+	});
+
+	test("--dry-run names the commit and push a real release would make", async () => {
+		const fake = harness();
+
+		expect(await runCli(["--dry-run", "--release"], fake.deps)).toBe(0);
+
+		expect(fake.stdout).toContain("git add Cargo.toml Cargo.lock package.json");
+		expect(fake.stdout).toContain("git commit -m \"🔖 release: 0.5.1\"");
+		expect(fake.stdout).toContain("git push");
+		expect(fake.stdout).toContain(releaseCommand("0.5.1", "x86_64"));
+		// Nothing is executed on a projection.
+		expect(gitCalls(fake)).toEqual([GIT_STATUS_ARGV]);
 	});
 
 	test("a failing gh exits 1, prints its stderr and keeps the artifact", async () => {
@@ -1175,7 +1279,10 @@ describe("runCli --release", () => {
 
 		expect(await runCli(["--release", "--allow-dirty"], fake.deps)).toBe(0);
 
-		expect(fake.execCalls.some((call) => call.argv[0] === "git")).toBe(false);
+		// The override skips the guard, not the release commit: the bump still has to reach the
+		// remote before the tag is made.
+		expect(gitCalls(fake).some((argv) => argv[1] === "status")).toBe(false);
+		expect(gitCalls(fake).map((argv) => argv[1])).toEqual(["add", "commit", "push"]);
 		expect(
 			fake.stdout.some(
 				(line) => line.includes("--allow-dirty") && line.includes("clean-tree")

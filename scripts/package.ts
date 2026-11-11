@@ -7,6 +7,9 @@
  * `sha256sum` companion and prints the `gh release create` command. Only `--release` executes that
  * command; a plain `bun run package` builds and prints.
  *
+ * A `--release` run commits the version bump and pushes it before publishing, so the tag
+ * `gh release create` creates points at a commit whose `Cargo.toml` names the released version.
+ *
  * The bump comes first because the version is compiled into the binary: the artifact name and the
  * `V<version>` the widget shows must be the same number. A failure after the write restores the
  * manifest, the lock file and `package.json`, so a retry does not consume a second version.
@@ -28,8 +31,9 @@
  * bottom, and every machine-facing capability (`has`, `exec`, `fetch`, the filesystem sinks, the
  * output sinks) arrives as a {@link CliDeps} value. The version is read from `cargo metadata`,
  * never hardcoded, and the only files the run writes outside `dist/` are `Cargo.toml`, its lock
- * file and `package.json`. The single `git` invocation is the read-only `git status --porcelain`
- * that guards a release.
+ * file and `package.json`. The `git` invocations are the read-only `git status --porcelain` guard,
+ * and — under `--release` on a run that bumped — the `git add`, `git commit` and `git push` that
+ * carry the bump to the remote before the tag is made.
  */
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
@@ -132,8 +136,17 @@ const LOCKFILE_PATH = "Cargo.lock";
 /** The npm manifest whose `version` follows the release version. */
 const PACKAGE_JSON_PATH = "package.json";
 
-/** The working-tree status listing the release guard reads; the script's only git call. */
+/** The working-tree status listing the release guard reads. */
 const GIT_STATUS_ARGV = ["git", "status", "--porcelain"];
+
+/**
+ * The files a release commits before publishing.
+ *
+ * The bump writes exactly these three, so they are staged by path and never with `git add -A`: a
+ * release must not sweep an unrelated change into its commit. A workspace without a lock file
+ * stages two.
+ */
+export const VERSION_FILES: readonly string[] = [MANIFEST_PATH, LOCKFILE_PATH, PACKAGE_JSON_PATH];
 
 const METADATA_ARGV = ["cargo", "metadata", "--format-version", "1", "--no-deps"];
 
@@ -433,6 +446,29 @@ export function checksumLine(digest: string, fileName: string): string {
 }
 
 /**
+ * The `git add` command staging the version files a bump wrote, as an argv list.
+ *
+ * Explicit paths, never `git add -A`: a release commits its own three files and nothing else, so an
+ * unrelated change in the working tree stays where the author left it.
+ */
+export function stageVersionFilesArgs(files: readonly string[]): readonly string[] {
+	return ["git", "add", ...files];
+}
+
+/**
+ * The commit that carries a release bump, as an argv list.
+ *
+ * The subject matches the repository convention, `<emoji> <type>: <summary>`, and names the version
+ * rather than a ticket: the release is what the commit is about.
+ */
+export function releaseCommitArgs(version: string): readonly string[] {
+	return ["git", "commit", "-m", `🔖 release: ${version}`];
+}
+
+/** The push that puts the release commit on the remote before the tag is created. */
+export const GIT_PUSH_ARGV: readonly string[] = ["git", "push"];
+
+/**
  * The `gh release create` command that publishes `version`, as an argv list.
  *
  * The single source of the publish command: {@link releaseCommand} prints it and a `--release` run
@@ -461,9 +497,22 @@ export function releaseArgs(version: string, arch: Arch): readonly string[] {
  * the tag as part of publishing, so the script never tags anything itself.
  */
 export function releaseCommand(version: string, arch: Arch): string {
-	return releaseArgs(version, arch)
-		.map((argument) => (argument.includes(" ") ? `"${argument}"` : argument))
-		.join(" ");
+	return argvLine(releaseArgs(version, arch));
+}
+
+/**
+ * One argument as a shell would need it typed.
+ *
+ * An argument carrying a space is quoted, so a printed command stays copy-pasteable: the release
+ * commit's subject is `🔖 release: 0.5.2`, and printing it bare would split into two arguments.
+ */
+function shellArg(argument: string): string {
+	return argument.includes(" ") ? `"${argument}"` : argument;
+}
+
+/** An argv list as terminal text. */
+function argvLine(argv: readonly string[]): string {
+	return argv.map(shellArg).join(" ");
 }
 
 /** Command text with an optional environment prefix, for the terminal. */
@@ -471,7 +520,7 @@ function execLine(argv: readonly string[], env: Readonly<Record<string, string>>
 	const prefix = Object.entries(env)
 		.map(([key, value]) => `${key}=${value} `)
 		.join("");
-	return `${prefix}${argv.join(" ")}`;
+	return `${prefix}${argvLine(argv)}`;
 }
 
 /** Prints and runs the workspace `cargo metadata` query, returning its version. */
@@ -652,6 +701,40 @@ function dirtyTree(deps: CliDeps): string[] {
 }
 
 /**
+ * Commits the version bump and pushes it, so the tag `gh release create` makes points at a commit
+ * that carries the released number.
+ *
+ * A release tags the commit on the remote's default branch, so a bump left uncommitted would tag a
+ * tree that still names the previous version: the artifact reports `0.5.2` while `v0.5.2` points at
+ * a `Cargo.toml` saying `0.5.1`. Committing and pushing first removes that gap.
+ *
+ * Only the files the bump wrote are staged, by path, so an unrelated change is never swept in.
+ * Returns whether all three steps succeeded; a failure leaves the bump on disk and uncommitted,
+ * which the caller reports rather than rolls back — the artifact is already built at that number.
+ */
+function commitAndPushVersion(deps: CliDeps, version: string): boolean {
+	const staged = stageVersionFilesArgs(VERSION_FILES);
+	deps.out(execLine(staged));
+	if (!runStep(deps, staged)) {
+		return false;
+	}
+
+	const commit = releaseCommitArgs(version);
+	deps.out(execLine(commit));
+	if (!runStep(deps, commit)) {
+		return false;
+	}
+
+	deps.out(execLine(GIT_PUSH_ARGV));
+	if (!runStep(deps, GIT_PUSH_ARGV)) {
+		return false;
+	}
+
+	deps.out(`committed and pushed: v${version}`);
+	return true;
+}
+
+/**
  * Publishes the artifact `version` just produced, through the command every run prints.
  *
  * Only `--release` reaches this. A failure keeps the artifact and its checksum on disk: the build
@@ -694,8 +777,9 @@ function publishRelease(deps: CliDeps, version: string, arch: Arch): boolean {
  * `dist/` listing and — under `--release` — the `git status --porcelain` guard, whose blocking
  * paths it reports instead of aborting. `--no-build` reuses `target/release/speechtt-ui` and
  * `dist/worker.js`, checks that bundle for bare imports, and fails with exit `1` when either
- * artifact is absent. `--no-bump` packages the current version without writing the manifest. Only
- * `--release` executes `gh`; a plain run prints the command and stops.
+ * artifact is absent. `--no-bump` packages the current version without writing the manifest.
+ * `--release` on a run that bumped commits the version files and pushes before it executes `gh`; a
+ * plain run prints the commands and stops.
  */
 export async function runCli(argv: readonly string[], deps: CliDeps): Promise<number> {
 	try {
@@ -720,10 +804,10 @@ async function runPipeline(argv: readonly string[], deps: CliDeps): Promise<numb
 	const arch = parsed.arch ?? archFrom(deps.machine);
 
 	const required = parsed.noBuild ? ["cargo"] : ["cargo", "bun"];
-	// `gh` is checked with the other tools so a release never fails at the last step for a missing
-	// tool, after the whole build has already been paid for.
+	// `gh` and `git` are checked with the other tools so a release never fails at the last step for
+	// a missing tool, after the whole build has already been paid for.
 	if (parsed.release) {
-		required.push("gh");
+		required.push("gh", "git");
 	}
 	for (const tool of required) {
 		if (!deps.has(tool)) {
@@ -786,6 +870,11 @@ async function runPipeline(argv: readonly string[], deps: CliDeps): Promise<numb
 		);
 		deps.out(`download: ${tool}`);
 		discardStaleArtifacts(deps, name, true);
+		if (parsed.release && !parsed.noBump && !parsed.noBuild) {
+			deps.out(execLine(stageVersionFilesArgs(VERSION_FILES)));
+			deps.out(execLine(releaseCommitArgs(releaseVersion)));
+			deps.out(execLine(GIT_PUSH_ARGV));
+		}
 		deps.out(releaseCommand(releaseVersion, arch));
 		return 0;
 	}
@@ -903,6 +992,16 @@ async function runPipeline(argv: readonly string[], deps: CliDeps): Promise<numb
 		// would leave `--release --no-build` naming a version no artifact carries.
 		succeeded = true;
 		if (parsed.release) {
+			// The commit must come before the publish: `gh release create` tags the remote's default
+			// branch, so a bump still sitting in the working tree would leave the tag on a commit
+			// that names the previous version. `--no-bump` and `--no-build` write no version, so
+			// there is nothing to commit and the existing artifact is republished as it is.
+			if (bumped && !commitAndPushVersion(deps, version)) {
+				deps.err(
+					"package: the version bump is on disk but not committed; commit and push it, then publish"
+				);
+				return 1;
+			}
 			return publishRelease(deps, version, arch) ? 0 : 1;
 		}
 		deps.out(releaseCommand(version, arch));

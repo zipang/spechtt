@@ -247,14 +247,23 @@ second version.
   `gh release create v<version>` command every run prints, after the `dist/`
   cleanup, so the published assets are the pair just built. A plain
   `bun run package` prints that command and stops, so a build never publishes.
-- `--release` requires `gh` on `PATH` (checked before the build starts) and a
-  clean working tree: it runs `git status --porcelain` and exits `2`, listing the
-  paths, when anything is uncommitted. Publishing tags the commit the artifact
-  was built from. `--allow-dirty` is the explicit override. That status read is
-  the only `git` invocation the script makes.
-- A failing `gh` exits `1` and prints its stderr; the artifact and its checksum
-  stay in `dist/`, and the bumped version stays written, so the retry is a
-  republish at the same number.
+- `--release` requires `gh` and `git` on `PATH` (checked before the build starts)
+  and a clean working tree: it runs `git status --porcelain` and exits `2`,
+  listing the paths, when anything is uncommitted. `--allow-dirty` is the
+  explicit override for the check alone.
+- `--release` then commits and pushes the bump **before** it publishes: the three
+  version files, staged by path, under the subject `🔖 release: <version>`. It
+  has to come first because `gh release create` tags the remote's default branch,
+  so a bump left in the working tree would point the tag at a commit whose
+  `Cargo.toml` still names the previous version. `--no-bump` and `--no-build`
+  write no version, so they commit nothing and republish as they are.
+- A failed commit or push exits `1` before anything is published and says the
+  bump is on disk and uncommitted; the artifact and its checksum stay in `dist/`,
+  and the bumped version stays written, so the retry is a republish at the same
+  number rather than a second bump.
+- A failing `gh` exits `1` and prints its stderr; the artifact, its checksum and
+  the pushed commit stay, so the retry is `--release --no-bump --no-build` or a
+  manual `gh release create`.
 - `--no-bump` builds and packages the current version without writing the
   manifests; use it when verifying the pipeline rather than cutting a release.
 - `--no-build` never bumps: it repackages the binary compiled earlier, and a new
