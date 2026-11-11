@@ -12,14 +12,15 @@
 //! is resolved automatically, a value is the user's explicit override. The
 //! provider row's placeholder and the failure note come from the controller, so
 //! an unavailable backend states its cause instead of implying that a catalogue
-//! is still loading, and the API-key badge reports `NOT VERIFIED` until a
-//! catalogue has arrived.
+//! is still loading.
 //!
 //! All rows use [`SettingRow::dense`] and are passed to the shell as one
 //! gap-free child, so each divider has equal space above and below. The API key
-//! is [`SettingRow::stacked`] with its badge as the [`SettingRow::accessory`],
-//! because the masked field needs the full row width. The notes stay separate
-//! children of the shell and keep its gap.
+//! is [`SettingRow::stacked`], because the masked field needs the full row
+//! width. The notes stay separate children of the shell and keep its gap.
+//!
+//! The footer carries [`BuildStatus`]: the version and the gateway state, the
+//! same line the Help dialog draws. No row reports a connection of its own.
 //!
 //! The dialog edits a draft (see `controller::SettingsDraft`); saving stages a
 //! `SettingsChange` through `SpeechTtApp::apply_settings_change`, which writes
@@ -28,7 +29,7 @@
 //! Rendered by `dialogs::window`, which dispatches it as
 //! `settings::render` for the `Dialog::Settings` window.
 
-use gpui_kit::base::{h_flex, v_flex};
+use gpui_kit::base::v_flex;
 use gpui_kit::component::button::Button;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::Input;
@@ -37,13 +38,11 @@ use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, Context, IntoElement};
 
 use crate::components::{
-    ActionButton, AppFooter, InfoNote, Label, LanguageSelect, ModelSelect, ProviderSelect,
-    SettingRow, StatusBadge, StatusDot,
+    ActionButton, AppFooter, BuildStatus, InfoNote, Label, LanguageSelect, ModelSelect,
+    ProviderSelect, SettingRow,
 };
 
-use crate::controller::ConnectionState;
 use crate::dialogs::{DialogShell, DialogWindow};
-use crate::tokens::color;
 
 pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> AnyElement {
     let (
@@ -142,23 +141,6 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
             .into_any_element()
     };
 
-    let badge = match connection {
-        ConnectionState::Connected => h_flex()
-            .gap_1p5()
-            .items_center()
-            .child(StatusDot::new(gpui_kit::rgb(color::SUCCESS).into()))
-            .child(
-                Label::new("CONNECTED")
-                    .bold()
-                    .tone(gpui_kit::rgb(color::SUCCESS).into()),
-            )
-            .into_any_element(),
-        ConnectionState::NotConnected => StatusBadge::new("NOT CONNECTED").into_any_element(),
-        // No catalogue has arrived, so availability is not known: the badge
-        // must not claim either outcome.
-        ConnectionState::Unknown => StatusBadge::new("NOT VERIFIED").into_any_element(),
-    };
-
     let mut reveal = Button::new("btn-settings-reveal")
         .ghost()
         .small()
@@ -188,6 +170,7 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
     }
 
     let footer = AppFooter::new()
+        .leading(BuildStatus::new(connection))
         .action(
             ActionButton::secondary("btn-settings-cancel", "Cancel")
                 .on_click(cx.listener(|this, _event, window, cx| this.close(window, cx))),
@@ -212,7 +195,6 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
         .dense()
         .stacked()
         .mono_description()
-        .accessory(badge)
         .control(api_key_control);
 
     let mut rows: Vec<AnyElement> = vec![

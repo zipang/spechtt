@@ -27,7 +27,8 @@
 //! [`crate::components::InfoNote`], [`crate::components::KeyCap`],
 //! [`crate::components::ProgressBar`], [`crate::components::SettingRow`],
 //! [`crate::components::ElapsedTimer`],
-//! [`crate::components::TranscriptionModeBadge`], and
+//! [`crate::components::TranscriptionModeBadge`],
+//! [`crate::components::BuildStatus`], and
 //! [`crate::components::CaptionWell`] — the only caller that makes its runs
 //! selectable.
 

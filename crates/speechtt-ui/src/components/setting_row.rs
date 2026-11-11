@@ -6,10 +6,9 @@
 //! fit inside the widget. [`SettingRow::prominent`] uses the roomier dialog
 //! style: a larger title, muted helper text and a hairline separator between
 //! rows, as used by the provider/model setup form and the Settings dialog.
-//! [`SettingRow::dense`], [`SettingRow::stacked`], [`SettingRow::accessory`]
-//! and [`SettingRow::mono_description`] are opt-in refinements for a dialog
-//! that must fit its window; the default and prominent forms keep their
-//! rhythm.
+//! [`SettingRow::dense`], [`SettingRow::stacked`] and
+//! [`SettingRow::mono_description`] are opt-in refinements for a dialog that
+//! must fit its window; the default and prominent forms keep their rhythm.
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::ActiveTheme as _;
@@ -23,7 +22,6 @@ pub struct SettingRow {
     label: SharedString,
     description: SharedString,
     control: Option<AnyElement>,
-    accessory: Option<AnyElement>,
     prominent: bool,
     dense: bool,
     stacked: bool,
@@ -36,7 +34,6 @@ impl SettingRow {
             label: label.into(),
             description: description.into(),
             control: None,
-            accessory: None,
             prominent: false,
             dense: false,
             stacked: false,
@@ -68,15 +65,6 @@ impl SettingRow {
     /// where a trailing slot would squeeze the label to nothing.
     pub fn stacked(mut self) -> Self {
         self.stacked = true;
-        self
-    }
-
-    /// Adds an element to the label line's trailing edge, opposite the title.
-    ///
-    /// Independent of the control: a stacked row can carry a status badge
-    /// beside its title while its control spans the row below.
-    pub fn accessory(mut self, accessory: impl IntoElement) -> Self {
-        self.accessory = Some(accessory.into_any_element());
         self
     }
 
@@ -122,7 +110,7 @@ impl RenderOnce for SettingRow {
             )
         };
 
-        let mut label_line = h_flex().justify_between().items_start().gap_4().child(
+        let label_line = h_flex().items_start().child(
             v_flex()
                 .flex_shrink_1()
                 .min_w_0()
@@ -130,9 +118,6 @@ impl RenderOnce for SettingRow {
                 .child(title)
                 .child(description),
         );
-        if let Some(accessory) = self.accessory {
-            label_line = label_line.child(accessory);
-        }
 
         let row = if self.stacked {
             let mut row = v_flex().w_full().gap_2().child(label_line.w_full());

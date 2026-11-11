@@ -11,6 +11,7 @@
 mod action_button;
 mod app_footer;
 mod app_header;
+mod build_status;
 mod button_anchors;
 mod caption_well;
 mod card;
@@ -38,6 +39,7 @@ mod waveform;
 pub use action_button::{ActionButton, ActionTone};
 pub use app_footer::AppFooter;
 pub use app_header::AppHeader;
+pub use build_status::BuildStatus;
 pub use button_anchors::{Anchor, button_anchor, record_button_anchor};
 pub use caption_well::CaptionWell;
 pub use caption_well::follows_bottom;

@@ -242,12 +242,31 @@ insertion order. A caller may attach a close button or another window action
 without changing the strip.
 
 The widget window appends its compiled version after the title through
-`AppHeader::version`; dialog windows do not, because the Help footer already
-carries the version and its header would otherwise say it twice in one window.
+`AppHeader::version`; dialog windows do not, because their footer already
+carries it and the header would otherwise say it twice in one window.
 The version is a `Label` with `.mono().muted()` — `--font-size-sm`,
-`--font-family-mono`, `--color-text-muted` — so it reads exactly like the
-`SPEECHTT V<version>` line in the Help footer. It shows `V<major>.<minor>.<patch>`,
-the value compiled into the binary, never a literal in the view.
+`--font-family-mono`, `--color-text-muted` — the same treatment the dialog
+footers use. It shows `V<major>.<minor>.<patch>`, the value compiled into the
+binary, never a literal in the view.
+
+### Dialog footer
+
+Both dialog windows — Help and Settings — put `components::BuildStatus` in the
+leading slot of their `components::AppFooter`. One line, two parts: the version
+in `mono` `muted`, then a `StatusDot` and the gateway state in the same role
+colour. Help and Settings therefore report the build and the connection
+identically, and no form row carries a connection badge of its own.
+
+The gateway text has three readings, and `NOT VERIFIED` is not a failure:
+
+| State          | Text                   | Dot               |
+| -------------- | ---------------------- | ----------------- |
+| `Connected`    | `GATEWAY CONNECTED`    | `success`         |
+| `NotConnected` | `GATEWAY NOT CONNECTED`| `danger`          |
+| `Unknown`      | `GATEWAY NOT VERIFIED` | `warning`         |
+
+`Unknown` means no catalogue has arrived, so nothing has been checked yet;
+saying `NOT CONNECTED` there would report an outcome nobody observed.
 
 ### Round button
 
@@ -620,8 +639,8 @@ A 560px-wide card in `surface-card`, `rounded-lg`, `elevation-md`, with rows
 separated by 1px `brand.secondary` hairlines. The rows read top to bottom:
 
 1. **Bun path** — the runtime the worker needs.
-2. **API key** — the credential, as a stacked row: status badge on the label
-   line, masked field spanning the row below.
+2. **API key** — the credential, as a stacked row: title and description on the
+   label line, masked field spanning the row below.
 3. **Default Streaming Model**
 4. **Default Batch Model**
 5. **Cleanup Model**
@@ -658,10 +677,10 @@ under the rows: a catalogue that reports no provider at all names that fact, and
 a backend that never started names its cause — for a missing runtime, the paths
 the lookup searched. A note disappears with the state it describes.
 
-The API-key badge reports `NOT VERIFIED` until a catalogue has arrived, because
-availability is what the badge claims. With a catalogue it reads `CONNECTED`
-when a key is stored and the provider is not reported unavailable, and
-`NOT CONNECTED` otherwise.
+No row reports a connection. The dialog footer carries `components::BuildStatus`
+— the compiled version and the gateway state — exactly as the Help footer does,
+so an arriving catalogue or a newly saved key is reported in one place instead
+of on the row it happens to affect.
 
 **Bun path** — a `SettingRow` with an `Input`, on the first row because the
 worker cannot start without the runtime. Empty is the normal state: the runtime

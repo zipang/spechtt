@@ -20,15 +20,14 @@ use speechtt_core::actions::SessionAction;
 use speechtt_core::protocol::{CapabilitySource, ModelCapabilityInfo};
 
 use crate::components::{
-    ActionButton, AppFooter, Body, KeyCap, Label, StatusDot, TranscriptionModeBadge,
+    ActionButton, AppFooter, Body, BuildStatus, KeyCap, Label, TranscriptionModeBadge,
 };
 use crate::controller::{HelpTab, pricing_lines};
 use crate::dialogs::{DialogShell, DialogWindow};
 use crate::shortcuts::{self, Binding};
-use crate::tokens::color;
 
 pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> AnyElement {
-    let (tab, provider_label, source, model_rows) = {
+    let (tab, provider_label, source, model_rows, connection) = {
         let app = dialog.app().read(cx);
         let controller = app.controller();
         (
@@ -39,6 +38,7 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
                 .to_owned(),
             controller.catalogue_source(),
             controller.help_models().to_vec(),
+            controller.settings_connection_state(),
         )
     };
 
@@ -57,30 +57,12 @@ pub(crate) fn render(dialog: &DialogWindow, cx: &mut Context<DialogWindow>) -> A
         HelpTab::Models => models(cx, &provider_label, source, &model_rows),
     };
 
-    let status = h_flex()
-        .gap_2()
-        .items_center()
-        .child(
-            Label::new(concat!("SPEECHTT V", env!("CARGO_PKG_VERSION")))
-                .mono()
-                .muted(),
-        )
-        .child(
-            h_flex()
-                .gap_1p5()
-                .items_center()
-                .child(StatusDot::new(gpui_kit::rgb(color::SUCCESS).into()))
-                .child(
-                    Label::new("GATEWAY CONNECTED")
-                        .bold()
-                        .tone(gpui_kit::rgb(color::SUCCESS).into()),
-                ),
+    let footer = AppFooter::new()
+        .leading(BuildStatus::new(connection))
+        .action(
+            ActionButton::primary("btn-help-got-it", "Got it")
+                .on_click(cx.listener(|this, _event, window, cx| this.close(window, cx))),
         );
-
-    let footer = AppFooter::new().leading(status).action(
-        ActionButton::primary("btn-help-got-it", "Got it")
-            .on_click(cx.listener(|this, _event, window, cx| this.close(window, cx))),
-    );
 
     DialogShell::new()
         .body(tabs)
